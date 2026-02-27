@@ -2,9 +2,15 @@
  * Global state for the Object Builder using Zustand.
  */
 import { create } from 'zustand';
-import type { ObjectData, SpriteData, ThingType, ThingCategory } from './lib/types';
+import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags } from './lib/types';
 import { parseObjectData } from './lib/object-parser';
 import { parseSpriteData, clearSpriteCache } from './lib/sprite-decoder';
+
+interface UndoEntry {
+  thingId: number;
+  oldFlags: ThingFlags;
+  newFlags: ThingFlags;
+}
 
 interface OBState {
   // Data
@@ -14,10 +20,18 @@ interface OBState {
   loading: boolean;
   error: string | null;
 
+  // Edit state
+  dirty: boolean;
+  dirtyIds: Set<number>;
+  undoStack: UndoEntry[];
+  redoStack: UndoEntry[];
+
   // UI state
   activeCategory: ThingCategory;
   selectedThingId: number | null;
   searchQuery: string;
+  /** Bumped on every edit to force re-render of dependent components */
+  editVersion: number;
 
   // Actions
   loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => void;
@@ -26,8 +40,13 @@ interface OBState {
   setSearchQuery: (q: string) => void;
   reset: () => void;
 
+  // Edit actions
+  updateThingFlags: (id: number, flags: ThingFlags) => void;
+  undo: () => void;
+  redo: () => void;
+  markClean: () => void;
+
   // Derived
-  getThingsForCategory: () => ThingType[];
   getCategoryRange: (cat: ThingCategory) => { start: number; end: number } | null;
 }
 
@@ -38,9 +57,15 @@ export const useOBStore = create<OBState>((set, get) => ({
   loading: false,
   error: null,
 
+  dirty: false,
+  dirtyIds: new Set(),
+  undoStack: [],
+  redoStack: [],
+
   activeCategory: 'item',
   selectedThingId: null,
   searchQuery: '',
+  editVersion: 0,
 
   loadFiles: (objBuffer, sprBuffer) => {
     set({ loading: true, error: null });
@@ -55,6 +80,11 @@ export const useOBStore = create<OBState>((set, get) => ({
         loading: false,
         selectedThingId: 100,
         activeCategory: 'item',
+        dirty: false,
+        dirtyIds: new Set(),
+        undoStack: [],
+        redoStack: [],
+        editVersion: 0,
       });
     } catch (e) {
       set({
@@ -87,8 +117,65 @@ export const useOBStore = create<OBState>((set, get) => ({
       activeCategory: 'item',
       selectedThingId: null,
       searchQuery: '',
+      dirty: false,
+      dirtyIds: new Set(),
+      undoStack: [],
+      redoStack: [],
+      editVersion: 0,
     });
   },
+
+  updateThingFlags: (id, newFlags) => {
+    const { objectData, undoStack, dirtyIds, editVersion } = get();
+    if (!objectData) return;
+    const thing = objectData.things.get(id);
+    if (!thing) return;
+
+    const oldFlags = { ...thing.flags };
+    thing.flags = newFlags;
+    thing.rawBytes = undefined; // force re-serialization on compile
+
+    const newDirtyIds = new Set(dirtyIds);
+    newDirtyIds.add(id);
+
+    set({
+      dirty: true,
+      dirtyIds: newDirtyIds,
+      undoStack: [...undoStack, { thingId: id, oldFlags, newFlags: { ...newFlags } }],
+      redoStack: [],
+      editVersion: editVersion + 1,
+    });
+  },
+
+  undo: () => {
+    const { objectData, undoStack, redoStack, editVersion } = get();
+    if (!objectData || undoStack.length === 0) return;
+    const entry = undoStack[undoStack.length - 1];
+    const thing = objectData.things.get(entry.thingId);
+    if (thing) thing.flags = { ...entry.oldFlags };
+
+    set({
+      undoStack: undoStack.slice(0, -1),
+      redoStack: [...redoStack, entry],
+      editVersion: editVersion + 1,
+    });
+  },
+
+  redo: () => {
+    const { objectData, undoStack, redoStack, editVersion } = get();
+    if (!objectData || redoStack.length === 0) return;
+    const entry = redoStack[redoStack.length - 1];
+    const thing = objectData.things.get(entry.thingId);
+    if (thing) thing.flags = { ...entry.newFlags };
+
+    set({
+      undoStack: [...undoStack, entry],
+      redoStack: redoStack.slice(0, -1),
+      editVersion: editVersion + 1,
+    });
+  },
+
+  markClean: () => set({ dirty: false, dirtyIds: new Set() }),
 
   getCategoryRange: (cat) => {
     const od = get().objectData;
@@ -105,23 +192,26 @@ export const useOBStore = create<OBState>((set, get) => ({
     }
   },
 
-  getThingsForCategory: () => {
-    const { objectData, activeCategory, searchQuery } = get();
-    if (!objectData) return [];
-    const range = get().getCategoryRange(activeCategory);
-    if (!range) return [];
-
-    const things: ThingType[] = [];
-    for (let id = range.start; id <= range.end; id++) {
-      const thing = objectData.things.get(id);
-      if (thing) {
-        if (searchQuery) {
-          const q = searchQuery.toLowerCase();
-          if (!id.toString().includes(q)) continue;
-        }
-        things.push(thing);
-      }
-    }
-    return things;
-  },
 }));
+
+/** Derive filtered things list outside the store (safe for useMemo). */
+export function getThingsForCategory(
+  objectData: ObjectData | null,
+  activeCategory: ThingCategory,
+  searchQuery: string,
+  getCategoryRange: (cat: ThingCategory) => { start: number; end: number } | null,
+): ThingType[] {
+  if (!objectData) return [];
+  const range = getCategoryRange(activeCategory);
+  if (!range) return [];
+
+  const things: ThingType[] = [];
+  for (let id = range.start; id <= range.end; id++) {
+    const thing = objectData.things.get(id);
+    if (thing) {
+      if (searchQuery && !id.toString().includes(searchQuery)) continue;
+      things.push(thing);
+    }
+  }
+  return things;
+}

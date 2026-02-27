@@ -46,7 +46,7 @@ export function parseSpriteData(buffer: ArrayBuffer): SpriteData {
 
   console.log(`[OB] Parsed sprite index: ${spriteCount} sprites, ${addresses.size} non-empty`);
 
-  return { version, spriteCount, addresses, buffer: payload };
+  return { version, spriteCount, addresses, buffer: payload, originalBuffer: buffer };
 }
 
 /**

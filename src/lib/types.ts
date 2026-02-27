@@ -32,7 +32,9 @@ export interface ThingFlags {
   forceUse: boolean;
   multiUse: boolean;
   writable: boolean;
+  writableMaxLen?: number;
   writableOnce: boolean;
+  writableOnceMaxLen?: number;
   fluidContainer: boolean;
   splash: boolean;
   notWalkable: boolean;
@@ -62,8 +64,16 @@ export interface ThingFlags {
   look: boolean;
   cloth: boolean;
   clothSlot?: number;
+  lensHelp?: number;
   hasMarket: boolean;
+  marketCategory?: number;
+  marketTradeAs?: number;
+  marketShowAs?: number;
+  marketName?: string;
+  marketRestrictVocation?: number;
+  marketRequiredLevel?: number;
   usable: boolean;
+  usableActionId?: number;
   wrapable: boolean;
   unwrapable: boolean;
   topEffect: boolean;
@@ -76,6 +86,8 @@ export interface ThingType {
   category: ThingCategory;
   flags: ThingFlags;
   frameGroups: FrameGroup[];
+  /** Original binary bytes (flags + frame groups) for lossless round-trip */
+  rawBytes?: Uint8Array;
 }
 
 export interface ObjectData {
@@ -85,6 +97,8 @@ export interface ObjectData {
   effectCount: number;
   distanceCount: number;
   things: Map<number, ThingType>;
+  /** The entire original file buffer for lossless round-trip */
+  originalBuffer: ArrayBuffer;
 }
 
 export interface SpriteData {
@@ -92,4 +106,6 @@ export interface SpriteData {
   spriteCount: number;
   addresses: Map<number, number>;
   buffer: Uint8Array;
+  /** The entire original file buffer for lossless round-trip */
+  originalBuffer: ArrayBuffer;
 }

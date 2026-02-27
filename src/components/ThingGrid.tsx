@@ -1,15 +1,23 @@
-import { useCallback, useRef, useEffect, useState } from 'react';
-import { useOBStore } from '../store';
+import { useCallback, useRef, useEffect, useState, useMemo } from 'react';
+import { useOBStore, getThingsForCategory } from '../store';
 import { getSpriteDataUrl } from '../lib/sprite-decoder';
 
 const CELL_SIZE = 40;
 const VISIBLE_BUFFER = 20; // extra items to render above/below viewport
 
 export function ThingGrid() {
-  const things = useOBStore((s) => s.getThingsForCategory());
+  const objectData = useOBStore((s) => s.objectData);
+  const activeCategory = useOBStore((s) => s.activeCategory);
+  const searchQuery = useOBStore((s) => s.searchQuery);
+  const getCategoryRange = useOBStore((s) => s.getCategoryRange);
   const selectedId = useOBStore((s) => s.selectedThingId);
   const setSelectedId = useOBStore((s) => s.setSelectedThingId);
   const spriteData = useOBStore((s) => s.spriteData);
+
+  const things = useMemo(
+    () => getThingsForCategory(objectData, activeCategory, searchQuery, getCategoryRange),
+    [objectData, activeCategory, searchQuery, getCategoryRange],
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);

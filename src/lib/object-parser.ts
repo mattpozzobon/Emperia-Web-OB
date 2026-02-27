@@ -129,11 +129,11 @@ function readFlags(packet: PacketReader, version: number): ThingFlags {
       case ATTR.ThingAttrMultiUse: flags.multiUse = true; break;
       case ATTR.ThingAttrWritable:
         flags.writable = true;
-        packet.readUInt16(); // max text length
+        flags.writableMaxLen = packet.readUInt16();
         break;
       case ATTR.ThingAttrWritableOnce:
         flags.writableOnce = true;
-        packet.readUInt16();
+        flags.writableOnceMaxLen = packet.readUInt16();
         break;
       case ATTR.ThingAttrFluidContainer: flags.fluidContainer = true; break;
       case ATTR.ThingAttrSplash: flags.splash = true; break;
@@ -175,7 +175,7 @@ function readFlags(packet: PacketReader, version: number): ThingFlags {
         flags.minimapColor = packet.readUInt16();
         break;
       case ATTR.ThingAttrLensHelp:
-        packet.readUInt16();
+        flags.lensHelp = packet.readUInt16();
         break;
       case ATTR.ThingAttrFullGround: flags.fullGround = true; break;
       case ATTR.ThingAttrLook: flags.look = true; break;
@@ -185,13 +185,16 @@ function readFlags(packet: PacketReader, version: number): ThingFlags {
         break;
       case ATTR.ThingAttrMarket:
         flags.hasMarket = true;
-        packet.skip(6);
-        packet.readString();
-        packet.skip(4);
+        flags.marketCategory = packet.readUInt16();
+        flags.marketTradeAs = packet.readUInt16();
+        flags.marketShowAs = packet.readUInt16();
+        flags.marketName = packet.readString();
+        flags.marketRestrictVocation = packet.readUInt16();
+        flags.marketRequiredLevel = packet.readUInt16();
         break;
       case ATTR.ThingAttrUsable:
         flags.usable = true;
-        packet.readUInt16();
+        flags.usableActionId = packet.readUInt16();
         break;
       case ATTR.ThingAttrWrapable: flags.wrapable = true; break;
       case ATTR.ThingAttrUnwrapable: flags.unwrapable = true; break;
@@ -280,6 +283,8 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
   const things = new Map<number, ThingType>();
 
   for (let id = 100; id <= totalCount; id++) {
+    const startOffset = packet.index;
+
     const flags = readFlags(packet, version);
 
     const isOutfit = id > itemCount && id <= itemCount + outfitCount;
@@ -291,18 +296,21 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
       frameGroups.push(readFrameGroup(packet, version, hasFrameGroups));
     }
 
+    const endOffset = packet.index;
+    const rawBytes = packet.buffer.slice(startOffset, endOffset);
+
     let category: ThingCategory;
     if (id <= itemCount) category = 'item';
     else if (id <= itemCount + outfitCount) category = 'outfit';
     else if (id <= itemCount + outfitCount + effectCount) category = 'effect';
     else category = 'distance';
 
-    things.set(id, { id, category, flags, frameGroups });
+    things.set(id, { id, category, flags, frameGroups, rawBytes });
   }
 
   console.log(
     `[OB] Parsed ${things.size} things: items=${itemCount} outfits=${outfitCount} effects=${effectCount} distances=${distanceCount}`
   );
 
-  return { version, itemCount, outfitCount, effectCount, distanceCount, things };
+  return { version, itemCount, outfitCount, effectCount, distanceCount, things, originalBuffer: buffer };
 }
