@@ -7,13 +7,15 @@ import { ThingGrid } from './components/ThingGrid';
 import { SpritePreview } from './components/SpritePreview';
 import { PropertyInspector } from './components/PropertyInspector';
 import { ThingSpriteGrid } from './components/ThingSpriteGrid';
+import { ServerPropertiesEditor } from './components/ServerPropertiesEditor';
 
-type CenterTab = 'texture' | 'properties' | 'attributes';
+type CenterTab = 'texture' | 'properties' | 'attributes' | 'server';
 
 const TAB_LABELS: Record<CenterTab, string> = {
   texture: 'Texture',
   properties: 'Properties',
   attributes: 'Attributes',
+  server: 'Server',
 };
 
 export default function App() {
@@ -37,7 +39,7 @@ export default function App() {
         {/* Center: Texture / Properties / Attributes */}
         <div className="flex-1 flex flex-col bg-emperia-bg overflow-hidden">
           <div className="flex border-b border-emperia-border shrink-0">
-            {(['texture', 'properties', 'attributes'] as CenterTab[]).map((tab) => (
+            {(['texture', 'properties', 'attributes', 'server'] as CenterTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setCenterTab(tab)}
@@ -56,6 +58,7 @@ export default function App() {
             {centerTab === 'texture' && <SpritePreview />}
             {centerTab === 'properties' && <PropertyInspector />}
             {centerTab === 'attributes' && <PropertyInspector showAttributesOnly />}
+            {centerTab === 'server' && <ServerPropertiesEditor />}
           </div>
         </div>
 

@@ -26,19 +26,65 @@ export function Header() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [dirty]);
 
-  const handleCompile = () => {
+  const handleCompile = async () => {
     if (!objectData || !spriteData) return;
 
-    // Compile .eobj (pass dirtyIds so unedited things use raw bytes)
+    const { spriteOverrides, itemDefinitions, sourceDir, sourceNames } = useOBStore.getState();
+
+    // Helper: write to source directory if available, otherwise download
+    async function saveFile(buf: ArrayBuffer, fileName: string | undefined, fallbackName: string) {
+      if (sourceDir && fileName) {
+        try {
+          const fh = await sourceDir.getFileHandle(fileName, { create: true });
+          const writable = await fh.createWritable();
+          await writable.write(buf);
+          await writable.close();
+          return;
+        } catch (err) {
+          console.warn(`[OB] Failed to write ${fileName} to folder, falling back to download:`, err);
+        }
+      }
+      downloadFile(buf, fallbackName);
+    }
+
+    // Compile .eobj
     const objBuf = compileObjectData(objectData, dirtyIds);
-    downloadFile(objBuf, 'emperia.eobj');
+    await saveFile(objBuf, sourceNames.obj, 'emperia.eobj');
 
-    // Compile .espr (with any sprite overrides)
-    const spriteOverrides = useOBStore.getState().spriteOverrides;
+    // Compile .espr
     const sprBuf = compileSpriteData(spriteData, spriteOverrides);
-    downloadFile(sprBuf, 'emperia.espr');
+    await saveFile(sprBuf, sourceNames.spr, 'emperia.espr');
 
-    // Write emperia.easset manifest (required by map editor)
+    // Compile definitions.json
+    {
+      const sortedServerIds = Array.from(itemDefinitions.keys()).sort((a, b) => a - b);
+      const defsObj: Record<string, unknown> = {};
+
+      for (const serverId of sortedServerIds) {
+        const def = itemDefinitions.get(serverId)!;
+        let cleanProps: Record<string, unknown> | null = null;
+        if (def.properties) {
+          cleanProps = {};
+          for (const [k, v] of Object.entries(def.properties)) {
+            if (v !== undefined && v !== null && v !== '') {
+              cleanProps[k] = v;
+            }
+          }
+          if (Object.keys(cleanProps).length === 0) cleanProps = null;
+        }
+        const entry: Record<string, unknown> = {};
+        if (def.id != null) entry.id = def.id;
+        entry.flags = def.flags;
+        entry.group = def.group;
+        entry.properties = cleanProps;
+        defsObj[String(serverId)] = entry;
+      }
+
+      const defsJson = JSON.stringify(defsObj, null, 4);
+      await saveFile(new TextEncoder().encode(defsJson).buffer, sourceNames.def, 'definitions.json');
+    }
+
+    // Write emperia.easset manifest
     const easset = JSON.stringify({
       version: 1,
       features: {
@@ -59,6 +105,10 @@ export function Header() {
     downloadFile(new TextEncoder().encode(easset).buffer, 'emperia.easset');
 
     markClean();
+
+    if (sourceDir) {
+      console.log('[OB] Saved to source folder:', sourceDir.name);
+    }
   };
 
   // Keyboard shortcuts

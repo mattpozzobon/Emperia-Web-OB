@@ -2,9 +2,10 @@
  * Global state for the Object Builder using Zustand.
  */
 import { create } from 'zustand';
-import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup } from './lib/types';
+import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData } from './lib/types';
 import { parseObjectData } from './lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from './lib/sprite-decoder';
+import { syncOtbFromVisual, deriveGroup } from './lib/types';
 
 interface UndoEntry {
   thingId: number;
@@ -31,6 +32,18 @@ interface OBState {
   spriteOverrides: Map<number, ImageData>;
   dirtySpriteIds: Set<number>;
 
+  // Server item definitions (from definitions.json)
+  /** Map of serverId (JSON key) → server-side item data */
+  itemDefinitions: Map<number, ServerItemData>;
+  /** Map of clientId → serverId for UI lookups (multiple serverIds can map to same clientId) */
+  clientToServerIds: Map<number, number>;
+  definitionsLoaded: boolean;
+
+  // File System Access API: directory handle for saving back to source folder
+  sourceDir: FileSystemDirectoryHandle | null;
+  /** Original file names keyed by role */
+  sourceNames: { obj?: string; spr?: string; def?: string };
+
   // UI state
   activeCategory: ThingCategory;
   selectedThingId: number | null;
@@ -42,6 +55,8 @@ interface OBState {
 
   // Actions
   loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => void;
+  loadDefinitions: (json: Record<string, ServerItemData>) => void;
+  setSourceDir: (dir: FileSystemDirectoryHandle, names: OBState['sourceNames']) => void;
   setActiveCategory: (cat: ThingCategory) => void;
   setSelectedThingId: (id: number | null) => void;
   setSearchQuery: (q: string) => void;
@@ -58,6 +73,9 @@ interface OBState {
   undo: () => void;
   redo: () => void;
   markClean: () => void;
+
+  // Server definitions actions
+  updateItemDefinition: (itemId: number, data: Partial<ServerItemData>) => void;
 
   // Derived
   getCategoryRange: (cat: ThingCategory) => { start: number; end: number } | null;
@@ -76,6 +94,12 @@ export const useOBStore = create<OBState>((set, get) => ({
   redoStack: [],
   spriteOverrides: new Map(),
   dirtySpriteIds: new Set(),
+
+  itemDefinitions: new Map(),
+  clientToServerIds: new Map(),
+  definitionsLoaded: false,
+  sourceDir: null,
+  sourceNames: {},
 
   activeCategory: 'item',
   selectedThingId: null,
@@ -104,6 +128,8 @@ export const useOBStore = create<OBState>((set, get) => ({
         dirtySpriteIds: new Set(),
         editVersion: 0,
         focusSpriteId: null,
+        // Preserve definitions if already loaded
+        ...(get().definitionsLoaded ? {} : { itemDefinitions: new Map(), clientToServerIds: new Map(), definitionsLoaded: false }),
       });
     } catch (e) {
       set({
@@ -111,6 +137,33 @@ export const useOBStore = create<OBState>((set, get) => ({
         loading: false,
       });
     }
+  },
+
+  loadDefinitions: (json) => {
+    const defs = new Map<number, ServerItemData>();
+    const c2s = new Map<number, number>();
+    for (const [key, value] of Object.entries(json)) {
+      const serverId = parseInt(key, 10);
+      if (isNaN(serverId)) continue;
+      const clientId = value.id ?? serverId;
+      defs.set(serverId, {
+        serverId,
+        id: clientId,
+        flags: value.flags ?? 0,
+        group: value.group ?? 0,
+        properties: value.properties ? { ...value.properties } : null,
+      });
+      // Build clientId → serverId reverse lookup; prefer entry where serverId==clientId
+      if (!c2s.has(clientId) || serverId === clientId) {
+        c2s.set(clientId, serverId);
+      }
+    }
+    set({ itemDefinitions: defs, clientToServerIds: c2s, definitionsLoaded: true });
+    console.log(`[OB] Loaded ${defs.size} definitions (by serverId), ${c2s.size} client→server mappings`);
+  },
+
+  setSourceDir: (dir, names) => {
+    set({ sourceDir: dir, sourceNames: { ...get().sourceNames, ...names } });
   },
 
   setActiveCategory: (cat) => {
@@ -144,11 +197,34 @@ export const useOBStore = create<OBState>((set, get) => ({
       dirtySpriteIds: new Set(),
       editVersion: 0,
       focusSpriteId: null,
+      itemDefinitions: new Map(),
+      clientToServerIds: new Map(),
+      definitionsLoaded: false,
     });
   },
 
+  updateItemDefinition: (clientId, data) => {
+    const { itemDefinitions, clientToServerIds, editVersion } = get();
+    const serverId = clientToServerIds.get(clientId) ?? clientId;
+    const existing = itemDefinitions.get(serverId);
+    const updated: ServerItemData = {
+      serverId,
+      id: data.id ?? existing?.id ?? clientId,
+      flags: data.flags ?? existing?.flags ?? 0,
+      group: data.group ?? existing?.group ?? 0,
+      properties: data.properties !== undefined
+        ? (data.properties ? { ...(existing?.properties ?? {}), ...data.properties } : null)
+        : (existing?.properties ? { ...existing.properties } : null),
+    };
+    const newDefs = new Map(itemDefinitions);
+    newDefs.set(serverId, updated);
+    const newC2s = new Map(clientToServerIds);
+    if (!newC2s.has(clientId)) newC2s.set(clientId, serverId);
+    set({ itemDefinitions: newDefs, clientToServerIds: newC2s, dirty: true, editVersion: editVersion + 1 });
+  },
+
   updateThingFlags: (id, newFlags) => {
-    const { objectData, undoStack, dirtyIds, editVersion } = get();
+    const { objectData, undoStack, dirtyIds, editVersion, itemDefinitions } = get();
     if (!objectData) return;
     const thing = objectData.things.get(id);
     if (!thing) return;
@@ -160,21 +236,71 @@ export const useOBStore = create<OBState>((set, get) => ({
     const newDirtyIds = new Set(dirtyIds);
     newDirtyIds.add(id);
 
-    set({
-      dirty: true,
-      dirtyIds: newDirtyIds,
-      undoStack: [...undoStack, { thingId: id, oldFlags, newFlags: { ...newFlags } }],
-      redoStack: [],
-      editVersion: editVersion + 1,
-    });
+    // Sync server OTB flags & group from updated visual flags
+    if (thing.category === 'item') {
+      const { clientToServerIds } = get();
+      const serverId = clientToServerIds.get(id) ?? id;
+      const existing = itemDefinitions.get(serverId);
+      const oldOtb = existing?.flags ?? 0;
+      const newOtb = syncOtbFromVisual(oldOtb, newFlags);
+      const newGroup = deriveGroup(newFlags);
+      const updated: ServerItemData = {
+        serverId,
+        id: existing?.id ?? id,
+        flags: newOtb,
+        group: newGroup,
+        properties: existing?.properties ? { ...existing.properties } : null,
+      };
+      const newDefs = new Map(itemDefinitions);
+      newDefs.set(serverId, updated);
+      set({
+        dirty: true,
+        dirtyIds: newDirtyIds,
+        undoStack: [...undoStack, { thingId: id, oldFlags, newFlags: { ...newFlags } }],
+        redoStack: [],
+        editVersion: editVersion + 1,
+        itemDefinitions: newDefs,
+      });
+    } else {
+      set({
+        dirty: true,
+        dirtyIds: newDirtyIds,
+        undoStack: [...undoStack, { thingId: id, oldFlags, newFlags: { ...newFlags } }],
+        redoStack: [],
+        editVersion: editVersion + 1,
+      });
+    }
   },
 
   undo: () => {
-    const { objectData, undoStack, redoStack, editVersion } = get();
+    const { objectData, undoStack, redoStack, editVersion, itemDefinitions } = get();
     if (!objectData || undoStack.length === 0) return;
     const entry = undoStack[undoStack.length - 1];
     const thing = objectData.things.get(entry.thingId);
-    if (thing) thing.flags = { ...entry.oldFlags };
+    if (thing) {
+      thing.flags = { ...entry.oldFlags };
+      // Sync OTB flags for items
+      if (thing.category === 'item') {
+        const { clientToServerIds } = get();
+        const sid = clientToServerIds.get(entry.thingId) ?? entry.thingId;
+        const existing = itemDefinitions.get(sid);
+        const newDefs = new Map(itemDefinitions);
+        newDefs.set(sid, {
+          serverId: sid,
+          id: existing?.id ?? entry.thingId,
+          flags: syncOtbFromVisual(existing?.flags ?? 0, entry.oldFlags),
+          group: deriveGroup(entry.oldFlags),
+          properties: existing?.properties ? { ...existing.properties } : null,
+        });
+        set({
+          undoStack: undoStack.slice(0, -1),
+          redoStack: [...redoStack, entry],
+          editVersion: editVersion + 1,
+          itemDefinitions: newDefs,
+        });
+        return;
+      }
+    }
 
     set({
       undoStack: undoStack.slice(0, -1),
@@ -184,11 +310,34 @@ export const useOBStore = create<OBState>((set, get) => ({
   },
 
   redo: () => {
-    const { objectData, undoStack, redoStack, editVersion } = get();
+    const { objectData, undoStack, redoStack, editVersion, itemDefinitions } = get();
     if (!objectData || redoStack.length === 0) return;
     const entry = redoStack[redoStack.length - 1];
     const thing = objectData.things.get(entry.thingId);
-    if (thing) thing.flags = { ...entry.newFlags };
+    if (thing) {
+      thing.flags = { ...entry.newFlags };
+      // Sync OTB flags for items
+      if (thing.category === 'item') {
+        const { clientToServerIds } = get();
+        const sid = clientToServerIds.get(entry.thingId) ?? entry.thingId;
+        const existing = itemDefinitions.get(sid);
+        const newDefs = new Map(itemDefinitions);
+        newDefs.set(sid, {
+          serverId: sid,
+          id: existing?.id ?? entry.thingId,
+          flags: syncOtbFromVisual(existing?.flags ?? 0, entry.newFlags),
+          group: deriveGroup(entry.newFlags),
+          properties: existing?.properties ? { ...existing.properties } : null,
+        });
+        set({
+          undoStack: [...undoStack, entry],
+          redoStack: redoStack.slice(0, -1),
+          editVersion: editVersion + 1,
+          itemDefinitions: newDefs,
+        });
+        return;
+      }
+    }
 
     set({
       undoStack: [...undoStack, entry],
