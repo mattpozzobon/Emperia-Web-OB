@@ -2,7 +2,7 @@
  * Global state for the Object Builder using Zustand.
  */
 import { create } from 'zustand';
-import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags } from './lib/types';
+import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup } from './lib/types';
 import { parseObjectData } from './lib/object-parser';
 import { parseSpriteData, clearSpriteCache } from './lib/sprite-decoder';
 
@@ -50,6 +50,9 @@ interface OBState {
   // Edit actions
   updateThingFlags: (id: number, flags: ThingFlags) => void;
   replaceSprite: (spriteId: number, imageData: ImageData) => void;
+  addThing: (cat: ThingCategory) => number | null;
+  removeThing: (id: number) => void;
+  importThing: (cat: ThingCategory, flags: ThingFlags, frameGroups: FrameGroup[], spritePixels: Map<number, ImageData>) => number | null;
   undo: () => void;
   redo: () => void;
   markClean: () => void;
@@ -208,6 +211,170 @@ export const useOBStore = create<OBState>((set, get) => ({
       dirtySpriteIds: newDirtySpriteIds,
       editVersion: editVersion + 1,
     });
+  },
+
+  addThing: (cat) => {
+    const { objectData, editVersion } = get();
+    if (!objectData) return null;
+
+    // Determine the new ID based on the category
+    let newId: number;
+    switch (cat) {
+      case 'item':
+        objectData.itemCount++;
+        newId = objectData.itemCount;
+        break;
+      case 'outfit':
+        objectData.outfitCount++;
+        newId = objectData.itemCount + objectData.outfitCount;
+        break;
+      case 'effect':
+        objectData.effectCount++;
+        newId = objectData.itemCount + objectData.outfitCount + objectData.effectCount;
+        break;
+      case 'distance':
+        objectData.distanceCount++;
+        newId = objectData.itemCount + objectData.outfitCount + objectData.effectCount + objectData.distanceCount;
+        break;
+    }
+
+    const defaultFlags: ThingFlags = {
+      ground: false, groundBorder: false, onBottom: false, onTop: false,
+      container: false, stackable: false, forceUse: false, multiUse: false,
+      writable: false, writableOnce: false, fluidContainer: false, splash: false,
+      notWalkable: false, notMoveable: false, blockProjectile: false, notPathable: false,
+      pickupable: false, hangable: false, hookSouth: false, hookEast: false,
+      rotateable: false, hasLight: false, dontHide: false, translucent: false,
+      hasDisplacement: false, hasElevation: false, lyingCorpse: false,
+      animateAlways: false, hasMinimapColor: false, fullGround: false, look: false,
+      cloth: false, hasMarket: false, usable: false, wrapable: false,
+      unwrapable: false, topEffect: false, noMoveAnimation: false, chargeable: false,
+    };
+
+    const defaultFrameGroup = {
+      type: 0, width: 1, height: 1, layers: 1,
+      patternX: 1, patternY: 1, patternZ: 1,
+      animationLength: 1, asynchronous: 0, nLoop: 0, start: 0,
+      animationLengths: [{ min: 0, max: 0 }],
+      sprites: [0],
+    };
+
+    const newThing = {
+      id: newId,
+      category: cat,
+      flags: defaultFlags,
+      frameGroups: [defaultFrameGroup],
+    };
+
+    objectData.things.set(newId, newThing);
+
+    const newDirtyIds = new Set(get().dirtyIds);
+    newDirtyIds.add(newId);
+
+    set({
+      dirty: true,
+      dirtyIds: newDirtyIds,
+      selectedThingId: newId,
+      editVersion: editVersion + 1,
+    });
+
+    return newId;
+  },
+
+  removeThing: (id) => {
+    const { objectData, editVersion, activeCategory } = get();
+    if (!objectData) return;
+    const thing = objectData.things.get(id);
+    if (!thing) return;
+
+    const range = get().getCategoryRange(activeCategory);
+    if (!range) return;
+
+    // Only allow removing the last thing in the category
+    const lastId = range.end;
+    if (id !== lastId) return;
+
+    objectData.things.delete(id);
+
+    switch (activeCategory) {
+      case 'item': objectData.itemCount--; break;
+      case 'outfit': objectData.outfitCount--; break;
+      case 'effect': objectData.effectCount--; break;
+      case 'distance': objectData.distanceCount--; break;
+    }
+
+    // Select the previous thing
+    const newSelected = id > range.start ? id - 1 : range.start;
+
+    set({
+      dirty: true,
+      selectedThingId: objectData.things.has(newSelected) ? newSelected : null,
+      editVersion: editVersion + 1,
+    });
+  },
+
+  importThing: (cat, flags, frameGroups, spritePixels) => {
+    const { objectData, spriteData, editVersion, spriteOverrides, dirtySpriteIds } = get();
+    if (!objectData || !spriteData) return null;
+
+    // Step 1: Create a new thing ID in the target category
+    let newId: number;
+    switch (cat) {
+      case 'item': objectData.itemCount++; newId = objectData.itemCount; break;
+      case 'outfit': objectData.outfitCount++; newId = objectData.itemCount + objectData.outfitCount; break;
+      case 'effect': objectData.effectCount++; newId = objectData.itemCount + objectData.outfitCount + objectData.effectCount; break;
+      case 'distance': objectData.distanceCount++; newId = objectData.itemCount + objectData.outfitCount + objectData.effectCount + objectData.distanceCount; break;
+    }
+
+    // Step 2: Remap sprite IDs to new IDs starting from spriteData.spriteCount + 1
+    // and store the pixel data as overrides
+    const newOverrides = new Map(spriteOverrides);
+    const newDirtySpriteIds = new Set(dirtySpriteIds);
+    const idRemap = new Map<number, number>();
+
+    for (const [oldId, imgData] of spritePixels) {
+      if (oldId === 0) continue;
+      if (idRemap.has(oldId)) continue;
+      spriteData.spriteCount++;
+      const newSpriteId = spriteData.spriteCount;
+      idRemap.set(oldId, newSpriteId);
+      newOverrides.set(newSpriteId, imgData);
+      newDirtySpriteIds.add(newSpriteId);
+    }
+
+    // Step 3: Clone frame groups with remapped sprite IDs
+    const remappedGroups = frameGroups.map((fg, i) => ({
+      ...fg,
+      type: i,
+      sprites: fg.sprites.map(sid => sid === 0 ? 0 : (idRemap.get(sid) ?? sid)),
+      animationLengths: fg.animationLengths.map(d => ({ ...d })),
+    }));
+
+    const newThing: ThingType = {
+      id: newId,
+      category: cat,
+      flags: { ...flags },
+      frameGroups: remappedGroups,
+    };
+
+    objectData.things.set(newId, newThing);
+
+    const newDirtyIds = new Set(get().dirtyIds);
+    newDirtyIds.add(newId);
+
+    clearSpriteCache();
+
+    set({
+      dirty: true,
+      dirtyIds: newDirtyIds,
+      spriteOverrides: newOverrides,
+      dirtySpriteIds: newDirtySpriteIds,
+      selectedThingId: newId,
+      activeCategory: cat,
+      editVersion: editVersion + 1,
+    });
+
+    return newId;
   },
 
   markClean: () => set({ dirty: false, dirtyIds: new Set(), dirtySpriteIds: new Set() }),

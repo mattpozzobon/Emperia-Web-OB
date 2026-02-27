@@ -1,8 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, Upload } from 'lucide-react';
+import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, Upload, Download, FolderOpen } from 'lucide-react';
 import { useOBStore } from '../store';
 import { decodeSprite, clearSpriteCache } from '../lib/sprite-decoder';
+import { applyOutfitMask, paletteToCSS, OUTFIT_PALETTE, PALETTE_SIZE } from '../lib/outfit-colors';
+import { encodeOBD, decodeOBD } from '../lib/obd';
+import type { OutfitColorIndices } from '../lib/outfit-colors';
 import type { FrameGroup } from '../lib/types';
+
+const DIRECTION_LABELS = ['North', 'East', 'South', 'West'];
+const DIRECTION_ARROWS = ['↑', '→', '↓', '←'];
 
 export function SpritePreview() {
   const selectedId = useOBStore((s) => s.selectedThingId);
@@ -25,10 +31,20 @@ export function SpritePreview() {
   const [activeLayer, setActiveLayer] = useState(0);
   const [activeZ, setActiveZ] = useState(0);
   const [blendLayers, setBlendLayers] = useState(false);
+  const [outfitColors, setOutfitColors] = useState<OutfitColorIndices>({ head: 0, body: 0, legs: 0, feet: 0 });
+  const [previewMode, setPreviewMode] = useState(false); // true = single direction/pattern preview
+  const [activeDirection, setActiveDirection] = useState(2); // 0=N,1=E,2=S,3=W — default south
+  const [activePatternY, setActivePatternY] = useState(0);
+  const [showColorPicker, setShowColorPicker] = useState<keyof OutfitColorIndices | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameTimerRef = useRef<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const category = useOBStore((s) => s.activeCategory);
+  const isOutfit = category === 'outfit';
+  const isEffect = category === 'effect';
+  const isDistance = category === 'distance';
 
   useEffect(() => {
     setActiveGroup(0);
@@ -36,7 +52,13 @@ export function SpritePreview() {
     setPlaying(false);
     setActiveLayer(0);
     setActiveZ(0);
-  }, [selectedId]);
+    setActiveDirection(2);
+    setActivePatternY(0);
+    // Default outfits to preview mode, items to pattern mode
+    setPreviewMode(isOutfit || isEffect || isDistance);
+    // Default outfits to blend layers
+    setBlendLayers(isOutfit);
+  }, [selectedId, isOutfit, isEffect, isDistance]);
 
   const group: FrameGroup | null = thing?.frameGroups[activeGroup] ?? null;
 
@@ -44,11 +66,17 @@ export function SpritePreview() {
     const canvas = canvasRef.current;
     if (!canvas || !group || !spriteData) return;
 
-    // Full canvas = all patterns × tile size
     const cellW = group.width * 32;
     const cellH = group.height * 32;
-    const totalW = group.patternX * cellW;
-    const totalH = group.patternY * cellH;
+
+    // In preview mode, render a single direction/pattern; otherwise render all
+    const pxRange = previewMode ? [activeDirection < group.patternX ? activeDirection : 0] : Array.from({ length: group.patternX }, (_, i) => i);
+    const pyRange = previewMode ? [activePatternY < group.patternY ? activePatternY : 0] : Array.from({ length: group.patternY }, (_, i) => i);
+
+    const colsRendered = pxRange.length;
+    const rowsRendered = pyRange.length;
+    const totalW = colsRendered * cellW;
+    const totalH = rowsRendered * cellH;
     canvas.width = totalW;
     canvas.height = totalH;
 
@@ -56,45 +84,65 @@ export function SpritePreview() {
     ctx.clearRect(0, 0, totalW, totalH);
 
     // Determine which layers to render
-    const layersToRender = blendLayers
-      ? Array.from({ length: group.layers }, (_, i) => i)
-      : [activeLayer];
+    const useOutfitMask = isOutfit && blendLayers && group.layers >= 2;
+    const layersToRender = useOutfitMask
+      ? [0] // We'll handle mask compositing manually
+      : blendLayers
+        ? Array.from({ length: group.layers }, (_, i) => i)
+        : [activeLayer];
 
-    // Render each pattern combination with the selected layer(s) and zPattern
     for (const layer of layersToRender) {
-      for (let py = 0; py < group.patternY; py++) {
-        for (let px = 0; px < group.patternX; px++) {
-          const baseX = px * cellW;
-          const baseY = py * cellH;
+      for (let pyIdx = 0; pyIdx < pyRange.length; pyIdx++) {
+        const py = pyRange[pyIdx];
+        for (let pxIdx = 0; pxIdx < pxRange.length; pxIdx++) {
+          const px = pxRange[pxIdx];
+          const baseX = pxIdx * cellW;
+          const baseY = pyIdx * cellH;
 
           for (let ty = 0; ty < group.height; ty++) {
             for (let tx = 0; tx < group.width; tx++) {
               const idx = getSpriteIndex(group, frame, px, py, activeZ, layer, tx, ty);
-              if (idx < group.sprites.length) {
-                const spriteId = group.sprites[idx];
-                if (spriteId > 0) {
-                  const imgData = spriteOverrides.get(spriteId) ?? decodeSprite(spriteData, spriteId);
-                  if (imgData) {
-                    const dx = baseX + (group.width - 1 - tx) * 32;
-                    const dy = baseY + (group.height - 1 - ty) * 32;
-                    // For blended layers, draw via a temp canvas to preserve alpha compositing
-                    if (blendLayers && layer > 0) {
-                      const tmp = document.createElement('canvas');
-                      tmp.width = 32; tmp.height = 32;
-                      tmp.getContext('2d')!.putImageData(imgData, 0, 0);
-                      ctx.drawImage(tmp, dx, dy);
-                    } else {
-                      ctx.putImageData(imgData, dx, dy);
+              if (idx >= group.sprites.length) continue;
+              const spriteId = group.sprites[idx];
+              if (spriteId <= 0) continue;
+
+              const rawData = spriteOverrides.get(spriteId) ?? decodeSprite(spriteData, spriteId);
+              if (!rawData) continue;
+
+              // Clone the ImageData so we don't mutate the cache
+              const imgData = new ImageData(new Uint8ClampedArray(rawData.data), 32, 32);
+
+              // Apply outfit color mask if applicable
+              if (useOutfitMask) {
+                const maskIdx = getSpriteIndex(group, frame, px, py, activeZ, 1, tx, ty);
+                if (maskIdx < group.sprites.length) {
+                  const maskSpriteId = group.sprites[maskIdx];
+                  if (maskSpriteId > 0) {
+                    const maskRaw = spriteOverrides.get(maskSpriteId) ?? decodeSprite(spriteData, maskSpriteId);
+                    if (maskRaw) {
+                      applyOutfitMask(imgData, maskRaw, outfitColors);
                     }
                   }
                 }
+              }
+
+              const dx = baseX + (group.width - 1 - tx) * 32;
+              const dy = baseY + (group.height - 1 - ty) * 32;
+
+              if ((blendLayers && !useOutfitMask && layer > 0)) {
+                const tmp = document.createElement('canvas');
+                tmp.width = 32; tmp.height = 32;
+                tmp.getContext('2d')!.putImageData(imgData, 0, 0);
+                ctx.drawImage(tmp, dx, dy);
+              } else {
+                ctx.putImageData(imgData, dx, dy);
               }
             }
           }
         }
       }
     }
-  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers]);
+  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers, previewMode, activeDirection, activePatternY, isOutfit, outfitColors]);
 
   useEffect(() => {
     renderFrame(currentFrame);
@@ -115,6 +163,10 @@ export function SpritePreview() {
     return () => { clearTimeout(frameTimerRef.current); };
   }, [playing, group, renderFrame]);
 
+  // How many pattern columns/rows are actually rendered
+  const renderedPxCount = group ? (previewMode ? 1 : group.patternX) : 1;
+  const renderedPyCount = group ? (previewMode ? 1 : group.patternY) : 1;
+
   // Given a pixel position on the displayed canvas, find the sprite ID at that tile
   const getSpriteAtPosition = useCallback((clientX: number, clientY: number): number => {
     if (!group || !canvasRef.current) return 0;
@@ -122,26 +174,25 @@ export function SpritePreview() {
     const canvasPixelX = (clientX - rect.left) / zoom;
     const canvasPixelY = (clientY - rect.top) / zoom;
 
-    // Which 32px tile are we in?
     const tileCol = Math.floor(canvasPixelX / 32);
     const tileRow = Math.floor(canvasPixelY / 32);
 
-    // Total columns/rows in the full rendered grid
-    const totalCols = group.patternX * group.width;
-    const totalRows = group.patternY * group.height;
+    const totalCols = renderedPxCount * group.width;
+    const totalRows = renderedPyCount * group.height;
     if (tileCol < 0 || tileCol >= totalCols || tileRow < 0 || tileRow >= totalRows) return 0;
 
-    // Which pattern cell? (each cell is width×height tiles)
-    const px = Math.floor(tileCol / group.width);
-    const py = Math.floor(tileRow / group.height);
+    // In preview mode the rendered pattern is a single cell
+    const cellCol = Math.floor(tileCol / group.width);
+    const cellRow = Math.floor(tileRow / group.height);
+    const px = previewMode ? (activeDirection < group.patternX ? activeDirection : 0) : cellCol;
+    const py = previewMode ? (activePatternY < group.patternY ? activePatternY : 0) : cellRow;
 
-    // Which tile within that cell? (sprites stored bottom-right to top-left)
     const tx = group.width - 1 - (tileCol % group.width);
     const ty = group.height - 1 - (tileRow % group.height);
 
     const idx = getSpriteIndex(group, currentFrame, px, py, activeZ, activeLayer, tx, ty);
     return idx < group.sprites.length ? group.sprites[idx] : 0;
-  }, [group, zoom, currentFrame, activeLayer, activeZ]);
+  }, [group, zoom, currentFrame, activeLayer, activeZ, previewMode, activeDirection, activePatternY, renderedPxCount, renderedPyCount]);
 
   const handleImageFiles = useCallback((files: FileList, dropX?: number, dropY?: number) => {
     if (!group || !spriteData) return;
@@ -212,6 +263,51 @@ export function SpritePreview() {
     a.click();
   };
 
+  const handleExportOBD = () => {
+    if (!thing || !spriteData) return;
+    try {
+      const compressed = encodeOBD({
+        thing,
+        clientVersion: 1098,
+        spriteData,
+        spriteOverrides,
+      });
+      const blob = new Blob([new Uint8Array(compressed) as BlobPart], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${category}_${thing.id}.obd`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(`Export failed: ${e instanceof Error ? e.message : e}`);
+    }
+  };
+
+  const obdImportRef = useRef<HTMLInputElement>(null);
+
+  const handleImportOBD = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const buf = new Uint8Array(reader.result as ArrayBuffer);
+        const result = decodeOBD(buf);
+        const importThing = useOBStore.getState().importThing;
+        const newId = importThing(result.category, result.flags, result.frameGroups, result.spritePixels);
+        if (newId != null) {
+          alert(`Imported ${result.category} as ID ${newId} with ${result.spritePixels.size} sprites.`);
+        }
+      } catch (err) {
+        alert(`Import failed: ${err instanceof Error ? err.message : err}`);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    // Reset the input so the same file can be re-imported
+    e.target.value = '';
+  };
+
   // Update a frame group property and mark dirty
   const updateFrameGroupProp = useCallback((key: string, value: number) => {
     if (!thing || !group) return;
@@ -263,8 +359,8 @@ export function SpritePreview() {
               const rect = canvasRef.current.getBoundingClientRect();
               const col = Math.floor((e.clientX - rect.left) / (32 * zoom));
               const row = Math.floor((e.clientY - rect.top) / (32 * zoom));
-              const totalCols = group.patternX * group.width;
-              const totalRows = group.patternY * group.height;
+              const totalCols = renderedPxCount * group.width;
+              const totalRows = renderedPyCount * group.height;
               if (col >= 0 && col < totalCols && row >= 0 && row < totalRows) {
                 setDragTile({ col, row });
               } else {
@@ -285,8 +381,8 @@ export function SpritePreview() {
               }
             }}
             style={{
-              width: (group ? group.patternX * group.width : 1) * 32 * zoom,
-              height: (group ? group.patternY * group.height : 1) * 32 * zoom,
+              width: (group ? renderedPxCount * group.width : 1) * 32 * zoom,
+              height: (group ? renderedPyCount * group.height : 1) * 32 * zoom,
               imageRendering: 'pixelated',
             }}
           />
@@ -353,6 +449,14 @@ export function SpritePreview() {
         <button onClick={handleExport} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Export PNG">
           <ImageDown className="w-3.5 h-3.5" />
         </button>
+        <div className="w-px h-4 bg-emperia-border mx-0.5" />
+        <button onClick={handleExportOBD} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Export OBD">
+          <Download className="w-3.5 h-3.5" />
+        </button>
+        <input ref={obdImportRef} type="file" accept=".obd" className="hidden" onChange={handleImportOBD} />
+        <button onClick={() => obdImportRef.current?.click()} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Import OBD">
+          <FolderOpen className="w-3.5 h-3.5" />
+        </button>
         {isAnimated && (
           <>
             <div className="w-px h-4 bg-emperia-border mx-0.5" />
@@ -371,15 +475,21 @@ export function SpritePreview() {
       </div>
 
       {/* Toggles */}
-      <div className="flex items-center px-4 py-1.5 gap-4 border-t border-emperia-border">
+      <div className="flex items-center px-4 py-1.5 gap-4 border-t border-emperia-border flex-wrap">
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={showCropSize} onChange={() => setShowCropSize(!showCropSize)} className="w-3 h-3 accent-emperia-accent" />
-          <span className="text-[10px] text-emperia-muted">Show Crop Size</span>
+          <span className="text-[10px] text-emperia-muted">Crop</span>
         </label>
         <label className="flex items-center gap-2 cursor-pointer">
           <input type="checkbox" checked={showGrid} onChange={() => setShowGrid(!showGrid)} className="w-3 h-3 accent-emperia-accent" />
-          <span className="text-[10px] text-emperia-muted">Show Grid</span>
+          <span className="text-[10px] text-emperia-muted">Grid</span>
         </label>
+        {group && (group.patternX > 1 || group.patternY > 1) && (
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={previewMode} onChange={() => setPreviewMode(!previewMode)} className="w-3 h-3 accent-emperia-accent" />
+            <span className="text-[10px] text-emperia-muted">Preview</span>
+          </label>
+        )}
       </div>
 
       {/* Offset section */}
@@ -407,15 +517,63 @@ export function SpritePreview() {
         </div>
       )}
 
-      {/* Animation / Layer / Z controls */}
-      {group && (group.animationLength > 1 || group.layers > 1 || group.patternZ > 1) && (
+      {/* Animation / Layer / Z / Direction / Color controls */}
+      {group && (group.animationLength > 1 || group.layers > 1 || group.patternZ > 1 || (previewMode && (group.patternX > 1 || group.patternY > 1)) || isOutfit) && (
         <div className="border-t border-emperia-border">
           <div className="px-4 py-1.5 bg-emperia-surface/50">
-            <span className="text-[10px] font-medium text-emperia-text uppercase tracking-wider">Animation</span>
+            <span className="text-[10px] font-medium text-emperia-text uppercase tracking-wider">
+              {isOutfit ? 'Outfit' : isEffect ? 'Effect' : isDistance ? 'Distance' : 'Animation'}
+            </span>
           </div>
           <div className="px-4 py-2">
             <table className="w-full text-[10px]" style={{ borderSpacing: '0 3px', borderCollapse: 'separate' }}>
               <tbody>
+                {/* Direction (Pattern X) — in preview mode for outfits/creatures */}
+                {previewMode && group.patternX > 1 && (
+                  <tr>
+                    <td className="text-emperia-muted text-right pr-2 w-24">Direction:</td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        {Array.from({ length: Math.min(group.patternX, 4) }, (_, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setActiveDirection(i)}
+                            className={`w-6 h-5 flex items-center justify-center rounded text-[10px] transition-colors ${
+                              activeDirection === i
+                                ? 'bg-emperia-accent text-white'
+                                : 'bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text'
+                            }`}
+                            title={DIRECTION_LABELS[i] ?? `Dir ${i}`}
+                          >{DIRECTION_ARROWS[i] ?? i}</button>
+                        ))}
+                        {group.patternX > 4 && (
+                          <>
+                            <StepperBtn onClick={() => setActiveDirection(Math.max(0, activeDirection - 1))}>‹</StepperBtn>
+                            <span className="text-emperia-text font-mono w-10 text-center">{activeDirection + 1}/{group.patternX}</span>
+                            <StepperBtn onClick={() => setActiveDirection(Math.min(group.patternX - 1, activeDirection + 1))}>›</StepperBtn>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {/* Pattern Y — addons for outfits, or generic pattern Y */}
+                {previewMode && group.patternY > 1 && (
+                  <tr>
+                    <td className="text-emperia-muted text-right pr-2">{isOutfit ? 'Addon:' : 'Pattern Y:'}</td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <StepperBtn onClick={() => setActivePatternY(Math.max(0, activePatternY - 1))}>‹</StepperBtn>
+                        <span className="text-emperia-text font-mono w-10 text-center">
+                          {isOutfit ? (activePatternY === 0 ? 'None' : `#${activePatternY}`) : `${activePatternY + 1}/${group.patternY}`}
+                        </span>
+                        <StepperBtn onClick={() => setActivePatternY(Math.min(group.patternY - 1, activePatternY + 1))}>›</StepperBtn>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
                 {/* Frame stepper */}
                 {group.animationLength > 1 && (
                   <tr>
@@ -466,6 +624,44 @@ export function SpritePreview() {
                       </div>
                     </td>
                   </tr>
+                )}
+
+                {/* Outfit color pickers */}
+                {isOutfit && blendLayers && group.layers >= 2 && (
+                  <>
+                    <tr><td colSpan={2}><div className="border-t border-emperia-border/40 my-0.5" /></td></tr>
+                    {(['head', 'body', 'legs', 'feet'] as const).map((channel) => (
+                      <tr key={channel}>
+                        <td className="text-emperia-muted text-right pr-2 capitalize">{channel}:</td>
+                        <td>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => setShowColorPicker(showColorPicker === channel ? null : channel)}
+                              className="w-5 h-5 rounded border border-emperia-border"
+                              style={{ backgroundColor: paletteToCSS(outfitColors[channel]) }}
+                              title={`Color ${outfitColors[channel]}`}
+                            />
+                            <span className="text-emperia-text font-mono w-8 text-center">{outfitColors[channel]}</span>
+                            <StepperBtn onClick={() => setOutfitColors({ ...outfitColors, [channel]: Math.max(0, outfitColors[channel] - 1) })}>‹</StepperBtn>
+                            <StepperBtn onClick={() => setOutfitColors({ ...outfitColors, [channel]: Math.min(PALETTE_SIZE - 1, outfitColors[channel] + 1) })}>›</StepperBtn>
+                          </div>
+                          {showColorPicker === channel && (
+                            <div className="mt-1 p-1 bg-emperia-surface border border-emperia-border rounded grid gap-px" style={{ gridTemplateColumns: 'repeat(19, 14px)' }}>
+                              {OUTFIT_PALETTE.map((_, idx) => (
+                                <button
+                                  key={idx}
+                                  onClick={() => { setOutfitColors({ ...outfitColors, [channel]: idx }); setShowColorPicker(null); }}
+                                  className={`w-3.5 h-3.5 rounded-sm border ${outfitColors[channel] === idx ? 'border-white' : 'border-transparent'}`}
+                                  style={{ backgroundColor: paletteToCSS(idx) }}
+                                  title={`${idx}`}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </>
                 )}
 
                 {/* Animation config */}

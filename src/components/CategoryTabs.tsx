@@ -1,4 +1,4 @@
-import { Package, Shirt, Sparkles, ArrowRight, Search } from 'lucide-react';
+import { Package, Shirt, Sparkles, ArrowRight, Search, Plus, Minus } from 'lucide-react';
 import { useOBStore } from '../store';
 import type { ThingCategory } from '../lib/types';
 
@@ -15,6 +15,11 @@ export function CategoryTabs() {
   const objectData = useOBStore((s) => s.objectData);
   const searchQuery = useOBStore((s) => s.searchQuery);
   const setSearchQuery = useOBStore((s) => s.setSearchQuery);
+  const selectedThingId = useOBStore((s) => s.selectedThingId);
+  const addThing = useOBStore((s) => s.addThing);
+  const removeThing = useOBStore((s) => s.removeThing);
+  const getCategoryRange = useOBStore((s) => s.getCategoryRange);
+  useOBStore((s) => s.editVersion);
 
   const getCategoryCount = (cat: ThingCategory) => {
     if (!objectData) return 0;
@@ -48,9 +53,9 @@ export function CategoryTabs() {
         ))}
       </div>
 
-      {/* Search bar */}
-      <div className="px-2 py-1.5 border-b border-emperia-border">
-        <div className="flex items-center gap-1.5 bg-emperia-surface rounded px-2 py-1">
+      {/* Search bar + add/remove */}
+      <div className="px-2 py-1.5 border-b border-emperia-border flex items-center gap-1">
+        <div className="flex items-center gap-1.5 bg-emperia-surface rounded px-2 py-1 flex-1">
           <Search className="w-3.5 h-3.5 text-emperia-muted shrink-0" />
           <input
             type="text"
@@ -60,6 +65,29 @@ export function CategoryTabs() {
             className="bg-transparent text-xs text-emperia-text placeholder-emperia-muted/50 outline-none w-full"
           />
         </div>
+        <button
+          onClick={() => addThing(activeCategory)}
+          disabled={!objectData}
+          className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-green-400 hover:border-green-400/50 disabled:opacity-30 transition-colors"
+          title={`Add new ${activeCategory}`}
+        >
+          <Plus className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => {
+            if (!selectedThingId || !objectData) return;
+            const range = getCategoryRange(activeCategory);
+            if (!range || selectedThingId !== range.end) return;
+            if (confirm(`Remove ${activeCategory} #${selectedThingId}? Only the last item can be removed.`)) {
+              removeThing(selectedThingId);
+            }
+          }}
+          disabled={!objectData || !selectedThingId || (() => { const r = getCategoryRange(activeCategory); return !r || selectedThingId !== r.end; })()}
+          className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-red-400 hover:border-red-400/50 disabled:opacity-30 transition-colors"
+          title={`Remove last ${activeCategory}`}
+        >
+          <Minus className="w-3.5 h-3.5" />
+        </button>
       </div>
     </div>
   );

@@ -14,11 +14,12 @@ export function ThingGrid() {
   const setSelectedId = useOBStore((s) => s.setSelectedThingId);
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
-  useOBStore((s) => s.editVersion); // re-render on sprite replacement
+  const editVersion = useOBStore((s) => s.editVersion); // re-render on sprite replacement
 
   const things = useMemo(
     () => getThingsForCategory(objectData, activeCategory, searchQuery, getCategoryRange),
-    [objectData, activeCategory, searchQuery, getCategoryRange],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [objectData, activeCategory, searchQuery, getCategoryRange, editVersion],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,6 +52,19 @@ export function ThingGrid() {
     setContainerHeight(el.clientHeight);
     return () => obs.disconnect();
   }, []);
+
+  // Auto-scroll to selected thing when it changes
+  useEffect(() => {
+    if (selectedId == null || !containerRef.current) return;
+    const idx = things.findIndex((t) => t.id === selectedId);
+    if (idx < 0) return;
+    const row = Math.floor(idx / cols);
+    const top = row * CELL_SIZE;
+    const el = containerRef.current;
+    if (top < el.scrollTop || top + CELL_SIZE > el.scrollTop + el.clientHeight) {
+      el.scrollTop = Math.max(0, top - el.clientHeight / 2 + CELL_SIZE / 2);
+    }
+  }, [selectedId, things]);
 
   return (
     <div
