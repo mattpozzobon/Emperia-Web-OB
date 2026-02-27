@@ -4,18 +4,42 @@
  * If no sprites are modified, returns the original buffer byte-for-byte.
  */
 import PacketWriter from './packet-writer';
-import { EMPERIA_MAGIC, EMPERIA_HEADER_SIZE, EmperiaFileType } from './emperia-format';
+import { EMPERIA_MAGIC, EMPERIA_HEADER_SIZE, EmperiaFileType, isEmperiaFormat } from './emperia-format';
 import { encodeSprite } from './sprite-encoder';
 import type { SpriteData } from './types';
+
+/** Derive the correct Emperia feature-flags byte from a content version. */
+function deriveFlags(version: number): number {
+  let flags = 0;
+  if (version >= 960)  flags |= 0x01; // extended
+  if (version >= 960)  flags |= 0x02; // transparency
+  if (version >= 1050) flags |= 0x04; // frameGroups
+  if (version >= 1050) flags |= 0x08; // frameDurations
+  return flags;
+}
+
+/** Ensure the flags byte at offset 0x0F is correct in an Emperia buffer. */
+function patchHeaderFlags(buf: ArrayBuffer, version: number): ArrayBuffer {
+  const bytes = new Uint8Array(buf);
+  if (bytes.length >= EMPERIA_HEADER_SIZE && isEmperiaFormat(bytes)) {
+    const expected = deriveFlags(version);
+    if (bytes[0x0F] !== expected) {
+      const patched = buf.slice(0);
+      new Uint8Array(patched)[0x0F] = expected;
+      return patched;
+    }
+  }
+  return buf.slice(0);
+}
 
 export function compileSpriteData(
   data: SpriteData,
   spriteOverrides?: Map<number, ImageData>,
 ): ArrayBuffer {
-  // No modifications? Return original file byte-for-byte.
+  // No modifications? Return original file, patching header flags if needed.
   if (!spriteOverrides || spriteOverrides.size === 0) {
     console.log('[OB] Sprite compile: no edits, returning original buffer');
-    return data.originalBuffer.slice(0);
+    return patchHeaderFlags(data.originalBuffer, data.version);
   }
 
   console.log(`[OB] Sprite compile: rebuilding with ${spriteOverrides.size} modified sprite(s)`);
@@ -65,11 +89,12 @@ export function compileSpriteData(
   const w = new PacketWriter(currentOffset + 1024);
 
   // Emperia header
+  const flags = deriveFlags(data.version);
   for (let i = 0; i < EMPERIA_MAGIC.length; i++) w.writeUInt8(EMPERIA_MAGIC[i]);
   w.writeUInt8(EmperiaFileType.SPRITE_DATA);
   w.writeUInt16(1);                    // formatVersion
   w.writeUInt32(data.version);         // contentVersion
-  w.writeUInt8(0);                     // flags
+  w.writeUInt8(flags);                 // flags
   w.writeUInt32(0);                    // reserved
 
   // Sprite count

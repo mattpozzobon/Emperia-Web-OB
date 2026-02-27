@@ -1,6 +1,7 @@
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import { Upload, FileWarning, Loader2, FolderOpen } from 'lucide-react';
 import { useOBStore } from '../store';
+import { saveLastDirHandle, loadLastDirHandle } from '../lib/dir-handle-store';
 
 export function FileDropZone() {
   const loadFiles = useOBStore((s) => s.loadFiles);
@@ -16,6 +17,12 @@ export function FileDropZone() {
   const [defName, setDefName] = useState<string | null>(null);
 
   const pendingJsonRef = useRef<ArrayBuffer | null>(null);
+  const lastDirRef = useRef<FileSystemDirectoryHandle | null>(null);
+
+  // Restore last-used directory handle from IndexedDB on mount
+  useEffect(() => {
+    loadLastDirHandle().then((h) => { if (h) lastDirRef.current = h; });
+  }, []);
 
   const tryAutoLoad = useCallback(() => {
     if (!objRef.current || !sprRef.current) return;
@@ -56,7 +63,9 @@ export function FileDropZone() {
   const handleOpenFolder = useCallback(async () => {
     if (typeof (window as any).showDirectoryPicker !== 'function') return;
     try {
-      const dirHandle: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+      const opts: any = { mode: 'readwrite' };
+      if (lastDirRef.current) opts.startIn = lastDirRef.current;
+      const dirHandle: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker(opts);
       const names: { obj?: string; spr?: string; def?: string } = {};
 
       // Scan for matching files in the selected folder
@@ -82,6 +91,8 @@ export function FileDropZone() {
       }
 
       setSourceDir(dirHandle, names);
+      lastDirRef.current = dirHandle;
+      saveLastDirHandle(dirHandle);
       console.log('[OB] Opened folder:', dirHandle.name, names);
       tryAutoLoad();
     } catch { /* user cancelled */ }

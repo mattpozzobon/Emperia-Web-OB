@@ -16,6 +16,7 @@ export function SpritePreview() {
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
   const replaceSprite = useOBStore((s) => s.replaceSprite);
+  const addSprite = useOBStore((s) => s.addSprite);
   useOBStore((s) => s.editVersion);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
@@ -204,22 +205,47 @@ export function SpritePreview() {
       tc.width = 32; tc.height = 32;
       const tctx = tc.getContext('2d')!;
 
+      // Helper: replace an existing sprite or allocate a new one for empty (0) slots
+      const assignSprite = (idx: number, imgData: ImageData) => {
+        const spriteId = group.sprites[idx];
+        if (spriteId > 0) {
+          replaceSprite(spriteId, imgData);
+        } else {
+          // Slot is 0 (empty) — allocate a new sprite and wire it in
+          const newId = addSprite(imgData);
+          if (newId != null) {
+            group.sprites[idx] = newId;
+            // Mark thing as dirty so it gets recompiled
+            if (thing) {
+              const dirtyIds = new Set(useOBStore.getState().dirtyIds);
+              dirtyIds.add(thing.id);
+              useOBStore.setState({ dirty: true, dirtyIds });
+            }
+          }
+        }
+      };
+
       if (img.width <= 32 && img.height <= 32) {
         // Single tile — replace the sprite at the drop position
         tctx.clearRect(0, 0, 32, 32);
         tctx.drawImage(img, 0, 0, 32, 32);
         const imgData = tctx.getImageData(0, 0, 32, 32);
 
-        let spriteId = 0;
+        let targetIdx = -1;
         if (dropX != null && dropY != null) {
-          spriteId = getSpriteAtPosition(dropX, dropY);
+          const sid = getSpriteAtPosition(dropX, dropY);
+          if (sid > 0) {
+            // Find the index for this sprite ID so we can use assignSprite
+            targetIdx = group.sprites.indexOf(sid);
+          }
         }
-        // Fallback: first sprite of the frame
-        if (spriteId === 0) {
-          const idx = getSpriteIndex(group, currentFrame, 0, 0, 0, 0, 0, 0);
-          spriteId = idx < group.sprites.length ? group.sprites[idx] : 0;
+        // Fallback: first sprite slot of the current frame
+        if (targetIdx < 0) {
+          targetIdx = getSpriteIndex(group, currentFrame, 0, 0, 0, 0, 0, 0);
         }
-        if (spriteId > 0) replaceSprite(spriteId, imgData);
+        if (targetIdx >= 0 && targetIdx < group.sprites.length) {
+          assignSprite(targetIdx, imgData);
+        }
       } else {
         // Larger image — auto-slice across the full pattern grid
         const totalCols = group.patternX * group.width;
@@ -232,18 +258,16 @@ export function SpritePreview() {
             const ty = group.height - 1 - (row % group.height);
             const idx = getSpriteIndex(group, currentFrame, px, py, 0, 0, tx, ty);
             if (idx >= group.sprites.length) continue;
-            const spriteId = group.sprites[idx];
-            if (spriteId === 0) continue;
             tctx.clearRect(0, 0, 32, 32);
             tctx.drawImage(img, col * 32, row * 32, 32, 32, 0, 0, 32, 32);
             const imgData = tctx.getImageData(0, 0, 32, 32);
-            replaceSprite(spriteId, imgData);
+            assignSprite(idx, imgData);
           }
         }
       }
     };
     img.src = URL.createObjectURL(file);
-  }, [group, spriteData, currentFrame, replaceSprite, getSpriteAtPosition]);
+  }, [group, thing, spriteData, currentFrame, replaceSprite, addSprite, getSpriteAtPosition]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();

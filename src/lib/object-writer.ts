@@ -3,7 +3,7 @@
  * Inverse of object-parser.ts — writes Emperia header + flags + frame groups.
  */
 import PacketWriter from './packet-writer';
-import { EMPERIA_MAGIC, EMPERIA_HEADER_SIZE, EmperiaFileType } from './emperia-format';
+import { EMPERIA_MAGIC, EMPERIA_HEADER_SIZE, EmperiaFileType, isEmperiaFormat } from './emperia-format';
 import type { ObjectData, ThingType, ThingFlags, FrameGroup } from './types';
 
 const ATTR = {
@@ -189,19 +189,50 @@ function writeFrameGroup(w: PacketWriter, fg: FrameGroup, version: number, write
 }
 
 export function compileObjectData(data: ObjectData, dirtyIds?: Set<number>): ArrayBuffer {
-  // No edits? Return the original file byte-for-byte.
+  // No edits? Return the original file, patching header flags if needed.
   if (!dirtyIds || dirtyIds.size === 0) {
     console.log('[OB] Compile: no edits, returning original buffer');
-    return data.originalBuffer.slice(0);
+    const buf = data.originalBuffer.slice(0);
+    const bytes = new Uint8Array(buf);
+    if (bytes.length >= EMPERIA_HEADER_SIZE && isEmperiaFormat(bytes)) {
+      const isExt = data.version >= 960;
+      const isTrans = data.version >= 960;
+      const hasFG = data.version >= 1050;
+      const hasFD = data.version >= 1050;
+      let f = 0;
+      if (isExt)   f |= 0x01;
+      if (isTrans)  f |= 0x02;
+      if (hasFG)   f |= 0x04;
+      if (hasFD)   f |= 0x08;
+      bytes[0x0F] = f;
+    }
+    return buf;
   }
 
   console.log(`[OB] Compile: rebuilding with ${dirtyIds.size} edited thing(s)`);
 
   const w = new PacketWriter(1024 * 1024); // 1MB initial
 
-  // Copy the original header verbatim (header + counts = payloadOffset + 8 bytes)
-  const headerBytes = new Uint8Array(data.originalBuffer, 0, 28); // 20 header + 8 counts
+  // Copy the original 20-byte Emperia header, then write current counts
+  // (counts may have changed if things were added/removed)
+  const headerBytes = new Uint8Array(data.originalBuffer.slice(0, EMPERIA_HEADER_SIZE));
+  // Ensure feature flags byte (offset 0x0F) is correct — previous Web OB builds
+  // wrote 0x00 which breaks legacy OB parsing (wrong extended/transparency).
+  const isExtended = data.version >= 960;
+  const isTransparent = data.version >= 960;
+  const hasFrameGroups = data.version >= 1050;
+  const hasFrameDurations = data.version >= 1050;
+  let hdrFlags = 0;
+  if (isExtended)       hdrFlags |= 0x01;
+  if (isTransparent)    hdrFlags |= 0x02;
+  if (hasFrameGroups)   hdrFlags |= 0x04;
+  if (hasFrameDurations) hdrFlags |= 0x08;
+  headerBytes[0x0F] = hdrFlags;
   w.writeBytes(headerBytes);
+  w.writeUInt16(data.itemCount);
+  w.writeUInt16(data.outfitCount);
+  w.writeUInt16(data.effectCount);
+  w.writeUInt16(data.distanceCount);
 
   const totalCount = data.itemCount + data.outfitCount + data.effectCount + data.distanceCount;
 

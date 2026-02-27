@@ -13,6 +13,88 @@ interface UndoEntry {
   newFlags: ThingFlags;
 }
 
+/**
+ * Shift all things with id >= shiftFrom up by 1.
+ * Must iterate in reverse to avoid overwrites.
+ * Also shifts dirtyIds and returns the new set.
+ */
+function shiftThingsUp(od: ObjectData, shiftFrom: number, oldTotal: number, dirtyIds: Set<number>): Set<number> {
+  for (let id = oldTotal; id >= shiftFrom; id--) {
+    const t = od.things.get(id);
+    if (t) {
+      t.id = id + 1;
+      od.things.set(id + 1, t);
+      od.things.delete(id);
+    }
+  }
+  const newDirty = new Set<number>();
+  for (const d of dirtyIds) {
+    newDirty.add(d >= shiftFrom ? d + 1 : d);
+  }
+  return newDirty;
+}
+
+/**
+ * Shift all things with id > shiftAfter down by 1.
+ * Must iterate forward to avoid overwrites.
+ * Also shifts dirtyIds.
+ */
+function shiftThingsDown(od: ObjectData, shiftAfter: number, oldTotal: number, dirtyIds: Set<number>): Set<number> {
+  for (let id = shiftAfter + 1; id <= oldTotal; id++) {
+    const t = od.things.get(id);
+    if (t) {
+      t.id = id - 1;
+      od.things.set(id - 1, t);
+      od.things.delete(id);
+    }
+  }
+  const newDirty = new Set<number>();
+  for (const d of dirtyIds) {
+    if (d === shiftAfter) continue; // removed thing
+    newDirty.add(d > shiftAfter ? d - 1 : d);
+  }
+  return newDirty;
+}
+
+/**
+ * Allocate a new thing ID in the given category and shift higher categories.
+ * Returns { insertId, dirtyIds } with the new thing's ID and updated dirty set.
+ */
+function allocateThingId(od: ObjectData, cat: ThingCategory, dirtyIds: Set<number>): { insertId: number; dirtyIds: Set<number> } {
+  const oldTotal = od.itemCount + od.outfitCount + od.effectCount + od.distanceCount;
+  let insertId: number;
+  let shiftFrom: number;
+
+  switch (cat) {
+    case 'item':
+      od.itemCount++;
+      insertId = od.itemCount;
+      shiftFrom = insertId;
+      break;
+    case 'outfit':
+      od.outfitCount++;
+      insertId = od.itemCount + od.outfitCount;
+      shiftFrom = insertId;
+      break;
+    case 'effect':
+      od.effectCount++;
+      insertId = od.itemCount + od.outfitCount + od.effectCount;
+      shiftFrom = insertId;
+      break;
+    case 'distance':
+      od.distanceCount++;
+      insertId = od.itemCount + od.outfitCount + od.effectCount + od.distanceCount;
+      shiftFrom = insertId + 1; // last category, nothing to shift
+      break;
+  }
+
+  const newDirty = shiftFrom <= oldTotal
+    ? shiftThingsUp(od, shiftFrom, oldTotal, dirtyIds)
+    : new Set(dirtyIds);
+  newDirty.add(insertId);
+  return { insertId, dirtyIds: newDirty };
+}
+
 interface OBState {
   // Data
   objectData: ObjectData | null;
@@ -411,26 +493,7 @@ export const useOBStore = create<OBState>((set, get) => ({
     const { objectData, editVersion } = get();
     if (!objectData) return null;
 
-    // Determine the new ID based on the category
-    let newId: number;
-    switch (cat) {
-      case 'item':
-        objectData.itemCount++;
-        newId = objectData.itemCount;
-        break;
-      case 'outfit':
-        objectData.outfitCount++;
-        newId = objectData.itemCount + objectData.outfitCount;
-        break;
-      case 'effect':
-        objectData.effectCount++;
-        newId = objectData.itemCount + objectData.outfitCount + objectData.effectCount;
-        break;
-      case 'distance':
-        objectData.distanceCount++;
-        newId = objectData.itemCount + objectData.outfitCount + objectData.effectCount + objectData.distanceCount;
-        break;
-    }
+    const { insertId, dirtyIds: newDirtyIds } = allocateThingId(objectData, cat, get().dirtyIds);
 
     const defaultFlags: ThingFlags = {
       ground: false, groundBorder: false, onBottom: false, onTop: false,
@@ -454,25 +517,23 @@ export const useOBStore = create<OBState>((set, get) => ({
     };
 
     const newThing = {
-      id: newId,
+      id: insertId,
       category: cat,
       flags: defaultFlags,
       frameGroups: [defaultFrameGroup],
     };
 
-    objectData.things.set(newId, newThing);
-
-    const newDirtyIds = new Set(get().dirtyIds);
-    newDirtyIds.add(newId);
+    objectData.things.set(insertId, newThing);
+    newDirtyIds.add(insertId);
 
     set({
       dirty: true,
       dirtyIds: newDirtyIds,
-      selectedThingId: newId,
+      selectedThingId: insertId,
       editVersion: editVersion + 1,
     });
 
-    return newId;
+    return insertId;
   },
 
   removeThing: (id) => {
@@ -488,6 +549,8 @@ export const useOBStore = create<OBState>((set, get) => ({
     const lastId = range.end;
     if (id !== lastId) return;
 
+    const oldTotal = objectData.itemCount + objectData.outfitCount + objectData.effectCount + objectData.distanceCount;
+
     objectData.things.delete(id);
 
     switch (activeCategory) {
@@ -497,11 +560,15 @@ export const useOBStore = create<OBState>((set, get) => ({
       case 'distance': objectData.distanceCount--; break;
     }
 
+    // Shift higher-category things down by 1
+    const newDirtyIds = shiftThingsDown(objectData, id, oldTotal, get().dirtyIds);
+
     // Select the previous thing
     const newSelected = id > range.start ? id - 1 : range.start;
 
     set({
       dirty: true,
+      dirtyIds: newDirtyIds,
       selectedThingId: objectData.things.has(newSelected) ? newSelected : null,
       editVersion: editVersion + 1,
     });
@@ -511,14 +578,8 @@ export const useOBStore = create<OBState>((set, get) => ({
     const { objectData, spriteData, editVersion, spriteOverrides, dirtySpriteIds } = get();
     if (!objectData || !spriteData) return null;
 
-    // Step 1: Create a new thing ID in the target category
-    let newId: number;
-    switch (cat) {
-      case 'item': objectData.itemCount++; newId = objectData.itemCount; break;
-      case 'outfit': objectData.outfitCount++; newId = objectData.itemCount + objectData.outfitCount; break;
-      case 'effect': objectData.effectCount++; newId = objectData.itemCount + objectData.outfitCount + objectData.effectCount; break;
-      case 'distance': objectData.distanceCount++; newId = objectData.itemCount + objectData.outfitCount + objectData.effectCount + objectData.distanceCount; break;
-    }
+    // Step 1: Allocate a new thing ID and shift higher categories
+    const { insertId: newId, dirtyIds: shiftedDirtyIds } = allocateThingId(objectData, cat, get().dirtyIds);
 
     // Step 2: Remap sprite IDs to new IDs starting from spriteData.spriteCount + 1
     // and store the pixel data as overrides
@@ -553,14 +614,11 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     objectData.things.set(newId, newThing);
 
-    const newDirtyIds = new Set(get().dirtyIds);
-    newDirtyIds.add(newId);
-
     clearSpriteCache();
 
     set({
       dirty: true,
-      dirtyIds: newDirtyIds,
+      dirtyIds: shiftedDirtyIds,
       spriteOverrides: newOverrides,
       dirtySpriteIds: newDirtySpriteIds,
       selectedThingId: newId,
