@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback } from 'react';
-import { useOBStore } from '../store';
+import { useOBStore, getDisplayId } from '../store';
 import type { ThingFlags } from '../lib/types';
 
 // All boolean flags with their display labels
@@ -73,6 +73,7 @@ export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?:
   useOBStore((s) => s.editVersion);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
+  const displayId = thing && objectData ? getDisplayId(objectData, thing.id) : thing?.id ?? 0;
 
   const toggleFlag = useCallback((key: keyof ThingFlags) => {
     if (!thing) return;
@@ -119,7 +120,7 @@ export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?:
     return (
       <div className="p-3 text-xs space-y-4">
         <Section title="Identity">
-          <ReadonlyRow label="ID" value={thing.id} />
+          <ReadonlyRow label="ID" value={displayId} />
           <ReadonlyRow label="Category" value={thing.category} />
         </Section>
 
@@ -159,7 +160,7 @@ export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?:
   return (
     <div className="p-3 text-xs space-y-4">
       <Section title="Identity">
-        <ReadonlyRow label="ID" value={thing.id} />
+        <ReadonlyRow label="ID" value={displayId} />
         <ReadonlyRow label="Category" value={thing.category} />
       </Section>
 

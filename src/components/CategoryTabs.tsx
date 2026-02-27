@@ -1,5 +1,5 @@
 import { Package, Shirt, Sparkles, ArrowRight, Search, Plus, Minus } from 'lucide-react';
-import { useOBStore } from '../store';
+import { useOBStore, getDisplayId } from '../store';
 import type { ThingCategory } from '../lib/types';
 
 const CATEGORIES: { key: ThingCategory; label: string; icon: typeof Package }[] = [
@@ -78,7 +78,8 @@ export function CategoryTabs() {
             if (!selectedThingId || !objectData) return;
             const range = getCategoryRange(activeCategory);
             if (!range || selectedThingId !== range.end) return;
-            if (confirm(`Remove ${activeCategory} #${selectedThingId}? Only the last item can be removed.`)) {
+            const dId = objectData ? getDisplayId(objectData, selectedThingId) : selectedThingId;
+            if (confirm(`Remove ${activeCategory} #${dId}? Only the last entry can be removed.`)) {
               removeThing(selectedThingId);
             }
           }}

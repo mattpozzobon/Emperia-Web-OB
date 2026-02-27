@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, Upload, Download, FolderOpen } from 'lucide-react';
-import { useOBStore } from '../store';
+import { useOBStore, getDisplayId } from '../store';
 import { decodeSprite, clearSpriteCache } from '../lib/sprite-decoder';
 import { applyOutfitMask, paletteToCSS, OUTFIT_PALETTE, PALETTE_SIZE } from '../lib/outfit-colors';
 import { encodeOBD, decodeOBD } from '../lib/obd';
@@ -276,7 +276,8 @@ export function SpritePreview() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${category}_${thing.id}.obd`;
+      const dId = objectData ? getDisplayId(objectData, thing.id) : thing.id;
+      a.download = `${category}_${dId}.obd`;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
@@ -297,7 +298,9 @@ export function SpritePreview() {
         const importThing = useOBStore.getState().importThing;
         const newId = importThing(result.category, result.flags, result.frameGroups, result.spritePixels);
         if (newId != null) {
-          alert(`Imported ${result.category} as ID ${newId} with ${result.spritePixels.size} sprites.`);
+          const od = useOBStore.getState().objectData;
+          const dId = od ? getDisplayId(od, newId) : newId;
+          alert(`Imported ${result.category} #${dId} with ${result.spritePixels.size} sprites.`);
         }
       } catch (err) {
         alert(`Import failed: ${err instanceof Error ? err.message : err}`);
@@ -312,6 +315,23 @@ export function SpritePreview() {
   const updateFrameGroupProp = useCallback((key: string, value: number) => {
     if (!thing || !group) return;
     (group as unknown as Record<string, unknown>)[key] = value;
+
+    // Resize sprites array to match new total count
+    const total = group.width * group.height * group.layers * group.patternX * group.patternY * group.patternZ * group.animationLength;
+    if (group.sprites.length < total) {
+      while (group.sprites.length < total) group.sprites.push(0);
+    } else if (group.sprites.length > total) {
+      group.sprites.length = total;
+    }
+
+    // Resize animationLengths array if animation count changed
+    while (group.animationLengths.length < group.animationLength) {
+      group.animationLengths.push({ min: 100, max: 100 });
+    }
+    if (group.animationLengths.length > group.animationLength) {
+      group.animationLengths.length = group.animationLength;
+    }
+
     thing.rawBytes = undefined;
     clearSpriteCache();
     const store = useOBStore.getState();

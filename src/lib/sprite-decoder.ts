@@ -119,3 +119,7 @@ export function getSpriteDataUrl(
 export function clearSpriteCache(): void {
   spriteCache.clear();
 }
+
+export function clearSpriteCacheId(id: number): void {
+  spriteCache.delete(id);
+}

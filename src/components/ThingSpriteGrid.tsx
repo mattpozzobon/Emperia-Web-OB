@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search } from 'lucide-react';
+import { Search, Plus, Trash2 } from 'lucide-react';
 import { useOBStore } from '../store';
 import { getSpriteDataUrl, clearSpriteCache } from '../lib/sprite-decoder';
 
@@ -19,8 +19,61 @@ export function ThingSpriteGrid() {
   const [containerHeight, setContainerHeight] = useState(0);
   const [highlightedSpriteId, setHighlightedSpriteId] = useState<number | null>(null);
   const atlasRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
+
+  // Import PNG(s) as new atlas sprites (splits into 32×32 tiles)
+  const handleImportPNG = useCallback((files: FileList) => {
+    const addSprite = useOBStore.getState().addSprite;
+    Array.from(files).forEach((file) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d')!;
+        const tilesX = Math.max(1, Math.floor(img.width / 32));
+        const tilesY = Math.max(1, Math.floor(img.height / 32));
+        canvas.width = 32;
+        canvas.height = 32;
+        const added: number[] = [];
+        for (let ty = 0; ty < tilesY; ty++) {
+          for (let tx = 0; tx < tilesX; tx++) {
+            ctx.clearRect(0, 0, 32, 32);
+            ctx.drawImage(img, tx * 32, ty * 32, 32, 32, 0, 0, 32, 32);
+            const imgData = ctx.getImageData(0, 0, 32, 32);
+            // Skip fully transparent tiles
+            let hasPixel = false;
+            for (let i = 3; i < imgData.data.length; i += 4) {
+              if (imgData.data[i] > 0) { hasPixel = true; break; }
+            }
+            if (!hasPixel) continue;
+            const id = addSprite(imgData);
+            if (id != null) added.push(id);
+          }
+        }
+        if (added.length > 0) {
+          // Scroll to the first newly added sprite
+          setAtlasSearch('');
+          setHighlightedSpriteId(added[0]);
+          setTimeout(() => setHighlightedSpriteId(null), 2000);
+          // Scroll atlas to the new sprite
+          if (atlasRef.current && spriteData) {
+            const idx = added[0] - 1;
+            const row = Math.floor(idx / ATLAS_COLS);
+            atlasRef.current.scrollTop = row * CELL;
+          }
+        }
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }, [spriteData]);
+
+  // Delete a sprite (right-click context or delete button)
+  const handleDeleteSprite = useCallback((spriteId: number) => {
+    if (spriteId <= 0) return;
+    if (!confirm(`Delete sprite #${spriteId}? It will be replaced with a blank sprite.`)) return;
+    useOBStore.getState().deleteSprite(spriteId);
+  }, []);
 
   // Reset slot selection when thing changes
   useEffect(() => { setSelectedSlot(null); }, [selectedId]);
@@ -75,7 +128,8 @@ export function ThingSpriteGrid() {
     const ids: number[] = [];
     for (let i = 1; i <= spriteData.spriteCount; i++) ids.push(i);
     return ids;
-  }, [spriteData, atlasSearch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spriteData, atlasSearch, editVersion]);
 
   const atlasRows = Math.ceil(atlasIds.length / ATLAS_COLS);
   const atlasTotalHeight = atlasRows * CELL;
@@ -216,6 +270,21 @@ export function ThingSpriteGrid() {
               className="w-full pl-6 pr-2 py-0.5 bg-emperia-bg border border-emperia-border rounded text-[10px] text-emperia-text placeholder:text-emperia-muted/50 focus:outline-none focus:border-emperia-accent"
             />
           </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/gif,image/bmp"
+            multiple
+            className="hidden"
+            onChange={(e) => { if (e.target.files) handleImportPNG(e.target.files); e.target.value = ''; }}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-green-400 transition-colors shrink-0"
+            title="Add new sprites from PNG (auto-splits into 32×32 tiles)"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
         </div>
 
         <div
@@ -240,19 +309,23 @@ export function ThingSpriteGrid() {
                 const isHighlighted = spriteId === highlightedSpriteId;
 
                 return (
-                  <button
+                  <div
                     key={spriteId}
-                    onClick={() => handleAtlasClick(spriteId)}
-                    className={`relative flex items-center justify-center border transition-colors
+                    className={`group relative flex items-center justify-center border transition-colors
                       ${isHighlighted
                         ? 'border-green-400 bg-green-400/20'
                         : selectedSlot
                           ? 'border-transparent hover:bg-emperia-accent/10 hover:border-emperia-accent/30 cursor-pointer'
-                          : 'border-transparent cursor-default'
+                          : 'border-transparent hover:bg-emperia-hover'
                       }
                     `}
                     style={{ width: CELL, height: CELL }}
                     title={`#${spriteId}`}
+                    onClick={() => handleAtlasClick(spriteId)}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      handleDeleteSprite(spriteId);
+                    }}
                   >
                     {url ? (
                       <img src={url} alt="" className="w-8 h-8" style={{ imageRendering: 'pixelated' }} />
@@ -262,7 +335,14 @@ export function ThingSpriteGrid() {
                     <span className="absolute bottom-0 right-0.5 text-[6px] text-emperia-muted/40 leading-none">
                       {spriteId}
                     </span>
-                  </button>
+                    <button
+                      className="absolute top-0 right-0 p-0.5 rounded-bl bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => { e.stopPropagation(); handleDeleteSprite(spriteId); }}
+                      title={`Delete sprite #${spriteId}`}
+                    >
+                      <Trash2 className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
                 );
               })}
             </div>

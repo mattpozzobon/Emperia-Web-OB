@@ -4,7 +4,7 @@
 import { create } from 'zustand';
 import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup } from './lib/types';
 import { parseObjectData } from './lib/object-parser';
-import { parseSpriteData, clearSpriteCache } from './lib/sprite-decoder';
+import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from './lib/sprite-decoder';
 
 interface UndoEntry {
   thingId: number;
@@ -50,6 +50,8 @@ interface OBState {
   // Edit actions
   updateThingFlags: (id: number, flags: ThingFlags) => void;
   replaceSprite: (spriteId: number, imageData: ImageData) => void;
+  addSprite: (imageData: ImageData) => number | null;
+  deleteSprite: (spriteId: number) => void;
   addThing: (cat: ThingCategory) => number | null;
   removeThing: (id: number) => void;
   importThing: (cat: ThingCategory, flags: ThingFlags, frameGroups: FrameGroup[], spritePixels: Map<number, ImageData>) => number | null;
@@ -101,7 +103,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         spriteOverrides: new Map(),
         dirtySpriteIds: new Set(),
         editVersion: 0,
-  focusSpriteId: null,
+        focusSpriteId: null,
       });
     } catch (e) {
       set({
@@ -141,7 +143,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       spriteOverrides: new Map(),
       dirtySpriteIds: new Set(),
       editVersion: 0,
-  focusSpriteId: null,
+      focusSpriteId: null,
     });
   },
 
@@ -202,8 +204,50 @@ export const useOBStore = create<OBState>((set, get) => ({
     const newDirtySpriteIds = new Set(dirtySpriteIds);
     newDirtySpriteIds.add(spriteId);
 
-    // Clear cached data URL so it re-renders
-    clearSpriteCache();
+    clearSpriteCacheId(spriteId);
+
+    set({
+      dirty: true,
+      spriteOverrides: newOverrides,
+      dirtySpriteIds: newDirtySpriteIds,
+      editVersion: editVersion + 1,
+    });
+  },
+
+  addSprite: (imageData) => {
+    const { spriteData, spriteOverrides, dirtySpriteIds, editVersion } = get();
+    if (!spriteData) return null;
+
+    spriteData.spriteCount++;
+    const newId = spriteData.spriteCount;
+
+    const newOverrides = new Map(spriteOverrides);
+    newOverrides.set(newId, imageData);
+    const newDirtySpriteIds = new Set(dirtySpriteIds);
+    newDirtySpriteIds.add(newId);
+
+    set({
+      dirty: true,
+      spriteOverrides: newOverrides,
+      dirtySpriteIds: newDirtySpriteIds,
+      editVersion: editVersion + 1,
+    });
+
+    return newId;
+  },
+
+  deleteSprite: (spriteId) => {
+    const { spriteOverrides, dirtySpriteIds, editVersion } = get();
+    if (spriteId <= 0) return;
+
+    // Store a blank (transparent) ImageData as the override — effectively erases the sprite
+    const blank = new ImageData(32, 32);
+    const newOverrides = new Map(spriteOverrides);
+    newOverrides.set(spriteId, blank);
+    const newDirtySpriteIds = new Set(dirtySpriteIds);
+    newDirtySpriteIds.add(spriteId);
+
+    clearSpriteCacheId(spriteId);
 
     set({
       dirty: true,
@@ -396,6 +440,14 @@ export const useOBStore = create<OBState>((set, get) => ({
 
 }));
 
+/** Convert internal map ID to display ID (0-based for outfits/effects/distances). */
+export function getDisplayId(objectData: ObjectData, internalId: number): number {
+  if (internalId <= objectData.itemCount) return internalId; // items stay as-is (100+)
+  if (internalId <= objectData.itemCount + objectData.outfitCount) return internalId - objectData.itemCount - 1;
+  if (internalId <= objectData.itemCount + objectData.outfitCount + objectData.effectCount) return internalId - objectData.itemCount - objectData.outfitCount - 1;
+  return internalId - objectData.itemCount - objectData.outfitCount - objectData.effectCount - 1;
+}
+
 /** Derive filtered things list outside the store (safe for useMemo). */
 export function getThingsForCategory(
   objectData: ObjectData | null,
@@ -411,7 +463,10 @@ export function getThingsForCategory(
   for (let id = range.start; id <= range.end; id++) {
     const thing = objectData.things.get(id);
     if (thing) {
-      if (searchQuery && !id.toString().includes(searchQuery)) continue;
+      if (searchQuery) {
+        const displayId = getDisplayId(objectData, id);
+        if (!displayId.toString().includes(searchQuery)) continue;
+      }
       things.push(thing);
     }
   }

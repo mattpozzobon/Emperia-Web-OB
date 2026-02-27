@@ -1,5 +1,5 @@
 import { useCallback, useRef, useEffect, useState, useMemo } from 'react';
-import { useOBStore, getThingsForCategory } from '../store';
+import { useOBStore, getThingsForCategory, getDisplayId } from '../store';
 import { getSpriteDataUrl } from '../lib/sprite-decoder';
 
 const CELL_SIZE = 40;
@@ -53,6 +53,33 @@ export function ThingGrid() {
     return () => obs.disconnect();
   }, []);
 
+  // Keyboard navigation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!things.length || selectedId == null) return;
+      // Don't capture when an input/textarea/select is focused
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      const idx = things.findIndex((t) => t.id === selectedId);
+      if (idx < 0) return;
+      let next = idx;
+      switch (e.key) {
+        case 'ArrowRight': next = Math.min(things.length - 1, idx + 1); break;
+        case 'ArrowLeft': next = Math.max(0, idx - 1); break;
+        case 'ArrowDown': next = Math.min(things.length - 1, idx + cols); break;
+        case 'ArrowUp': next = Math.max(0, idx - cols); break;
+        default: return;
+      }
+      if (next !== idx) {
+        e.preventDefault();
+        setSelectedId(things[next].id);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [things, selectedId, setSelectedId]);
+
   // Auto-scroll to selected thing when it changes
   useEffect(() => {
     if (selectedId == null || !containerRef.current) return;
@@ -87,6 +114,7 @@ export function ThingGrid() {
             const firstSprite = thing.frameGroups[0]?.sprites[0] ?? 0;
             const url = spriteData ? getSpriteDataUrl(spriteData, firstSprite, spriteOverrides) : null;
             const isSelected = thing.id === selectedId;
+            const displayId = objectData ? getDisplayId(objectData, thing.id) : thing.id;
 
             return (
               <button
@@ -101,7 +129,7 @@ export function ThingGrid() {
                   }
                 `}
                 style={{ width: CELL_SIZE, height: CELL_SIZE }}
-                title={`#${thing.id}`}
+                title={`#${displayId}`}
               >
                 {url ? (
                   <img
@@ -114,7 +142,7 @@ export function ThingGrid() {
                   <div className="w-8 h-8 bg-emperia-border/30 rounded-sm" />
                 )}
                 <span className="absolute bottom-0 right-0.5 text-[8px] text-emperia-muted/60 leading-none">
-                  {thing.id}
+                  {displayId}
                 </span>
               </button>
             );
