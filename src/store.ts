@@ -26,6 +26,11 @@ interface OBState {
   undoStack: UndoEntry[];
   redoStack: UndoEntry[];
 
+  // Sprite edit state
+  /** Map of spriteId → replacement ImageData */
+  spriteOverrides: Map<number, ImageData>;
+  dirtySpriteIds: Set<number>;
+
   // UI state
   activeCategory: ThingCategory;
   selectedThingId: number | null;
@@ -42,6 +47,7 @@ interface OBState {
 
   // Edit actions
   updateThingFlags: (id: number, flags: ThingFlags) => void;
+  replaceSprite: (spriteId: number, imageData: ImageData) => void;
   undo: () => void;
   redo: () => void;
   markClean: () => void;
@@ -61,6 +67,8 @@ export const useOBStore = create<OBState>((set, get) => ({
   dirtyIds: new Set(),
   undoStack: [],
   redoStack: [],
+  spriteOverrides: new Map(),
+  dirtySpriteIds: new Set(),
 
   activeCategory: 'item',
   selectedThingId: null,
@@ -84,6 +92,8 @@ export const useOBStore = create<OBState>((set, get) => ({
         dirtyIds: new Set(),
         undoStack: [],
         redoStack: [],
+        spriteOverrides: new Map(),
+        dirtySpriteIds: new Set(),
         editVersion: 0,
       });
     } catch (e) {
@@ -121,6 +131,8 @@ export const useOBStore = create<OBState>((set, get) => ({
       dirtyIds: new Set(),
       undoStack: [],
       redoStack: [],
+      spriteOverrides: new Map(),
+      dirtySpriteIds: new Set(),
       editVersion: 0,
     });
   },
@@ -175,7 +187,25 @@ export const useOBStore = create<OBState>((set, get) => ({
     });
   },
 
-  markClean: () => set({ dirty: false, dirtyIds: new Set() }),
+  replaceSprite: (spriteId, imageData) => {
+    const { spriteOverrides, dirtySpriteIds, editVersion } = get();
+    const newOverrides = new Map(spriteOverrides);
+    newOverrides.set(spriteId, imageData);
+    const newDirtySpriteIds = new Set(dirtySpriteIds);
+    newDirtySpriteIds.add(spriteId);
+
+    // Clear cached data URL so it re-renders
+    clearSpriteCache();
+
+    set({
+      dirty: true,
+      spriteOverrides: newOverrides,
+      dirtySpriteIds: newDirtySpriteIds,
+      editVersion: editVersion + 1,
+    });
+  },
+
+  markClean: () => set({ dirty: false, dirtyIds: new Set(), dirtySpriteIds: new Set() }),
 
   getCategoryRange: (cat) => {
     const od = get().objectData;

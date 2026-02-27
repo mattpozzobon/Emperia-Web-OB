@@ -13,6 +13,8 @@ export function ThingGrid() {
   const selectedId = useOBStore((s) => s.selectedThingId);
   const setSelectedId = useOBStore((s) => s.setSelectedThingId);
   const spriteData = useOBStore((s) => s.spriteData);
+  const spriteOverrides = useOBStore((s) => s.spriteOverrides);
+  useOBStore((s) => s.editVersion); // re-render on sprite replacement
 
   const things = useMemo(
     () => getThingsForCategory(objectData, activeCategory, searchQuery, getCategoryRange),
@@ -69,7 +71,7 @@ export function ThingGrid() {
         >
           {visibleThings.map((thing) => {
             const firstSprite = thing.frameGroups[0]?.sprites[0] ?? 0;
-            const url = spriteData ? getSpriteDataUrl(spriteData, firstSprite) : null;
+            const url = spriteData ? getSpriteDataUrl(spriteData, firstSprite, spriteOverrides) : null;
             const isSelected = thing.id === selectedId;
 
             return (

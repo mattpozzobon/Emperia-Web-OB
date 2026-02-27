@@ -65,7 +65,7 @@ const NUMERIC_PROPS: NumericProp[] = [
   { key: 'clothSlot', label: 'Cloth Slot', parentFlag: 'cloth', min: 0, max: 65535 },
 ];
 
-export function PropertyInspector() {
+export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?: boolean } = {}) {
   const selectedId = useOBStore((s) => s.selectedThingId);
   const objectData = useOBStore((s) => s.objectData);
   const updateThingFlags = useOBStore((s) => s.updateThingFlags);
@@ -115,15 +115,54 @@ export function PropertyInspector() {
     );
   }
 
+  if (showAttributesOnly) {
+    return (
+      <div className="p-3 text-xs space-y-4">
+        <Section title="Identity">
+          <ReadonlyRow label="ID" value={thing.id} />
+          <ReadonlyRow label="Category" value={thing.category} />
+        </Section>
+
+        {thing.frameGroups.map((fg, i) => (
+          <Section key={i} title={`Frame Group ${i}${thing.category === 'outfit' ? (i === 0 ? ' (Idle)' : ' (Moving)') : ''}`}>
+            <ReadonlyRow label="Size" value={`${fg.width}x${fg.height}`} />
+            <ReadonlyRow label="Layers" value={fg.layers} />
+            <ReadonlyRow label="Pattern X" value={fg.patternX} />
+            <ReadonlyRow label="Pattern Y" value={fg.patternY} />
+            <ReadonlyRow label="Pattern Z" value={fg.patternZ} />
+            <ReadonlyRow label="Animations" value={fg.animationLength} />
+            <ReadonlyRow label="Sprites" value={fg.sprites.length} />
+            {fg.animationLength > 1 && (
+              <>
+                <ReadonlyRow label="Async" value={fg.asynchronous ? 'Yes' : 'No'} />
+                <ReadonlyRow label="Loop Count" value={fg.nLoop === 0 ? 'Infinite' : fg.nLoop} />
+                <ReadonlyRow label="Start Frame" value={fg.start} />
+              </>
+            )}
+          </Section>
+        ))}
+
+        <Section title="Active Flags">
+          <div className="space-y-0.5">
+            {BOOL_FLAGS.filter(({ key }) => !!thing.flags[key]).map(({ key, label }) => (
+              <div key={key} className="text-emperia-text text-xs">{label}</div>
+            ))}
+            {BOOL_FLAGS.every(({ key }) => !thing.flags[key]) && (
+              <span className="text-emperia-muted italic">None</span>
+            )}
+          </div>
+        </Section>
+      </div>
+    );
+  }
+
   return (
     <div className="p-3 text-xs space-y-4">
-      {/* Identity */}
       <Section title="Identity">
         <ReadonlyRow label="ID" value={thing.id} />
         <ReadonlyRow label="Category" value={thing.category} />
       </Section>
 
-      {/* Editable Flags */}
       <Section title="Flags">
         <div className="grid grid-cols-1 gap-0">
           {BOOL_FLAGS.map(({ key, label }) => (
@@ -145,28 +184,9 @@ export function PropertyInspector() {
         </div>
       </Section>
 
-      {/* Editable numeric properties */}
       <Section title="Properties">
         <NumericPropsEditor flags={thing.flags} onChange={setNumericProp} />
       </Section>
-
-      {/* Frame Groups (read-only) */}
-      {thing.frameGroups.map((fg, i) => (
-        <Section key={i} title={`Frame Group ${i}${thing.category === 'outfit' ? (i === 0 ? ' (Idle)' : ' (Moving)') : ''}`}>
-          <ReadonlyRow label="Size" value={`${fg.width}x${fg.height}`} />
-          <ReadonlyRow label="Layers" value={fg.layers} />
-          <ReadonlyRow label="Pattern" value={`${fg.patternX}x${fg.patternY}x${fg.patternZ}`} />
-          <ReadonlyRow label="Frames" value={fg.animationLength} />
-          <ReadonlyRow label="Sprites" value={fg.sprites.length} />
-          {fg.animationLength > 1 && (
-            <>
-              <ReadonlyRow label="Async" value={fg.asynchronous ? 'Yes' : 'No'} />
-              <ReadonlyRow label="Loop" value={fg.nLoop === 0 ? 'Infinite' : fg.nLoop} />
-              <ReadonlyRow label="Start" value={fg.start} />
-            </>
-          )}
-        </Section>
-      ))}
     </div>
   );
 }

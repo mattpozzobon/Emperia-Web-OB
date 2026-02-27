@@ -95,13 +95,17 @@ canvas.width = 32;
 canvas.height = 32;
 const ctx = canvas.getContext('2d')!;
 
-export function getSpriteDataUrl(spriteData: SpriteData, id: number): string | null {
+export function getSpriteDataUrl(
+  spriteData: SpriteData,
+  id: number,
+  overrides?: Map<number, ImageData>,
+): string | null {
   if (id === 0) return null;
 
   const cached = spriteCache.get(id);
   if (cached) return cached;
 
-  const imgData = decodeSprite(spriteData, id);
+  const imgData = overrides?.get(id) ?? decodeSprite(spriteData, id);
   if (!imgData) return null;
 
   ctx.clearRect(0, 0, 32, 32);

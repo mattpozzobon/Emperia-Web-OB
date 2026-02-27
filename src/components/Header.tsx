@@ -40,9 +40,30 @@ export function Header() {
     const objBuf = compileObjectData(objectData, dirtyIds);
     downloadFile(objBuf, 'emperia.eobj');
 
-    // Compile .espr (pass through unchanged)
-    const sprBuf = compileSpriteData(spriteData);
+    // Compile .espr (with any sprite overrides)
+    const spriteOverrides = useOBStore.getState().spriteOverrides;
+    const sprBuf = compileSpriteData(spriteData, spriteOverrides);
     downloadFile(sprBuf, 'emperia.espr');
+
+    // Write emperia.easset manifest (required by map editor)
+    const easset = JSON.stringify({
+      version: 1,
+      features: {
+        spriteDataSize: 4096,
+        transparency: true,
+        spriteSize: 32,
+        frameDurations: true,
+        extended: true,
+        frameGroups: true,
+      },
+      contentVersion: objectData.version,
+      format: 'emperia-asset-manifest',
+      files: {
+        sprites: 'emperia.espr',
+        objects: 'emperia.eobj',
+      },
+    }, null, 2);
+    downloadFile(new TextEncoder().encode(easset).buffer, 'emperia.easset');
 
     markClean();
   };
