@@ -12,14 +12,19 @@ export function ThingGrid() {
   const getCategoryRange = useOBStore((s) => s.getCategoryRange);
   const selectedId = useOBStore((s) => s.selectedThingId);
   const setSelectedId = useOBStore((s) => s.setSelectedThingId);
+  const selectedIds = useOBStore((s) => s.selectedThingIds);
+  const toggleSelection = useOBStore((s) => s.toggleThingSelection);
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
   const editVersion = useOBStore((s) => s.editVersion); // re-render on sprite replacement
+  const filterGroup = useOBStore((s) => s.filterGroup);
+  const itemDefinitions = useOBStore((s) => s.itemDefinitions);
+  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
 
   const things = useMemo(
-    () => getThingsForCategory(objectData, activeCategory, searchQuery, getCategoryRange),
+    () => getThingsForCategory(objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, clientToServerIds),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [objectData, activeCategory, searchQuery, getCategoryRange, editVersion],
+    [objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, clientToServerIds, editVersion],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -115,21 +120,44 @@ export function ThingGrid() {
             const url = spriteData ? getSpriteDataUrl(spriteData, firstSprite, spriteOverrides) : null;
             const isSelected = thing.id === selectedId;
             const displayId = objectData ? getDisplayId(objectData, thing.id) : thing.id;
+            const serverId = clientToServerIds?.get(thing.id);
+            const def = serverId != null ? itemDefinitions?.get(serverId) : undefined;
+            const itemName = def?.properties?.name;
+            const tooltip = itemName ? `#${displayId} — ${itemName}` : `#${displayId}`;
+
+            const isMultiSelected = selectedIds.has(thing.id);
 
             return (
               <button
                 key={thing.id}
-                onClick={() => setSelectedId(thing.id)}
+                onClick={(e) => {
+                  if (e.ctrlKey || e.metaKey) {
+                    toggleSelection(thing.id);
+                  } else if (e.shiftKey && selectedId != null) {
+                    const startIdx = things.findIndex((t) => t.id === selectedId);
+                    const endIdx = things.findIndex((t) => t.id === thing.id);
+                    if (startIdx >= 0 && endIdx >= 0) {
+                      const lo = Math.min(startIdx, endIdx);
+                      const hi = Math.max(startIdx, endIdx);
+                      const rangeIds = things.slice(lo, hi + 1).map((t) => t.id);
+                      toggleSelection(thing.id, rangeIds);
+                    }
+                  } else {
+                    setSelectedId(thing.id);
+                  }
+                }}
                 className={`
                   relative flex items-center justify-center
-                  border border-transparent transition-colors
+                  border transition-colors
                   ${isSelected
                     ? 'bg-emperia-accent/20 border-emperia-accent'
-                    : 'hover:bg-emperia-hover'
+                    : isMultiSelected
+                      ? 'bg-emperia-accent/10 border-emperia-accent/50'
+                      : 'border-transparent hover:bg-emperia-hover'
                   }
                 `}
                 style={{ width: CELL_SIZE, height: CELL_SIZE }}
-                title={`#${displayId}`}
+                title={tooltip}
               >
                 {url ? (
                   <img

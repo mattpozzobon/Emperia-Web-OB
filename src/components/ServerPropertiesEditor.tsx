@@ -147,9 +147,15 @@ const GROUP_OPTIONS = [
   { value: 0, label: '0 — Normal' },
   { value: 1, label: '1 — Ground' },
   { value: 2, label: '2 — Container' },
-  { value: 11, label: '11 — Splash' },
+  { value: 3, label: '3 — Weapon' },
+  { value: 4, label: '4 — Ammunition' },
+  { value: 5, label: '5 — Armor' },
+  { value: 6, label: '6 — Charges' },
+  { value: 7, label: '7 — Teleport' },
+  { value: 9, label: '9 — Write' },
+  { value: 10, label: '10 — Write Once' },
+  { value: 11, label: '11 — Fluid (Splash)' },
   { value: 12, label: '12 — Fluid Container' },
-  { value: 14, label: '14 — None / Unused' },
 ];
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -205,7 +211,6 @@ export function ServerPropertiesEditor() {
   const storedServerId = def?.serverId;
   const activeOtbNames = OTB_FLAG_NAMES.filter((_, i) => (storedFlags & (1 << i)) !== 0)
     .map((n) => n.replace('FLAG_', ''));
-  const groupLabel = GROUP_OPTIONS.find((o) => o.value === storedGroup)?.label ?? String(storedGroup);
 
   return (
     <div className="p-3 text-xs space-y-3 overflow-y-auto">
@@ -217,12 +222,23 @@ export function ServerPropertiesEditor() {
         )}
       </div>
 
-      {/* Stored flags & group from definitions.json (read-only) */}
-      <Section title="OTB Flags & Group (from definitions.json)">
+      {/* Stored flags & group from definitions.json */}
+      <Section title="OTB Flags & Group">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
             <span className="w-16 text-emperia-muted shrink-0">Group</span>
-            <span className="text-emperia-text font-mono text-[10px]">{groupLabel}</span>
+            <select
+              value={storedGroup}
+              onChange={(e) => {
+                const g = parseInt(e.target.value, 10);
+                if (selectedId != null) updateItemDefinition(selectedId, { group: g });
+              }}
+              className="flex-1 bg-emperia-bg border border-emperia-border rounded px-2 py-0.5 text-emperia-text text-xs"
+            >
+              {GROUP_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
           </div>
           <div className="flex items-center gap-2">
             <span className="w-16 text-emperia-muted shrink-0">Flags</span>
@@ -235,7 +251,7 @@ export function ServerPropertiesEditor() {
             </span>
           </div>
           <p className="text-[9px] text-emperia-muted/50 mt-1">
-            Imported from definitions.json. New items use flags derived from the Properties tab.
+            Groups 1 (Ground), 2 (Container), 11 (Splash), 12 (Fluid) are used by the server for gameplay logic.
           </p>
         </div>
       </Section>

@@ -129,7 +129,11 @@ interface OBState {
   // UI state
   activeCategory: ThingCategory;
   selectedThingId: number | null;
+  /** Multi-select set (Ctrl+click / Shift+click in ThingGrid) */
+  selectedThingIds: Set<number>;
   searchQuery: string;
+  /** Filter items by group (-1 = all) */
+  filterGroup: number;
   /** Bumped on every edit to force re-render of dependent components */
   editVersion: number;
   /** Set by preview click to tell atlas to scroll to this sprite */
@@ -141,7 +145,10 @@ interface OBState {
   setSourceDir: (dir: FileSystemDirectoryHandle, names: OBState['sourceNames']) => void;
   setActiveCategory: (cat: ThingCategory) => void;
   setSelectedThingId: (id: number | null) => void;
+  toggleThingSelection: (id: number, range?: number[]) => void;
+  clearThingSelection: () => void;
   setSearchQuery: (q: string) => void;
+  setFilterGroup: (g: number) => void;
   reset: () => void;
 
   // Edit actions
@@ -186,7 +193,9 @@ export const useOBStore = create<OBState>((set, get) => ({
 
   activeCategory: 'item',
   selectedThingId: null,
+  selectedThingIds: new Set(),
   searchQuery: '',
+  filterGroup: -1,
   editVersion: 0,
   focusSpriteId: null,
 
@@ -202,6 +211,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         loaded: true,
         loading: false,
         selectedThingId: 100,
+        selectedThingIds: new Set(),
         activeCategory: 'item',
         dirty: false,
         dirtyIds: new Set(),
@@ -254,12 +264,28 @@ export const useOBStore = create<OBState>((set, get) => ({
     set({
       activeCategory: cat,
       selectedThingId: range ? range.start : null,
+      selectedThingIds: new Set(),
       searchQuery: '',
+      filterGroup: -1,
     });
   },
 
-  setSelectedThingId: (id) => set({ selectedThingId: id }),
+  setSelectedThingId: (id) => set({ selectedThingId: id, selectedThingIds: new Set() }),
+  toggleThingSelection: (id, range) => {
+    const prev = get().selectedThingIds;
+    const next = new Set(prev);
+    if (range) {
+      // Shift+click: add entire range
+      for (const rid of range) next.add(rid);
+    } else {
+      // Ctrl+click: toggle single
+      if (next.has(id)) next.delete(id); else next.add(id);
+    }
+    set({ selectedThingIds: next, selectedThingId: id });
+  },
+  clearThingSelection: () => set({ selectedThingIds: new Set() }),
   setSearchQuery: (q) => set({ searchQuery: q }),
+  setFilterGroup: (g) => set({ filterGroup: g }),
 
   reset: () => {
     clearSpriteCache();
@@ -272,6 +298,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       activeCategory: 'item',
       selectedThingId: null,
       searchQuery: '',
+      filterGroup: -1,
       dirty: false,
       dirtyIds: new Set(),
       undoStack: [],
@@ -717,22 +744,47 @@ export function getThingsForCategory(
   objectData: ObjectData | null,
   activeCategory: ThingCategory,
   searchQuery: string,
+  filterGroup: number,
   getCategoryRange: (cat: ThingCategory) => { start: number; end: number } | null,
+  itemDefinitions?: Map<number, ServerItemData>,
+  clientToServerIds?: Map<number, number>,
 ): ThingType[] {
   if (!objectData) return [];
   const range = getCategoryRange(activeCategory);
   if (!range) return [];
 
+  const q = searchQuery.trim().toLowerCase();
   const things: ThingType[] = [];
   for (let id = range.start; id <= range.end; id++) {
     const thing = objectData.things.get(id);
-    if (thing) {
-      if (searchQuery) {
-        const displayId = getDisplayId(objectData, id);
-        if (!displayId.toString().includes(searchQuery)) continue;
-      }
-      things.push(thing);
+    if (!thing) continue;
+
+    // Group filter (only for items with definitions loaded)
+    if (filterGroup >= 0 && clientToServerIds && itemDefinitions) {
+      const serverId = clientToServerIds.get(id);
+      const def = serverId != null ? itemDefinitions.get(serverId) : undefined;
+      if (!def || def.group !== filterGroup) continue;
     }
+
+    // Search filter: match by client ID, server ID, or name
+    if (q) {
+      const displayId = getDisplayId(objectData, id);
+      const idStr = displayId.toString();
+      let match = idStr.includes(q);
+      if (!match && clientToServerIds && itemDefinitions) {
+        const serverId = clientToServerIds.get(id);
+        if (serverId != null) {
+          if (serverId.toString().includes(q)) match = true;
+          const def = itemDefinitions.get(serverId);
+          if (!match && def?.properties?.name) {
+            match = def.properties.name.toLowerCase().includes(q);
+          }
+        }
+      }
+      if (!match) continue;
+    }
+
+    things.push(thing);
   }
   return things;
 }
