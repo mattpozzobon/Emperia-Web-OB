@@ -70,6 +70,7 @@ interface OBState {
   addThing: (cat: ThingCategory) => number | null;
   removeThing: (id: number) => void;
   importThing: (cat: ThingCategory, flags: ThingFlags, frameGroups: FrameGroup[], spritePixels: Map<number, ImageData>) => number | null;
+  replaceThing: (targetId: number, flags: ThingFlags, frameGroups: FrameGroup[], spritePixels: Map<number, ImageData>) => boolean;
   undo: () => void;
   redo: () => void;
   markClean: () => void;
@@ -568,6 +569,62 @@ export const useOBStore = create<OBState>((set, get) => ({
     });
 
     return newId;
+  },
+
+  replaceThing: (targetId, flags, frameGroups, spritePixels) => {
+    const { objectData, spriteData, editVersion, spriteOverrides, dirtySpriteIds } = get();
+    if (!objectData || !spriteData) return false;
+
+    const existing = objectData.things.get(targetId);
+    if (!existing) return false;
+
+    // Step 1: Remap sprite IDs to new IDs (same as importThing)
+    const newOverrides = new Map(spriteOverrides);
+    const newDirtySpriteIds = new Set(dirtySpriteIds);
+    const idRemap = new Map<number, number>();
+
+    for (const [oldId, imgData] of spritePixels) {
+      if (oldId === 0) continue;
+      if (idRemap.has(oldId)) continue;
+      spriteData.spriteCount++;
+      const newSpriteId = spriteData.spriteCount;
+      idRemap.set(oldId, newSpriteId);
+      newOverrides.set(newSpriteId, imgData);
+      newDirtySpriteIds.add(newSpriteId);
+    }
+
+    // Step 2: Clone frame groups with remapped sprite IDs
+    const remappedGroups = frameGroups.map((fg, i) => ({
+      ...fg,
+      type: i,
+      sprites: fg.sprites.map(sid => sid === 0 ? 0 : (idRemap.get(sid) ?? sid)),
+      animationLengths: fg.animationLengths.map(d => ({ ...d })),
+    }));
+
+    // Step 3: Overwrite the existing thing in-place (same ID and category)
+    const replacedThing: ThingType = {
+      id: targetId,
+      category: existing.category,
+      flags: { ...flags },
+      frameGroups: remappedGroups,
+    };
+
+    objectData.things.set(targetId, replacedThing);
+
+    const newDirtyIds = new Set(get().dirtyIds);
+    newDirtyIds.add(targetId);
+
+    clearSpriteCache();
+
+    set({
+      dirty: true,
+      dirtyIds: newDirtyIds,
+      spriteOverrides: newOverrides,
+      dirtySpriteIds: newDirtySpriteIds,
+      editVersion: editVersion + 1,
+    });
+
+    return true;
   },
 
   markClean: () => set({ dirty: false, dirtyIds: new Set(), dirtySpriteIds: new Set() }),

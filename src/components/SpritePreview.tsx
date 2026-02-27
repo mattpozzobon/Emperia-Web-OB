@@ -295,12 +295,28 @@ export function SpritePreview() {
       try {
         const buf = new Uint8Array(reader.result as ArrayBuffer);
         const result = decodeOBD(buf);
-        const importThing = useOBStore.getState().importThing;
-        const newId = importThing(result.category, result.flags, result.frameGroups, result.spritePixels);
-        if (newId != null) {
-          const od = useOBStore.getState().objectData;
-          const dId = od ? getDisplayId(od, newId) : newId;
-          alert(`Imported ${result.category} #${dId} with ${result.spritePixels.size} sprites.`);
+        const state = useOBStore.getState();
+        const selectedId = state.selectedThingId;
+        const existingThing = selectedId != null ? state.objectData?.things.get(selectedId) : null;
+
+        if (selectedId != null && existingThing && existingThing.category === result.category) {
+          // Replace the currently selected thing in-place
+          const ok = state.replaceThing(selectedId, result.flags, result.frameGroups, result.spritePixels);
+          if (ok) {
+            const od = useOBStore.getState().objectData;
+            const dId = od ? getDisplayId(od, selectedId) : selectedId;
+            alert(`Replaced ${result.category} #${dId} with ${result.spritePixels.size} sprites.`);
+          } else {
+            alert('Replace failed — could not overwrite selected thing.');
+          }
+        } else {
+          // No selection or category mismatch — append as new
+          const newId = state.importThing(result.category, result.flags, result.frameGroups, result.spritePixels);
+          if (newId != null) {
+            const od = useOBStore.getState().objectData;
+            const dId = od ? getDisplayId(od, newId) : newId;
+            alert(`Imported ${result.category} #${dId} with ${result.spritePixels.size} sprites.`);
+          }
         }
       } catch (err) {
         alert(`Import failed: ${err instanceof Error ? err.message : err}`);
