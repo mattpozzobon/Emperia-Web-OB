@@ -37,6 +37,8 @@ interface OBState {
   searchQuery: string;
   /** Bumped on every edit to force re-render of dependent components */
   editVersion: number;
+  /** Set by preview click to tell atlas to scroll to this sprite */
+  focusSpriteId: number | null;
 
   // Actions
   loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => void;
@@ -74,6 +76,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   selectedThingId: null,
   searchQuery: '',
   editVersion: 0,
+  focusSpriteId: null,
 
   loadFiles: (objBuffer, sprBuffer) => {
     set({ loading: true, error: null });
@@ -95,6 +98,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         spriteOverrides: new Map(),
         dirtySpriteIds: new Set(),
         editVersion: 0,
+  focusSpriteId: null,
       });
     } catch (e) {
       set({
@@ -134,6 +138,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       spriteOverrides: new Map(),
       dirtySpriteIds: new Set(),
       editVersion: 0,
+  focusSpriteId: null,
     });
   },
 

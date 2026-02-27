@@ -22,6 +22,9 @@ export function SpritePreview() {
   const [showCropSize, setShowCropSize] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [dragTile, setDragTile] = useState<{ col: number; row: number } | null>(null);
+  const [activeLayer, setActiveLayer] = useState(0);
+  const [activeZ, setActiveZ] = useState(0);
+  const [blendLayers, setBlendLayers] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameTimerRef = useRef<number>(0);
@@ -31,6 +34,8 @@ export function SpritePreview() {
     setActiveGroup(0);
     setCurrentFrame(0);
     setPlaying(false);
+    setActiveLayer(0);
+    setActiveZ(0);
   }, [selectedId]);
 
   const group: FrameGroup | null = thing?.frameGroups[activeGroup] ?? null;
@@ -50,23 +55,38 @@ export function SpritePreview() {
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, totalW, totalH);
 
-    // Render each pattern combination (layer 0, zPattern 0)
-    for (let py = 0; py < group.patternY; py++) {
-      for (let px = 0; px < group.patternX; px++) {
-        const baseX = px * cellW;
-        const baseY = py * cellH;
+    // Determine which layers to render
+    const layersToRender = blendLayers
+      ? Array.from({ length: group.layers }, (_, i) => i)
+      : [activeLayer];
 
-        for (let ty = 0; ty < group.height; ty++) {
-          for (let tx = 0; tx < group.width; tx++) {
-            const idx = getSpriteIndex(group, frame, px, py, 0, 0, tx, ty);
-            if (idx < group.sprites.length) {
-              const spriteId = group.sprites[idx];
-              if (spriteId > 0) {
-                const imgData = spriteOverrides.get(spriteId) ?? decodeSprite(spriteData, spriteId);
-                if (imgData) {
-                  const dx = baseX + (group.width - 1 - tx) * 32;
-                  const dy = baseY + (group.height - 1 - ty) * 32;
-                  ctx.putImageData(imgData, dx, dy);
+    // Render each pattern combination with the selected layer(s) and zPattern
+    for (const layer of layersToRender) {
+      for (let py = 0; py < group.patternY; py++) {
+        for (let px = 0; px < group.patternX; px++) {
+          const baseX = px * cellW;
+          const baseY = py * cellH;
+
+          for (let ty = 0; ty < group.height; ty++) {
+            for (let tx = 0; tx < group.width; tx++) {
+              const idx = getSpriteIndex(group, frame, px, py, activeZ, layer, tx, ty);
+              if (idx < group.sprites.length) {
+                const spriteId = group.sprites[idx];
+                if (spriteId > 0) {
+                  const imgData = spriteOverrides.get(spriteId) ?? decodeSprite(spriteData, spriteId);
+                  if (imgData) {
+                    const dx = baseX + (group.width - 1 - tx) * 32;
+                    const dy = baseY + (group.height - 1 - ty) * 32;
+                    // For blended layers, draw via a temp canvas to preserve alpha compositing
+                    if (blendLayers && layer > 0) {
+                      const tmp = document.createElement('canvas');
+                      tmp.width = 32; tmp.height = 32;
+                      tmp.getContext('2d')!.putImageData(imgData, 0, 0);
+                      ctx.drawImage(tmp, dx, dy);
+                    } else {
+                      ctx.putImageData(imgData, dx, dy);
+                    }
+                  }
                 }
               }
             }
@@ -74,7 +94,7 @@ export function SpritePreview() {
         }
       }
     }
-  }, [group, spriteData, spriteOverrides]);
+  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers]);
 
   useEffect(() => {
     renderFrame(currentFrame);
@@ -119,9 +139,9 @@ export function SpritePreview() {
     const tx = group.width - 1 - (tileCol % group.width);
     const ty = group.height - 1 - (tileRow % group.height);
 
-    const idx = getSpriteIndex(group, currentFrame, px, py, 0, 0, tx, ty);
+    const idx = getSpriteIndex(group, currentFrame, px, py, activeZ, activeLayer, tx, ty);
     return idx < group.sprites.length ? group.sprites[idx] : 0;
-  }, [group, zoom, currentFrame]);
+  }, [group, zoom, currentFrame, activeLayer, activeZ]);
 
   const handleImageFiles = useCallback((files: FileList, dropX?: number, dropY?: number) => {
     if (!group || !spriteData) return;
@@ -257,6 +277,13 @@ export function SpritePreview() {
         >
           <canvas
             ref={canvasRef}
+            className="cursor-pointer"
+            onClick={(e) => {
+              const spriteId = getSpriteAtPosition(e.clientX, e.clientY);
+              if (spriteId > 0) {
+                useOBStore.setState({ focusSpriteId: spriteId });
+              }
+            }}
             style={{
               width: (group ? group.patternX * group.width : 1) * 32 * zoom,
               height: (group ? group.patternY * group.height : 1) * 32 * zoom,
@@ -369,7 +396,7 @@ export function SpritePreview() {
           {thing.frameGroups.map((_, i) => (
             <button
               key={i}
-              onClick={() => { setActiveGroup(i); setCurrentFrame(0); setPlaying(false); }}
+              onClick={() => { setActiveGroup(i); setCurrentFrame(0); setPlaying(false); setActiveLayer(0); setActiveZ(0); }}
               className={`px-2 py-0.5 rounded text-[10px] transition-colors
                 ${activeGroup === i ? 'bg-emperia-accent text-white' : 'bg-emperia-surface text-emperia-muted hover:bg-emperia-hover'}
               `}
@@ -377,6 +404,149 @@ export function SpritePreview() {
               {i === 0 ? 'Idle' : i === 1 ? 'Moving' : `Group ${i}`}
             </button>
           ))}
+        </div>
+      )}
+
+      {/* Animation / Layer / Z controls */}
+      {group && (group.animationLength > 1 || group.layers > 1 || group.patternZ > 1) && (
+        <div className="border-t border-emperia-border">
+          <div className="px-4 py-1.5 bg-emperia-surface/50">
+            <span className="text-[10px] font-medium text-emperia-text uppercase tracking-wider">Animation</span>
+          </div>
+          <div className="px-4 py-2">
+            <table className="w-full text-[10px]" style={{ borderSpacing: '0 3px', borderCollapse: 'separate' }}>
+              <tbody>
+                {/* Frame stepper */}
+                {group.animationLength > 1 && (
+                  <tr>
+                    <td className="text-emperia-muted text-right pr-2 w-24">Frame:</td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <StepperBtn onClick={() => { setCurrentFrame((currentFrame - 1 + group.animationLength) % group.animationLength); setPlaying(false); }}>‹</StepperBtn>
+                        <span className="text-emperia-text font-mono w-10 text-center">{currentFrame + 1}/{group.animationLength}</span>
+                        <StepperBtn onClick={() => { setCurrentFrame((currentFrame + 1) % group.animationLength); setPlaying(false); }}>›</StepperBtn>
+                        <button
+                          onClick={() => setPlaying(!playing)}
+                          className={`ml-1 px-2 py-0.5 rounded text-[10px] transition-colors ${playing ? 'bg-emperia-accent text-white' : 'bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text'}`}
+                        >{playing ? 'Stop' : 'Play'}</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {/* Layer stepper */}
+                {group.layers > 1 && (
+                  <tr>
+                    <td className="text-emperia-muted text-right pr-2">Layer:</td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <StepperBtn onClick={() => setActiveLayer(Math.max(0, activeLayer - 1))} disabled={blendLayers}>‹</StepperBtn>
+                        <span className={`font-mono w-10 text-center ${blendLayers ? 'text-emperia-muted' : 'text-emperia-text'}`}>
+                          {blendLayers ? 'All' : `${activeLayer + 1}/${group.layers}`}
+                        </span>
+                        <StepperBtn onClick={() => setActiveLayer(Math.min(group.layers - 1, activeLayer + 1))} disabled={blendLayers}>›</StepperBtn>
+                        <label className="flex items-center gap-1 cursor-pointer ml-1">
+                          <input type="checkbox" checked={blendLayers} onChange={() => setBlendLayers(!blendLayers)} className="w-3 h-3 accent-emperia-accent" />
+                          <span className="text-emperia-muted">Blend</span>
+                        </label>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {/* Pattern Z stepper */}
+                {group.patternZ > 1 && (
+                  <tr>
+                    <td className="text-emperia-muted text-right pr-2">Pattern Z:</td>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <StepperBtn onClick={() => setActiveZ(Math.max(0, activeZ - 1))}>‹</StepperBtn>
+                        <span className="text-emperia-text font-mono w-10 text-center">{activeZ + 1}/{group.patternZ}</span>
+                        <StepperBtn onClick={() => setActiveZ(Math.min(group.patternZ - 1, activeZ + 1))}>›</StepperBtn>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+
+                {/* Animation config */}
+                {group.animationLength > 1 && (
+                  <>
+                    <tr><td colSpan={2}><div className="border-t border-emperia-border/40 my-0.5" /></td></tr>
+
+                    <tr>
+                      <td className="text-emperia-muted text-right pr-2">Anim mode:</td>
+                      <td>
+                        <select
+                          value={group.asynchronous}
+                          onChange={(e) => updateFrameGroupProp('asynchronous', Number(e.target.value))}
+                          className="w-full px-1.5 py-0.5 bg-emperia-surface border border-emperia-border rounded text-[10px] text-emperia-text outline-none focus:border-emperia-accent"
+                        >
+                          <option value={0}>Synchronous</option>
+                          <option value={1}>Asynchronous</option>
+                        </select>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="text-emperia-muted text-right pr-2">Loop count:</td>
+                      <td>
+                        <NumInput value={group.nLoop} min={0} max={255} onChange={(v) => updateFrameGroupProp('nLoop', v)} />
+                      </td>
+                    </tr>
+                    <tr>
+                      <td className="text-emperia-muted text-right pr-2">Start frame:</td>
+                      <td>
+                        <NumInput value={group.start} min={0} max={group.animationLength - 1} onChange={(v) => updateFrameGroupProp('start', v)} />
+                      </td>
+                    </tr>
+
+                    {/* Per-frame durations */}
+                    {group.animationLengths[currentFrame] && (
+                      <>
+                        <tr><td colSpan={2}><div className="border-t border-emperia-border/40 my-0.5" /></td></tr>
+                        <tr>
+                          <td className="text-emperia-muted text-right pr-2">Min (ms):</td>
+                          <td>
+                            <NumInput
+                              value={group.animationLengths[currentFrame].min}
+                              min={0} max={65535}
+                              onChange={(v) => {
+                                group.animationLengths[currentFrame].min = v;
+                                thing!.rawBytes = undefined;
+                                const store = useOBStore.getState();
+                                const ids = new Set(store.dirtyIds); ids.add(thing!.id);
+                                useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
+                              }}
+                            />
+                          </td>
+                        </tr>
+                        <tr>
+                          <td className="text-emperia-muted text-right pr-2">Max (ms):</td>
+                          <td>
+                            <NumInput
+                              value={group.animationLengths[currentFrame].max}
+                              min={0} max={65535}
+                              onChange={(v) => {
+                                group.animationLengths[currentFrame].max = v;
+                                thing!.rawBytes = undefined;
+                                const store = useOBStore.getState();
+                                const ids = new Set(store.dirtyIds); ids.add(thing!.id);
+                                useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
+                              }}
+                            />
+                          </td>
+                        </tr>
+                        <tr>
+                          <td colSpan={2} className="text-emperia-muted/60 text-right pt-0.5">
+                            Frame {currentFrame + 1} of {group.animationLength}
+                          </td>
+                        </tr>
+                      </>
+                    )}
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -450,6 +620,32 @@ function ParamField({
         </div>
       )}
     </div>
+  );
+}
+
+function StepperBtn({ onClick, disabled, children }: { onClick: () => void; disabled?: boolean; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="w-5 h-5 flex items-center justify-center rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text text-[10px] disabled:opacity-30"
+    >{children}</button>
+  );
+}
+
+function NumInput({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (v: number) => void }) {
+  return (
+    <input
+      type="number"
+      value={value}
+      min={min}
+      max={max}
+      onChange={(e) => {
+        const v = parseInt(e.target.value, 10);
+        if (!isNaN(v)) onChange(Math.max(min, Math.min(max, v)));
+      }}
+      className="w-16 px-1.5 py-0.5 bg-emperia-surface border border-emperia-border rounded text-[10px] text-emperia-text font-mono text-right outline-none focus:border-emperia-accent"
+    />
   );
 }
 

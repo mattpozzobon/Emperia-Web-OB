@@ -11,17 +11,36 @@ export function ThingSpriteGrid() {
   const objectData = useOBStore((s) => s.objectData);
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
+  const focusSpriteId = useOBStore((s) => s.focusSpriteId);
 
   const [selectedSlot, setSelectedSlot] = useState<{ group: number; index: number } | null>(null);
   const [atlasSearch, setAtlasSearch] = useState('');
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
+  const [highlightedSpriteId, setHighlightedSpriteId] = useState<number | null>(null);
   const atlasRef = useRef<HTMLDivElement>(null);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
 
   // Reset slot selection when thing changes
   useEffect(() => { setSelectedSlot(null); }, [selectedId]);
+
+  // Scroll atlas to focusSpriteId when preview is clicked
+  useEffect(() => {
+    if (focusSpriteId != null && focusSpriteId > 0 && atlasRef.current && spriteData) {
+      // Clear search so atlas shows all sprites
+      setAtlasSearch('');
+      // Scroll to the sprite (it's at index focusSpriteId-1 in the full list)
+      const idx = focusSpriteId - 1;
+      const row = Math.floor(idx / ATLAS_COLS);
+      atlasRef.current.scrollTop = row * CELL;
+      setHighlightedSpriteId(focusSpriteId);
+      // Clear the focus so it can be triggered again
+      useOBStore.setState({ focusSpriteId: null });
+      // Clear highlight after a moment
+      setTimeout(() => setHighlightedSpriteId(null), 2000);
+    }
+  }, [focusSpriteId, spriteData]);
 
   const editVersion = useOBStore((s) => s.editVersion);
 
@@ -218,12 +237,19 @@ export function ThingSpriteGrid() {
               {visibleAtlas.map((spriteId) => {
                 const url = getSpriteDataUrl(spriteData, spriteId, spriteOverrides);
 
+                const isHighlighted = spriteId === highlightedSpriteId;
+
                 return (
                   <button
                     key={spriteId}
                     onClick={() => handleAtlasClick(spriteId)}
-                    className={`relative flex items-center justify-center border border-transparent transition-colors
-                      ${selectedSlot ? 'hover:bg-emperia-accent/10 hover:border-emperia-accent/30 cursor-pointer' : 'cursor-default'}
+                    className={`relative flex items-center justify-center border transition-colors
+                      ${isHighlighted
+                        ? 'border-green-400 bg-green-400/20'
+                        : selectedSlot
+                          ? 'border-transparent hover:bg-emperia-accent/10 hover:border-emperia-accent/30 cursor-pointer'
+                          : 'border-transparent cursor-default'
+                      }
                     `}
                     style={{ width: CELL, height: CELL }}
                     title={`#${spriteId}`}
