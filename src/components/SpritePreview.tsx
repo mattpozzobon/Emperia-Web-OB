@@ -7,8 +7,8 @@ import { encodeOBD, decodeOBD } from '../lib/obd';
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 import type { FrameGroup } from '../lib/types';
 
-const DIRECTION_LABELS = ['North', 'East', 'South', 'West'];
-const DIRECTION_ARROWS = ['↑', '→', '↓', '←'];
+const DIRECTION_LABELS = ['North', 'East', 'South', 'West', 'NE', 'SE', 'SW', 'NW'];
+const DIRECTION_ARROWS = ['↑', '→', '↓', '←', '↗', '↘', '↙', '↖'];
 
 export function SpritePreview() {
   const selectedId = useOBStore((s) => s.selectedThingId);
@@ -470,6 +470,138 @@ export function SpritePreview() {
 
       {/* Sprite preview area */}
       <div className="flex-1 flex items-center justify-center overflow-auto min-h-0">
+        {(() => {
+          // Determine if we should show spatial direction buttons
+          // Outfits: patternX=4, patternY=1 → 4 cardinal dirs (N/E/S/W)
+          // Distance effects: patternX=3, patternY=3 → 8 dirs (cardinals + diagonals)
+          const px = group?.patternX ?? 0;
+          const py = group?.patternY ?? 0;
+          const isDistanceGrid = isDistance && px >= 3 && py >= 3;
+          const isOutfitDirs = (isOutfit || isEffect) && px > 1 && px <= 4;
+          const showDirButtons = previewMode && group && (isDistanceGrid || isOutfitDirs);
+
+          // Grid cell definition: { px, py, label, arrow } or 'canvas' or null
+          type DirCell = { px: number; py: number; label: string; arrow: string } | 'canvas' | null;
+
+          // Distance: 3×3 patternX×patternY grid
+          // Outfit: 4-dir patternX only (py always 0)
+          const gridCells: DirCell[] = showDirButtons
+            ? isDistanceGrid
+              ? [
+                  { px: 0, py: 0, label: 'NW', arrow: '↖' }, { px: 1, py: 0, label: 'N', arrow: '↑' },  { px: 2, py: 0, label: 'NE', arrow: '↗' },
+                  { px: 0, py: 1, label: 'W', arrow: '←' },  'canvas' as const,                           { px: 2, py: 1, label: 'E', arrow: '→' },
+                  { px: 0, py: 2, label: 'SW', arrow: '↙' }, { px: 1, py: 2, label: 'S', arrow: '↓' },  { px: 2, py: 2, label: 'SE', arrow: '↘' },
+                ]
+              : [
+                  null,                                         { px: 0, py: 0, label: 'N', arrow: '↑' },  null,
+                  { px: 3, py: 0, label: 'W', arrow: '←' },   'canvas' as const,                          { px: 1, py: 0, label: 'E', arrow: '→' },
+                  null,                                         { px: 2, py: 0, label: 'S', arrow: '↓' },  null,
+                ]
+            : [];
+
+          const dirBtn = (cell: { px: number; py: number; label: string; arrow: string }, i: number) => (
+            <button
+              key={`dir-${i}`}
+              onClick={() => { setActiveDirection(cell.px); setActivePatternY(cell.py); }}
+              className={`w-9 h-9 flex items-center justify-center rounded-lg text-sm font-bold transition-colors ${
+                activeDirection === cell.px && activePatternY === cell.py
+                  ? 'bg-emperia-accent text-white shadow-lg shadow-emperia-accent/30'
+                  : 'bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'
+              }`}
+              title={cell.label}
+            >{cell.arrow}</button>
+          );
+
+          const canvasEl = (
+            <div
+              className={`checkerboard rounded-lg border relative transition-colors
+                ${dragOver ? 'border-emperia-accent border-2' : 'border-emperia-border'}`}
+              style={{ padding: 8 }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+                if (canvasRef.current && group) {
+                  const rect = canvasRef.current.getBoundingClientRect();
+                  const col = Math.floor((e.clientX - rect.left) / (32 * zoom));
+                  const row = Math.floor((e.clientY - rect.top) / (32 * zoom));
+                  const totalCols = renderedPxCount * group.width;
+                  const totalRows = renderedPyCount * group.height;
+                  if (col >= 0 && col < totalCols && row >= 0 && row < totalRows) {
+                    setDragTile({ col, row });
+                  } else {
+                    setDragTile(null);
+                  }
+                }
+              }}
+              onDragLeave={() => { setDragOver(false); setDragTile(null); }}
+              onDrop={(e) => { setDragTile(null); handleDrop(e); }}
+            >
+              <canvas
+                ref={canvasRef}
+                className="cursor-pointer"
+                onClick={(e) => {
+                  const spriteId = getSpriteAtPosition(e.clientX, e.clientY);
+                  if (spriteId > 0) {
+                    useOBStore.setState({ focusSpriteId: spriteId });
+                  }
+                }}
+                style={{
+                  width: (group ? renderedPxCount * group.width : 1) * 32 * zoom,
+                  height: (group ? renderedPyCount * group.height : 1) * 32 * zoom,
+                  imageRendering: 'pixelated',
+                }}
+              />
+              {showGrid && group && (
+                <div
+                  className="absolute inset-2 pointer-events-none"
+                  style={{
+                    backgroundImage: `
+                      repeating-linear-gradient(0deg, rgba(255,255,255,0.15), rgba(255,255,255,0.15) 1px, transparent 1px, transparent ${32 * zoom}px),
+                      repeating-linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.15) 1px, transparent 1px, transparent ${32 * zoom}px)
+                    `,
+                    backgroundSize: `${32 * zoom}px ${32 * zoom}px`,
+                  }}
+                />
+              )}
+              {showCropSize && group && (
+                <div
+                  className="absolute pointer-events-none border border-yellow-400/60"
+                  style={{
+                    bottom: 8,
+                    left: 8,
+                    width: group.width * 32 * zoom,
+                    height: group.height * 32 * zoom,
+                  }}
+                />
+              )}
+              {dragOver && !dragTile && (
+                <div className="absolute inset-0 flex items-center justify-center bg-emperia-accent/10 rounded-lg pointer-events-none">
+                  <span className="text-emperia-accent text-xs font-medium">Drop PNG to replace</span>
+                </div>
+              )}
+              {dragTile && (
+                <div
+                  className="absolute pointer-events-none border-2 border-emperia-accent bg-emperia-accent/15 rounded-sm"
+                  style={{
+                    left: 8 + dragTile.col * 32 * zoom,
+                    top: 8 + dragTile.row * 32 * zoom,
+                    width: 32 * zoom,
+                    height: 32 * zoom,
+                  }}
+                />
+              )}
+            </div>
+          );
+
+          return showDirButtons ? (
+          <div className="grid gap-1" style={{ gridTemplateColumns: 'auto auto auto', gridTemplateRows: 'auto auto auto', justifyItems: 'center', alignItems: 'center' }}>
+            {gridCells.map((cell, i) =>
+              cell === 'canvas' ? <div key="canvas">{canvasEl}</div>
+              : cell != null ? dirBtn(cell, i)
+              : <div key={`empty-${i}`} className="w-9 h-9" />
+            )}
+          </div>
+        ) : (
         <div
           className={`checkerboard rounded-lg border relative transition-colors
             ${dragOver ? 'border-emperia-accent border-2' : 'border-emperia-border'}`}
@@ -548,6 +680,7 @@ export function SpritePreview() {
             />
           )}
         </div>
+        )})()}
       </div>
 
       {/* Toolbar */}
@@ -710,275 +843,219 @@ export function SpritePreview() {
         )}
       </div>
 
-      {/* Offset section */}
-      {group && thing.flags.hasDisplacement && (
-        <div className="flex items-center justify-end px-4 py-1.5 gap-4 border-t border-emperia-border">
-          <ParamField label="Offset X" value={thing.flags.displacementX ?? 0} readOnly />
-          <ParamField label="Offset Y" value={thing.flags.displacementY ?? 0} readOnly />
-        </div>
-      )}
-
-      {/* Frame group selector */}
-      {thing.frameGroups.length > 1 && (
+      {/* Frame group selector — always shown for outfits, or when multiple groups exist */}
+      {(thing.frameGroups.length > 1 || isOutfit) && (
         <div className="flex items-center justify-center px-4 py-1.5 gap-1 border-t border-emperia-border">
           {thing.frameGroups.map((_, i) => (
             <button
               key={i}
               onClick={() => { setActiveGroup(i); setCurrentFrame(0); setPlaying(false); setActiveLayer(0); setActiveZ(0); }}
-              className={`px-2 py-0.5 rounded text-[10px] transition-colors
-                ${activeGroup === i ? 'bg-emperia-accent text-white' : 'bg-emperia-surface text-emperia-muted hover:bg-emperia-hover'}
+              className={`px-3 py-1 rounded text-[11px] font-medium transition-colors
+                ${activeGroup === i ? 'bg-emperia-accent text-white' : 'bg-emperia-surface text-emperia-muted hover:bg-emperia-hover border border-emperia-border'}
               `}
             >
               {i === 0 ? 'Idle' : i === 1 ? 'Moving' : `Group ${i}`}
             </button>
           ))}
+          <span className="text-[9px] text-emperia-muted/50 ml-2">{thing.frameGroups.length} group{thing.frameGroups.length !== 1 ? 's' : ''}</span>
         </div>
       )}
 
-      {/* Animation / Layer / Z / Direction / Color controls */}
-      {group && (group.animationLength > 1 || group.layers > 1 || group.patternZ > 1 || (previewMode && (group.patternX > 1 || group.patternY > 1)) || isOutfit) && (
-        <div className="border-t border-emperia-border">
-          <div className="px-4 py-1.5 bg-emperia-surface/50">
-            <span className="text-[10px] font-medium text-emperia-text uppercase tracking-wider">
-              {isOutfit ? 'Outfit' : isEffect ? 'Effect' : isDistance ? 'Distance' : 'Animation'}
-            </span>
-          </div>
-          <div className="px-4 py-2">
-            <table className="w-full text-[10px]" style={{ borderSpacing: '0 3px', borderCollapse: 'separate' }}>
-              <tbody>
-                {/* Direction (Pattern X) — in preview mode for outfits/creatures */}
-                {previewMode && group.patternX > 1 && (
-                  <tr>
-                    <td className="text-emperia-muted text-right pr-2 w-24">Direction:</td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        {Array.from({ length: Math.min(group.patternX, 4) }, (_, i) => (
-                          <button
-                            key={i}
-                            onClick={() => setActiveDirection(i)}
-                            className={`w-6 h-5 flex items-center justify-center rounded text-[10px] transition-colors ${
-                              activeDirection === i
-                                ? 'bg-emperia-accent text-white'
-                                : 'bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text'
-                            }`}
-                            title={DIRECTION_LABELS[i] ?? `Dir ${i}`}
-                          >{DIRECTION_ARROWS[i] ?? i}</button>
-                        ))}
-                        {group.patternX > 4 && (
-                          <>
-                            <StepperBtn onClick={() => setActiveDirection(Math.max(0, activeDirection - 1))}>‹</StepperBtn>
-                            <span className="text-emperia-text font-mono w-10 text-center">{activeDirection + 1}/{group.patternX}</span>
-                            <StepperBtn onClick={() => setActiveDirection(Math.min(group.patternX - 1, activeDirection + 1))}>›</StepperBtn>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-
-                {/* Pattern Y — addons for outfits, or generic pattern Y */}
-                {previewMode && group.patternY > 1 && (
-                  <tr>
-                    <td className="text-emperia-muted text-right pr-2">{isOutfit ? 'Addon:' : 'Pattern Y:'}</td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        <StepperBtn onClick={() => setActivePatternY(Math.max(0, activePatternY - 1))}>‹</StepperBtn>
-                        <span className="text-emperia-text font-mono w-10 text-center">
-                          {isOutfit ? (activePatternY === 0 ? 'None' : `#${activePatternY}`) : `${activePatternY + 1}/${group.patternY}`}
-                        </span>
-                        <StepperBtn onClick={() => setActivePatternY(Math.min(group.patternY - 1, activePatternY + 1))}>›</StepperBtn>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-
-                {/* Frame stepper */}
-                {group.animationLength > 1 && (
-                  <tr>
-                    <td className="text-emperia-muted text-right pr-2 w-24">Frame:</td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        <StepperBtn onClick={() => { setCurrentFrame((currentFrame - 1 + group.animationLength) % group.animationLength); setPlaying(false); }}>‹</StepperBtn>
-                        <span className="text-emperia-text font-mono w-10 text-center">{currentFrame + 1}/{group.animationLength}</span>
-                        <StepperBtn onClick={() => { setCurrentFrame((currentFrame + 1) % group.animationLength); setPlaying(false); }}>›</StepperBtn>
-                        <button
-                          onClick={() => setPlaying(!playing)}
-                          className={`ml-1 px-2 py-0.5 rounded text-[10px] transition-colors ${playing ? 'bg-emperia-accent text-white' : 'bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text'}`}
-                        >{playing ? 'Stop' : 'Play'}</button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-
-                {/* Layer stepper */}
-                {group.layers > 1 && (
-                  <tr>
-                    <td className="text-emperia-muted text-right pr-2">Layer:</td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        <StepperBtn onClick={() => setActiveLayer(Math.max(0, activeLayer - 1))} disabled={blendLayers}>‹</StepperBtn>
-                        <span className={`font-mono w-10 text-center ${blendLayers ? 'text-emperia-muted' : 'text-emperia-text'}`}>
-                          {blendLayers ? 'All' : `${activeLayer + 1}/${group.layers}`}
-                        </span>
-                        <StepperBtn onClick={() => setActiveLayer(Math.min(group.layers - 1, activeLayer + 1))} disabled={blendLayers}>›</StepperBtn>
-                        <label className="flex items-center gap-1 cursor-pointer ml-1">
-                          <input type="checkbox" checked={blendLayers} onChange={() => setBlendLayers(!blendLayers)} className="w-3 h-3 accent-emperia-accent" />
-                          <span className="text-emperia-muted">Blend</span>
-                        </label>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-
-                {/* Pattern Z stepper */}
-                {group.patternZ > 1 && (
-                  <tr>
-                    <td className="text-emperia-muted text-right pr-2">Pattern Z:</td>
-                    <td>
-                      <div className="flex items-center gap-1">
-                        <StepperBtn onClick={() => setActiveZ(Math.max(0, activeZ - 1))}>‹</StepperBtn>
-                        <span className="text-emperia-text font-mono w-10 text-center">{activeZ + 1}/{group.patternZ}</span>
-                        <StepperBtn onClick={() => setActiveZ(Math.min(group.patternZ - 1, activeZ + 1))}>›</StepperBtn>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-
-                {/* Outfit color pickers */}
-                {isOutfit && blendLayers && group.layers >= 2 && (
-                  <>
-                    <tr><td colSpan={2}><div className="border-t border-emperia-border/40 my-0.5" /></td></tr>
-                    {(['head', 'body', 'legs', 'feet'] as const).map((channel) => (
-                      <tr key={channel}>
-                        <td className="text-emperia-muted text-right pr-2 capitalize">{channel}:</td>
-                        <td>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => setShowColorPicker(showColorPicker === channel ? null : channel)}
-                              className="w-5 h-5 rounded border border-emperia-border"
-                              style={{ backgroundColor: paletteToCSS(outfitColors[channel]) }}
-                              title={`Color ${outfitColors[channel]}`}
-                            />
-                            <span className="text-emperia-text font-mono w-8 text-center">{outfitColors[channel]}</span>
-                            <StepperBtn onClick={() => setOutfitColors({ ...outfitColors, [channel]: Math.max(0, outfitColors[channel] - 1) })}>‹</StepperBtn>
-                            <StepperBtn onClick={() => setOutfitColors({ ...outfitColors, [channel]: Math.min(PALETTE_SIZE - 1, outfitColors[channel] + 1) })}>›</StepperBtn>
-                          </div>
-                          {showColorPicker === channel && (
-                            <div className="mt-1 p-1 bg-emperia-surface border border-emperia-border rounded grid gap-px" style={{ gridTemplateColumns: 'repeat(19, 14px)' }}>
-                              {OUTFIT_PALETTE.map((_, idx) => (
-                                <button
-                                  key={idx}
-                                  onClick={() => { setOutfitColors({ ...outfitColors, [channel]: idx }); setShowColorPicker(null); }}
-                                  className={`w-3.5 h-3.5 rounded-sm border ${outfitColors[channel] === idx ? 'border-white' : 'border-transparent'}`}
-                                  style={{ backgroundColor: paletteToCSS(idx) }}
-                                  title={`${idx}`}
-                                />
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </>
-                )}
-
-                {/* Animation config */}
-                {group.animationLength > 1 && (
-                  <>
-                    <tr><td colSpan={2}><div className="border-t border-emperia-border/40 my-0.5" /></td></tr>
-
-                    <tr>
-                      <td className="text-emperia-muted text-right pr-2">Anim mode:</td>
-                      <td>
-                        <select
-                          value={group.asynchronous}
-                          onChange={(e) => updateFrameGroupProp('asynchronous', Number(e.target.value))}
-                          className="w-full px-1.5 py-0.5 bg-emperia-surface border border-emperia-border rounded text-[10px] text-emperia-text outline-none focus:border-emperia-accent"
-                        >
-                          <option value={0}>Synchronous</option>
-                          <option value={1}>Asynchronous</option>
-                        </select>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="text-emperia-muted text-right pr-2">Loop count:</td>
-                      <td>
-                        <NumInput value={group.nLoop} min={0} max={255} onChange={(v) => updateFrameGroupProp('nLoop', v)} />
-                      </td>
-                    </tr>
-                    <tr>
-                      <td className="text-emperia-muted text-right pr-2">Start frame:</td>
-                      <td>
-                        <NumInput value={group.start} min={0} max={group.animationLength - 1} onChange={(v) => updateFrameGroupProp('start', v)} />
-                      </td>
-                    </tr>
-
-                    {/* Per-frame durations */}
-                    {group.animationLengths[currentFrame] && (
-                      <>
-                        <tr><td colSpan={2}><div className="border-t border-emperia-border/40 my-0.5" /></td></tr>
-                        <tr>
-                          <td className="text-emperia-muted text-right pr-2">Min (ms):</td>
-                          <td>
-                            <NumInput
-                              value={group.animationLengths[currentFrame].min}
-                              min={0} max={65535}
-                              onChange={(v) => {
-                                group.animationLengths[currentFrame].min = v;
-                                thing!.rawBytes = undefined;
-                                const store = useOBStore.getState();
-                                const ids = new Set(store.dirtyIds); ids.add(thing!.id);
-                                useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
-                              }}
-                            />
-                          </td>
-                        </tr>
-                        <tr>
-                          <td className="text-emperia-muted text-right pr-2">Max (ms):</td>
-                          <td>
-                            <NumInput
-                              value={group.animationLengths[currentFrame].max}
-                              min={0} max={65535}
-                              onChange={(v) => {
-                                group.animationLengths[currentFrame].max = v;
-                                thing!.rawBytes = undefined;
-                                const store = useOBStore.getState();
-                                const ids = new Set(store.dirtyIds); ids.add(thing!.id);
-                                useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
-                              }}
-                            />
-                          </td>
-                        </tr>
-                        <tr>
-                          <td colSpan={2} className="text-emperia-muted/60 text-right pt-0.5">
-                            Frame {currentFrame + 1} of {group.animationLength}
-                          </td>
-                        </tr>
-                      </>
-                    )}
-                  </>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Patterns section — editable frame group parameters */}
+      {/* ═══ Unified Controls Panel ═══ */}
       {group && (
         <div className="border-t border-emperia-border">
-          <div className="px-4 py-1.5 bg-emperia-surface/50">
-            <span className="text-[10px] font-medium text-emperia-text uppercase tracking-wider">Patterns</span>
-          </div>
-          <div className="px-4 py-2 grid grid-cols-2 gap-x-6 gap-y-1">
-            <ParamField label="Width" value={group.width} onChange={(v) => updateFrameGroupProp('width', v)} min={1} max={4} />
-            <ParamField label="Height" value={group.height} onChange={(v) => updateFrameGroupProp('height', v)} min={1} max={4} />
-            <ParamField label="Crop Size" value={32} readOnly />
-            <ParamField label="Layers" value={group.layers} onChange={(v) => updateFrameGroupProp('layers', v)} min={1} max={4} />
-            <ParamField label="Pattern X" value={group.patternX} onChange={(v) => updateFrameGroupProp('patternX', v)} min={1} max={8} />
-            <ParamField label="Pattern Y" value={group.patternY} onChange={(v) => updateFrameGroupProp('patternY', v)} min={1} max={8} />
-            <ParamField label="Pattern Z" value={group.patternZ} onChange={(v) => updateFrameGroupProp('patternZ', v)} min={1} max={8} />
-            <ParamField label="Animations" value={group.animationLength} onChange={(v) => updateFrameGroupProp('animationLength', v)} min={1} max={255} />
+          <div className="px-4 py-2">
+            <div className="grid grid-cols-3 gap-x-3 gap-y-1 text-[10px]">
+
+              {/* ── Dimensions ──────────────────────────────── */}
+              <div className="col-span-3 text-[9px] font-medium text-emperia-muted uppercase tracking-wider">Dimensions</div>
+              <ParamField label="Width" value={group.width} onChange={(v) => updateFrameGroupProp('width', v)} min={1} max={4} />
+              <ParamField label="Height" value={group.height} onChange={(v) => updateFrameGroupProp('height', v)} min={1} max={4} />
+              <ParamField label="Layers" value={group.layers} onChange={(v) => updateFrameGroupProp('layers', v)} min={1} max={4} />
+              <ParamField label="Pat X" value={group.patternX} onChange={(v) => updateFrameGroupProp('patternX', v)} min={1} max={8} />
+              <ParamField label="Pat Y" value={group.patternY} onChange={(v) => updateFrameGroupProp('patternY', v)} min={1} max={8} />
+              <ParamField label="Pat Z" value={group.patternZ} onChange={(v) => updateFrameGroupProp('patternZ', v)} min={1} max={8} />
+              <ParamField label="Frames" value={group.animationLength} onChange={(v) => updateFrameGroupProp('animationLength', v)} min={1} max={255} />
+              <ParamField label="Crop" value={32} readOnly />
+              <div />
+
+              {/* ── Preview Controls ────────────────────────── */}
+              {previewMode && (group.patternX > 1 || group.patternY > 1 || group.patternZ > 1 || group.layers > 1) && (
+                <>
+                  <div className="col-span-3 text-[9px] font-medium text-emperia-muted uppercase tracking-wider mt-1 pt-1 border-t border-emperia-border/30">Preview</div>
+
+                  {/* Direction (Pattern X) — stepper fallback for non-outfit/distance with >4 patternX */}
+                  {group.patternX > 4 && !isDistance && (
+                    <div className="col-span-3 flex items-center gap-1">
+                      <span className="text-emperia-muted shrink-0">Direction:</span>
+                      <StepperBtn onClick={() => setActiveDirection(Math.max(0, activeDirection - 1))}>‹</StepperBtn>
+                      <span className="text-emperia-text font-mono w-10 text-center">{activeDirection + 1}/{group.patternX}</span>
+                      <StepperBtn onClick={() => setActiveDirection(Math.min(group.patternX - 1, activeDirection + 1))}>›</StepperBtn>
+                    </div>
+                  )}
+
+                  {/* Pattern Y — addons for outfits, or generic pattern Y */}
+                  {group.patternY > 1 && !isDistance && (
+                    <div className="col-span-1 flex items-center gap-1">
+                      <span className="text-emperia-muted shrink-0">{isOutfit ? 'Addon:' : 'Pat Y:'}</span>
+                      <StepperBtn onClick={() => setActivePatternY(Math.max(0, activePatternY - 1))}>‹</StepperBtn>
+                      <span className="text-emperia-text font-mono w-8 text-center text-[9px]">
+                        {isOutfit ? (activePatternY === 0 ? 'None' : `#${activePatternY}`) : `${activePatternY + 1}/${group.patternY}`}
+                      </span>
+                      <StepperBtn onClick={() => setActivePatternY(Math.min(group.patternY - 1, activePatternY + 1))}>›</StepperBtn>
+                    </div>
+                  )}
+
+                  {/* Pattern Z */}
+                  {group.patternZ > 1 && (
+                    <div className="col-span-1 flex items-center gap-1">
+                      <span className="text-emperia-muted shrink-0">{isOutfit ? 'Mount:' : 'Pat Z:'}</span>
+                      <StepperBtn onClick={() => setActiveZ(Math.max(0, activeZ - 1))}>‹</StepperBtn>
+                      <span className="text-emperia-text font-mono w-8 text-center text-[9px]">{activeZ + 1}/{group.patternZ}</span>
+                      <StepperBtn onClick={() => setActiveZ(Math.min(group.patternZ - 1, activeZ + 1))}>›</StepperBtn>
+                    </div>
+                  )}
+
+                  {/* Layer */}
+                  {group.layers > 1 && (
+                    <div className="col-span-1 flex items-center gap-1">
+                      <span className="text-emperia-muted shrink-0">Layer:</span>
+                      <StepperBtn onClick={() => setActiveLayer(Math.max(0, activeLayer - 1))} disabled={blendLayers}>‹</StepperBtn>
+                      <span className={`font-mono w-8 text-center text-[9px] ${blendLayers ? 'text-emperia-muted' : 'text-emperia-text'}`}>
+                        {blendLayers ? 'All' : `${activeLayer + 1}/${group.layers}`}
+                      </span>
+                      <StepperBtn onClick={() => setActiveLayer(Math.min(group.layers - 1, activeLayer + 1))} disabled={blendLayers}>›</StepperBtn>
+                      <label className="flex items-center gap-0.5 cursor-pointer ml-0.5">
+                        <input type="checkbox" checked={blendLayers} onChange={() => setBlendLayers(!blendLayers)} className="w-2.5 h-2.5 accent-emperia-accent" />
+                        <span className="text-emperia-muted text-[9px]">Blend</span>
+                      </label>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* ── Animation ───────────────────────────────── */}
+              {group.animationLength > 1 && (
+                <>
+                  <div className="col-span-3 text-[9px] font-medium text-emperia-muted uppercase tracking-wider mt-1 pt-1 border-t border-emperia-border/30">Animation</div>
+                  <div className="col-span-2 flex items-center gap-1">
+                    <span className="text-emperia-muted shrink-0">Frame:</span>
+                    <StepperBtn onClick={() => { setCurrentFrame((currentFrame - 1 + group.animationLength) % group.animationLength); setPlaying(false); }}>‹</StepperBtn>
+                    <span className="text-emperia-text font-mono w-8 text-center text-[9px]">{currentFrame + 1}/{group.animationLength}</span>
+                    <StepperBtn onClick={() => { setCurrentFrame((currentFrame + 1) % group.animationLength); setPlaying(false); }}>›</StepperBtn>
+                    <button
+                      onClick={() => setPlaying(!playing)}
+                      className={`ml-0.5 px-1.5 py-0.5 rounded text-[9px] transition-colors ${playing ? 'bg-emperia-accent text-white' : 'bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text'}`}
+                    >{playing ? 'Stop' : 'Play'}</button>
+                  </div>
+                  <div className="col-span-1 flex items-center gap-1">
+                    <span className="text-emperia-muted shrink-0">Mode:</span>
+                    <select
+                      value={group.asynchronous}
+                      onChange={(e) => updateFrameGroupProp('asynchronous', Number(e.target.value))}
+                      className="flex-1 px-1 py-0 bg-emperia-surface border border-emperia-border rounded text-[9px] text-emperia-text outline-none focus:border-emperia-accent"
+                    >
+                      <option value={0}>Sync</option>
+                      <option value={1}>Async</option>
+                    </select>
+                  </div>
+                  <div className="col-span-1">
+                    <ParamField label="Loops" value={group.nLoop} min={0} max={255} onChange={(v) => updateFrameGroupProp('nLoop', v)} />
+                  </div>
+                  <div className="col-span-1">
+                    <ParamField label="Start" value={group.start} min={0} max={group.animationLength - 1} onChange={(v) => updateFrameGroupProp('start', v)} />
+                  </div>
+                  <div className="col-span-1" />
+
+                  {/* Per-frame durations */}
+                  {group.animationLengths[currentFrame] && (
+                    <>
+                      <div className="col-span-3 text-[8px] text-emperia-muted mt-0.5">Frame {currentFrame + 1} duration (ms)</div>
+                      <div className="col-span-1">
+                        <ParamField label="Min" value={group.animationLengths[currentFrame].min} min={0} max={65535}
+                          onChange={(v) => {
+                            group.animationLengths[currentFrame].min = v;
+                            thing!.rawBytes = undefined;
+                            const store = useOBStore.getState();
+                            const ids = new Set(store.dirtyIds); ids.add(thing!.id);
+                            useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
+                          }}
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <ParamField label="Max" value={group.animationLengths[currentFrame].max} min={0} max={65535}
+                          onChange={(v) => {
+                            group.animationLengths[currentFrame].max = v;
+                            thing!.rawBytes = undefined;
+                            const store = useOBStore.getState();
+                            const ids = new Set(store.dirtyIds); ids.add(thing!.id);
+                            useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
+                          }}
+                        />
+                      </div>
+                      <div className="col-span-1" />
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* ── Offset ──────────────────────────────────── */}
+              {(isOutfit || thing.flags.hasDisplacement) && (
+                <>
+                  <div className="col-span-3 text-[9px] font-medium text-emperia-muted uppercase tracking-wider mt-1 pt-1 border-t border-emperia-border/30">Offset</div>
+                  <div className="col-span-1">
+                    <ParamField label="X" value={thing.flags.displacementX ?? 0} min={-128} max={128}
+                      onChange={(v) => {
+                        useOBStore.getState().updateThingFlags(thing.id, { ...thing.flags, hasDisplacement: true, displacementX: v });
+                      }}
+                    />
+                  </div>
+                  <div className="col-span-1">
+                    <ParamField label="Y" value={thing.flags.displacementY ?? 0} min={-128} max={128}
+                      onChange={(v) => {
+                        useOBStore.getState().updateThingFlags(thing.id, { ...thing.flags, hasDisplacement: true, displacementY: v });
+                      }}
+                    />
+                  </div>
+                  <div className="col-span-1" />
+                </>
+              )}
+
+              {/* ── Outfit Colors ──────────────────────────── */}
+              {isOutfit && blendLayers && group.layers >= 2 && (
+                <>
+                  <div className="col-span-3 text-[9px] font-medium text-emperia-muted uppercase tracking-wider mt-1 pt-1 border-t border-emperia-border/30">Colors</div>
+                  {(['head', 'body', 'legs', 'feet'] as const).map((channel) => (
+                    <div key={channel} className="col-span-1 flex items-center gap-1">
+                      <button
+                        onClick={() => setShowColorPicker(showColorPicker === channel ? null : channel)}
+                        className="w-4 h-4 rounded border border-emperia-border shrink-0"
+                        style={{ backgroundColor: paletteToCSS(outfitColors[channel]) }}
+                        title={`${channel}: ${outfitColors[channel]}`}
+                      />
+                      <span className="text-emperia-muted capitalize text-[9px]">{channel}</span>
+                      <StepperBtn onClick={() => setOutfitColors({ ...outfitColors, [channel]: Math.max(0, outfitColors[channel] - 1) })}>‹</StepperBtn>
+                      <span className="text-emperia-text font-mono w-5 text-center text-[9px]">{outfitColors[channel]}</span>
+                      <StepperBtn onClick={() => setOutfitColors({ ...outfitColors, [channel]: Math.min(PALETTE_SIZE - 1, outfitColors[channel] + 1) })}>›</StepperBtn>
+                    </div>
+                  ))}
+                  {showColorPicker && (
+                    <div className="col-span-3 p-1 bg-emperia-surface border border-emperia-border rounded grid gap-px" style={{ gridTemplateColumns: 'repeat(19, 14px)' }}>
+                      {OUTFIT_PALETTE.map((_, idx) => (
+                        <button
+                          key={idx}
+                          onClick={() => { setOutfitColors({ ...outfitColors, [showColorPicker]: idx }); setShowColorPicker(null); }}
+                          className={`w-3.5 h-3.5 rounded-sm border ${outfitColors[showColorPicker] === idx ? 'border-white' : 'border-transparent'}`}
+                          style={{ backgroundColor: paletteToCSS(idx) }}
+                          title={`${idx}`}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+
+            </div>
           </div>
         </div>
       )}
