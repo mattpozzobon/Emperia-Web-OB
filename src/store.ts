@@ -5,6 +5,7 @@ import { create } from 'zustand';
 import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData } from './lib/types';
 import { parseObjectData } from './lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from './lib/sprite-decoder';
+import { maybeDecompress } from './lib/emperia-format';
 import { syncOtbFromVisual, deriveGroup } from './lib/types';
 
 interface UndoEntry {
@@ -148,7 +149,7 @@ interface OBState {
   } | null;
 
   // Actions
-  loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => void;
+  loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => Promise<void>;
   loadDefinitions: (json: Record<string, ServerItemData>) => void;
   setSourceDir: (dir: FileSystemDirectoryHandle, names: OBState['sourceNames']) => void;
   setActiveCategory: (cat: ThingCategory) => void;
@@ -208,11 +209,12 @@ export const useOBStore = create<OBState>((set, get) => ({
   focusSpriteId: null,
   copiedThing: null,
 
-  loadFiles: (objBuffer, sprBuffer) => {
+  loadFiles: async (objBuffer, sprBuffer) => {
     set({ loading: true, error: null });
     try {
       const objectData = parseObjectData(objBuffer);
-      const spriteData = parseSpriteData(sprBuffer);
+      const decompressedSpr = await maybeDecompress(sprBuffer);
+      const spriteData = parseSpriteData(decompressedSpr);
       clearSpriteCache();
       set({
         objectData,

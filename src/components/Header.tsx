@@ -3,6 +3,7 @@ import { FolderOpen, Info, Undo2, Redo2, Download, Circle } from 'lucide-react';
 import { useOBStore } from '../store';
 import { compileObjectData } from '../lib/object-writer';
 import { compileSpriteData } from '../lib/sprite-writer';
+import { gzipCompress } from '../lib/emperia-format';
 
 export function Header() {
   const objectData = useOBStore((s) => s.objectData);
@@ -51,8 +52,9 @@ export function Header() {
     const objBuf = compileObjectData(objectData, dirtyIds);
     await saveFile(objBuf, sourceNames.obj, 'emperia.eobj');
 
-    // Compile .espr
-    const sprBuf = compileSpriteData(spriteData, spriteOverrides);
+    // Compile .espr (gzip-compressed for ~74% size reduction)
+    const sprBufRaw = compileSpriteData(spriteData, spriteOverrides);
+    const sprBuf = await gzipCompress(sprBufRaw);
     await saveFile(sprBuf, sourceNames.spr, 'emperia.espr');
 
     // Compile definitions.json

@@ -47,3 +47,70 @@ export function parseEmperiaHeader(data: ArrayBuffer | Uint8Array): EmperiaHeade
     flags: view.getUint8(0x0F),
   };
 }
+
+/**
+ * Checks if a buffer is gzip-compressed (magic bytes 0x1f 0x8b).
+ */
+export function isGzipCompressed(data: ArrayBuffer | Uint8Array): boolean {
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+}
+
+/**
+ * Decompresses a gzip-compressed ArrayBuffer using the browser's DecompressionStream API.
+ * If the data is not gzip-compressed, returns it as-is.
+ */
+/**
+ * Gzip-compresses an ArrayBuffer using the browser's CompressionStream API.
+ */
+export async function gzipCompress(data: ArrayBuffer): Promise<ArrayBuffer> {
+  const cs = new CompressionStream('gzip');
+  const writer = cs.writable.getWriter();
+  writer.write(new Uint8Array(data));
+  writer.close();
+
+  const reader = cs.readable.getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+
+  let totalLen = 0;
+  for (const c of chunks) totalLen += c.byteLength;
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const c of chunks) {
+    result.set(c, offset);
+    offset += c.byteLength;
+  }
+  return result.buffer;
+}
+
+export async function maybeDecompress(data: ArrayBuffer): Promise<ArrayBuffer> {
+  if (!isGzipCompressed(data)) return data;
+
+  const ds = new DecompressionStream('gzip');
+  const writer = ds.writable.getWriter();
+  writer.write(new Uint8Array(data));
+  writer.close();
+
+  const reader = ds.readable.getReader();
+  const chunks: Uint8Array[] = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+
+  let totalLen = 0;
+  for (const c of chunks) totalLen += c.byteLength;
+  const result = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const c of chunks) {
+    result.set(c, offset);
+    offset += c.byteLength;
+  }
+  return result.buffer;
+}
