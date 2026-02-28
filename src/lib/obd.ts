@@ -430,6 +430,7 @@ export function decodeOBD(compressed: Uint8Array): OBDImportResult {
 
   const frameGroups: FrameGroup[] = [];
   const spritePixels = new Map<number, ImageData>();
+  let nextSyntheticId = 0x7F000000; // high base to avoid collisions with real sprite IDs
 
   for (let g = 0; g < groupCount; g++) {
     if (isOutfit && obdVersion === 3) {
@@ -468,7 +469,6 @@ export function decodeOBD(compressed: Uint8Array): OBDImportResult {
 
     for (let i = 0; i < totalSprites; i++) {
       const spriteId = r.u32();
-      sprites.push(spriteId);
 
       let pixelData: Uint8Array;
       if (obdVersion === 3) {
@@ -480,12 +480,22 @@ export function decodeOBD(compressed: Uint8Array): OBDImportResult {
         pixelData = r.bytes(SPRITE_PIXEL_SIZE);
       }
 
-      if (spriteId > 0 && pixelData.length === SPRITE_PIXEL_SIZE && !spritePixels.has(spriteId)) {
-        // Convert ARGB (Flash BitmapData) → RGBA (canvas ImageData)
-        const rgbaPixels = argbToRgba(pixelData);
-        const imgData = new ImageData(rgbaPixels as never, 32, 32);
-        spritePixels.set(spriteId, imgData);
+      if (spriteId === 0 || pixelData.length !== SPRITE_PIXEL_SIZE) {
+        sprites.push(0);
+        continue;
       }
+
+      // Assign a unique synthetic ID for each sprite position.
+      // The AS3 OB sets all sprites to uint.MAX_VALUE when importing from a sprite sheet,
+      // so multiple positions can share the same ID with different pixel data.
+      // Using per-position IDs ensures every sprite's pixel data is preserved.
+      nextSyntheticId++;
+      const uniqueId = nextSyntheticId;
+      sprites.push(uniqueId);
+
+      const rgbaPixels = argbToRgba(pixelData);
+      const imgData = new ImageData(rgbaPixels as never, 32, 32);
+      spritePixels.set(uniqueId, imgData);
     }
 
     frameGroups.push({

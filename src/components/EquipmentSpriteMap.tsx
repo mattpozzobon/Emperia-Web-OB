@@ -127,7 +127,15 @@ function renderOutfitThumb(
 
       const dx = (fg.width - 1 - tx) * 32;
       const dy = (fg.height - 1 - ty) * 32;
-      ctx.putImageData(imgData, dx, dy);
+      // Use drawImage for alpha compositing when mask is applied (putImageData replaces pixels)
+      if (hasOutfitMask) {
+        const tmp = document.createElement('canvas');
+        tmp.width = 32; tmp.height = 32;
+        tmp.getContext('2d')!.putImageData(imgData, 0, 0);
+        ctx.drawImage(tmp, dx, dy);
+      } else {
+        ctx.putImageData(imgData, dx, dy);
+      }
     }
   }
 

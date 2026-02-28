@@ -7,6 +7,7 @@ export function ParamField({
   min,
   max,
   readOnly,
+  labelClassName,
 }: {
   label: string;
   value: number;
@@ -14,10 +15,11 @@ export function ParamField({
   min?: number;
   max?: number;
   readOnly?: boolean;
+  labelClassName?: string;
 }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-[10px] text-emperia-muted">{label}:</span>
+      <span className={labelClassName ?? "text-[10px] text-emperia-muted"}>{label}:</span>
       {readOnly ? (
         <span className="text-[10px] text-emperia-text font-mono w-14 text-right">{value}</span>
       ) : (

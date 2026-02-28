@@ -86,6 +86,7 @@ export function PreviewToolbar({
       try {
         const buf = new Uint8Array(reader.result as ArrayBuffer);
         const result = decodeOBD(buf);
+
         const state = useOBStore.getState();
         const selectedId = state.selectedThingId;
         const existingThing = selectedId != null ? state.objectData?.things.get(selectedId) : null;

@@ -121,8 +121,8 @@ export function SpritePreview() {
               }
               const dx = offsetX + bx + (fg.width - 1 - tx) * 32;
               const dy = offsetY + by + (fg.height - 1 - ty) * 32;
-              // Always use drawImage for alpha compositing (base + overlay)
-              if (useAlpha) {
+              // Use drawImage for alpha compositing (base + overlay, or outfit mask applied)
+              if (useAlpha || useMask) {
                 const tmp = document.createElement('canvas');
                 tmp.width = 32; tmp.height = 32;
                 tmp.getContext('2d')!.putImageData(imgData, 0, 0);
@@ -238,8 +238,10 @@ export function SpritePreview() {
               const dx = overlayX + (group.width - 1 - tx) * 32;
               const dy = overlayY + (group.height - 1 - ty) * 32;
 
-              // Use drawImage when compositing over base outfit or blending layers
-              if (hasBase || (blendLayers && !useOutfitMask && layer > 0)) {
+              // Use drawImage for alpha compositing whenever we have a base outfit,
+              // blending multiple layers, or applying outfit masks (putImageData replaces
+              // pixels instead of compositing, which breaks multi-tile/multi-frame outfits).
+              if (hasBase || useOutfitMask || (blendLayers && layer > 0)) {
                 const tmp = document.createElement('canvas');
                 tmp.width = 32; tmp.height = 32;
                 tmp.getContext('2d')!.putImageData(imgData, 0, 0);
@@ -289,6 +291,14 @@ export function SpritePreview() {
   // How many pattern columns/rows are actually rendered
   const renderedPxCount = group ? (previewMode ? 1 : group.patternX) : 1;
   const renderedPyCount = group ? (previewMode ? 1 : group.patternY) : 1;
+
+  // Compute expected canvas pixel dimensions from current group data so CSS sizing
+  // never reads stale values from canvasRef when switching between items of different sizes.
+  const hasBase = baseOutfitId != null && baseOutfitId !== selectedId;
+  const dispXAbs = (hasBase && thing?.flags.hasDisplacement) ? Math.abs(thing.flags.displacementX ?? 0) : 0;
+  const dispYAbs = (hasBase && thing?.flags.hasDisplacement) ? Math.abs(thing.flags.displacementY ?? 0) : 0;
+  const expectedCanvasW = group ? renderedPxCount * (group.width * 32 + dispXAbs) : 32;
+  const expectedCanvasH = group ? renderedPyCount * (group.height * 32 + dispYAbs) : 32;
 
   // Given a pixel position on the displayed canvas, find the sprite ID at that tile
   const getSpriteAtPosition = useCallback((clientX: number, clientY: number): number => {
@@ -580,8 +590,8 @@ export function SpritePreview() {
                   }
                 }}
                 style={{
-                  width: (canvasRef.current?.width ?? (group ? renderedPxCount * group.width : 1) * 32) * zoom,
-                  height: (canvasRef.current?.height ?? (group ? renderedPyCount * group.height : 1) * 32) * zoom,
+                  width: expectedCanvasW * zoom,
+                  height: expectedCanvasH * zoom,
                   imageRendering: 'pixelated',
                 }}
               />
@@ -669,8 +679,8 @@ export function SpritePreview() {
               }
             }}
             style={{
-              width: (canvasRef.current?.width ?? (group ? renderedPxCount * group.width : 1) * 32) * zoom,
-              height: (canvasRef.current?.height ?? (group ? renderedPyCount * group.height : 1) * 32) * zoom,
+              width: expectedCanvasW * zoom,
+              height: expectedCanvasH * zoom,
               imageRendering: 'pixelated',
             }}
           />
