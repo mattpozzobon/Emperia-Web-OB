@@ -1,7 +1,9 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, Plus, Trash2 } from 'lucide-react';
+import { Search, Plus, Trash2, X, Minimize2 } from 'lucide-react';
 import { useOBStore } from '../store';
-import { getSpriteDataUrl, clearSpriteCache } from '../lib/sprite-decoder';
+import { clearSpriteCache } from '../lib/sprite-decoder';
+import { ObjectSlots } from './ObjectSlots';
+import { AtlasCell } from './AtlasCell';
 
 const CELL = 40;
 const ATLAS_COLS = 6;
@@ -19,6 +21,8 @@ export function ThingSpriteGrid() {
   const [containerHeight, setContainerHeight] = useState(0);
   const [highlightedSpriteId, setHighlightedSpriteId] = useState<number | null>(null);
   const [dropTarget, setDropTarget] = useState<{ group: number; index: number } | null>(null);
+  const [selectedAtlasIds, setSelectedAtlasIds] = useState<Set<number>>(new Set());
+  const [lastClickedAtlasId, setLastClickedAtlasId] = useState<number | null>(null);
   const atlasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -69,7 +73,7 @@ export function ThingSpriteGrid() {
     });
   }, [spriteData]);
 
-  // Delete a sprite (right-click context or delete button)
+  // Delete a single sprite (right-click context or delete button)
   const handleDeleteSprite = useCallback((spriteId: number) => {
     if (spriteId <= 0) return;
     if (!confirm(`Delete sprite #${spriteId}? It will be replaced with a blank sprite.`)) return;
@@ -197,11 +201,76 @@ export function ThingSpriteGrid() {
     });
   }, [thing]);
 
-  // Assign atlas sprite to selected slot (click workflow)
-  const handleAtlasClick = useCallback((atlasSpriteId: number) => {
-    if (!selectedSlot || !thing) return;
-    assignSpriteToSlot(selectedSlot, atlasSpriteId);
-  }, [selectedSlot, thing, assignSpriteToSlot]);
+  // Collect all sprite IDs referenced by any thing (for safety checks)
+  const usedSpriteIds = useMemo(() => {
+    const used = new Set<number>();
+    if (!objectData) return used;
+    for (const t of objectData.things.values()) {
+      for (const fg of t.frameGroups) {
+        for (const sid of fg.sprites) {
+          if (sid > 0) used.add(sid);
+        }
+      }
+    }
+    return used;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objectData, editVersion]);
+
+  // Bulk delete selected atlas sprites with safety warning
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedAtlasIds.size === 0) return;
+    const ids = Array.from(selectedAtlasIds).filter(id => id > 0);
+    if (ids.length === 0) return;
+
+    const inUse = ids.filter(id => usedSpriteIds.has(id));
+    let msg = `Delete ${ids.length} selected sprite(s)? They will be replaced with blank sprites.`;
+    if (inUse.length > 0) {
+      msg += `\n\nWARNING: ${inUse.length} of these sprites are referenced by objects and will appear blank in-game!`;
+    }
+    if (!confirm(msg)) return;
+
+    useOBStore.getState().deleteSprites(ids);
+    setSelectedAtlasIds(new Set());
+  }, [selectedAtlasIds, usedSpriteIds]);
+
+  // Atlas click handler — supports multi-select with Ctrl/Shift
+  const handleAtlasCellClick = useCallback((e: React.MouseEvent, spriteId: number) => {
+    // If a slot is selected, assign the sprite to it (original behavior)
+    if (selectedSlot && thing) {
+      assignSpriteToSlot(selectedSlot, spriteId);
+      return;
+    }
+
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrl+click: toggle single sprite in selection
+      setSelectedAtlasIds(prev => {
+        const next = new Set(prev);
+        if (next.has(spriteId)) next.delete(spriteId); else next.add(spriteId);
+        return next;
+      });
+      setLastClickedAtlasId(spriteId);
+    } else if (e.shiftKey && lastClickedAtlasId != null) {
+      // Shift+click: select range between last clicked and current
+      const startIdx = atlasIds.indexOf(lastClickedAtlasId);
+      const endIdx = atlasIds.indexOf(spriteId);
+      if (startIdx >= 0 && endIdx >= 0) {
+        const lo = Math.min(startIdx, endIdx);
+        const hi = Math.max(startIdx, endIdx);
+        setSelectedAtlasIds(prev => {
+          const next = new Set(prev);
+          for (let i = lo; i <= hi; i++) next.add(atlasIds[i]);
+          return next;
+        });
+      }
+    } else {
+      // Plain click: select single (or deselect if already only selection)
+      setSelectedAtlasIds(prev => {
+        if (prev.size === 1 && prev.has(spriteId)) return new Set();
+        return new Set([spriteId]);
+      });
+      setLastClickedAtlasId(spriteId);
+    }
+  }, [selectedSlot, thing, assignSpriteToSlot, lastClickedAtlasId, atlasIds]);
 
   // Drag-and-drop handlers
   const handleAtlasDragStart = useCallback((e: React.DragEvent, spriteId: number) => {
@@ -239,61 +308,18 @@ export function ThingSpriteGrid() {
     <div className="flex flex-col h-full">
       {/* Top: Thing's sprite slots */}
       {thing && (
-        <div className="shrink-0 border-b border-emperia-border">
-          <div className="px-2 py-1.5 flex items-center justify-between">
-            <span className="text-[10px] font-medium text-emperia-text uppercase tracking-wider">
-              Object Sprites
-            </span>
-            <span className="text-[10px] text-emperia-muted">{slots.length}</span>
-          </div>
-          <div className="overflow-y-auto max-h-40 px-1.5 pb-1.5">
-            <div className="grid grid-cols-6 gap-0.5">
-              {slots.map(({ spriteId, group, index }, i) => {
-                const url = spriteId > 0 ? getSpriteDataUrl(spriteData, spriteId, spriteOverrides) : null;
-                const isSelected = selectedSlot?.group === group && selectedSlot?.index === index;
-                const isModified = spriteOverrides.has(spriteId);
-
-                const isDragOver = dropTarget?.group === group && dropTarget?.index === index;
-
-                return (
-                  <button
-                    key={`${group}-${index}`}
-                    onClick={() => setSelectedSlot(isSelected ? null : { group, index })}
-                    onDragOver={(e) => handleSlotDragOver(e, group, index)}
-                    onDragLeave={handleSlotDragLeave}
-                    onDrop={(e) => handleSlotDrop(e, group, index)}
-                    className={`relative flex items-center justify-center rounded border transition-colors
-                      ${isDragOver
-                        ? 'border-green-400 bg-green-400/20'
-                        : isSelected
-                          ? 'border-emperia-accent bg-emperia-accent/20'
-                          : isModified
-                            ? 'border-amber-500/50 bg-amber-500/10'
-                            : 'border-emperia-border/40 hover:border-emperia-muted'
-                      }
-                    `}
-                    style={{ width: CELL, height: CELL }}
-                    title={`Slot ${i} → Sprite #${spriteId}${isSelected ? ' (selected — click atlas sprite to assign)' : '\nDrag a sprite here or click to select'}`}
-                  >
-                    {url ? (
-                      <img src={url} alt="" className="w-8 h-8" style={{ imageRendering: 'pixelated' }} />
-                    ) : (
-                      <div className="w-8 h-8 bg-emperia-border/20 rounded-sm" />
-                    )}
-                    <span className="absolute bottom-0 right-0.5 text-[6px] text-emperia-muted/50 leading-none">
-                      {spriteId}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          {selectedSlot && (
-            <div className="px-2 pb-1.5 text-[10px] text-emperia-accent">
-              Click a sprite below to assign it to the selected slot
-            </div>
-          )}
-        </div>
+        <ObjectSlots
+          thing={thing}
+          spriteData={spriteData}
+          spriteOverrides={spriteOverrides}
+          slots={slots}
+          selectedSlot={selectedSlot}
+          setSelectedSlot={setSelectedSlot}
+          dropTarget={dropTarget}
+          onSlotDragOver={handleSlotDragOver}
+          onSlotDragLeave={handleSlotDragLeave}
+          onSlotDrop={handleSlotDrop}
+        />
       )}
 
       {/* Bottom: Full sprite atlas */}
@@ -327,7 +353,48 @@ export function ThingSpriteGrid() {
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
+          <button
+            onClick={() => {
+              const result = useOBStore.getState().compactSpriteAtlas();
+              if (!result) return;
+              if (result.removed === 0) {
+                alert('Atlas is already compact — no blank or unreferenced sprites found.');
+              } else {
+                setSelectedAtlasIds(new Set());
+                alert(`Compacted atlas: removed ${result.removed} blank/unreferenced sprites.\n${result.oldCount} → ${result.newCount} sprites.\n\nAll references have been remapped.`);
+              }
+            }}
+            className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-amber-400 transition-colors shrink-0"
+            title="Compact atlas — remove blank/unreferenced sprites and remap all references"
+          >
+            <Minimize2 className="w-3.5 h-3.5" />
+          </button>
         </div>
+
+        {/* Selection toolbar */}
+        {selectedAtlasIds.size > 0 && (
+          <div className="px-2 py-1 border-b border-emperia-border bg-emperia-accent/5 flex items-center gap-2">
+            <span className="text-[10px] text-emperia-accent font-medium">
+              {selectedAtlasIds.size} selected
+            </span>
+            <button
+              onClick={handleDeleteSelected}
+              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
+              title="Delete selected sprites (replaces with blank)"
+            >
+              <Trash2 className="w-3 h-3" />
+              Delete
+            </button>
+            <button
+              onClick={() => setSelectedAtlasIds(new Set())}
+              className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover transition-colors ml-auto"
+              title="Clear selection"
+            >
+              <X className="w-3 h-3" />
+              Clear
+            </button>
+          </div>
+        )}
 
         <div
           ref={atlasRef}
@@ -345,50 +412,28 @@ export function ThingSpriteGrid() {
                 gridTemplateColumns: `repeat(${ATLAS_COLS}, 1fr)`,
               }}
             >
-              {visibleAtlas.map((spriteId) => {
-                const url = getSpriteDataUrl(spriteData, spriteId, spriteOverrides);
-
-                const isHighlighted = spriteId === highlightedSpriteId;
-
-                return (
-                  <div
-                    key={spriteId}
-                    draggable
-                    onDragStart={(e) => handleAtlasDragStart(e, spriteId)}
-                    className={`group relative flex items-center justify-center border transition-colors cursor-grab active:cursor-grabbing
-                      ${isHighlighted
-                        ? 'border-green-400 bg-green-400/20'
-                        : selectedSlot
-                          ? 'border-transparent hover:bg-emperia-accent/10 hover:border-emperia-accent/30 cursor-pointer'
-                          : 'border-transparent hover:bg-emperia-hover'
-                      }
-                    `}
-                    style={{ width: CELL, height: CELL }}
-                    title={`#${spriteId} — drag to a slot above`}
-                    onClick={() => handleAtlasClick(spriteId)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
+              {visibleAtlas.map((spriteId) => (
+                <AtlasCell
+                  key={spriteId}
+                  spriteId={spriteId}
+                  spriteData={spriteData}
+                  spriteOverrides={spriteOverrides}
+                  isHighlighted={spriteId === highlightedSpriteId}
+                  isAtlasSelected={selectedAtlasIds.has(spriteId)}
+                  hasSelectedSlot={!!selectedSlot}
+                  onClick={(e) => handleAtlasCellClick(e, spriteId)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    if (selectedAtlasIds.size > 1 && selectedAtlasIds.has(spriteId)) {
+                      handleDeleteSelected();
+                    } else {
                       handleDeleteSprite(spriteId);
-                    }}
-                  >
-                    {url ? (
-                      <img src={url} alt="" draggable={false} className="w-8 h-8 pointer-events-none" style={{ imageRendering: 'pixelated' }} />
-                    ) : (
-                      <div className="w-6 h-6" />
-                    )}
-                    <span className="absolute bottom-0 right-0.5 text-[6px] text-emperia-muted/40 leading-none">
-                      {spriteId}
-                    </span>
-                    <button
-                      className="absolute top-0 right-0 p-0.5 rounded-bl bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => { e.stopPropagation(); handleDeleteSprite(spriteId); }}
-                      title={`Delete sprite #${spriteId}`}
-                    >
-                      <Trash2 className="w-2.5 h-2.5" />
-                    </button>
-                  </div>
-                );
-              })}
+                    }
+                  }}
+                  onDragStart={(e) => handleAtlasDragStart(e, spriteId)}
+                  onDelete={() => handleDeleteSprite(spriteId)}
+                />
+              ))}
             </div>
           </div>
         </div>
