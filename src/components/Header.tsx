@@ -74,6 +74,21 @@ export function Header() {
           }
           if (Object.keys(cleanProps).length === 0) cleanProps = null;
         }
+
+        // Sync friction from .eobj groundSpeed for ground items
+        const clientId = def.id ?? serverId;
+        const thing = objectData.things.get(clientId);
+        if (thing?.category === 'item' && thing.flags.ground) {
+          const speed = thing.flags.groundSpeed ?? 100;
+          if (speed !== 100) {
+            cleanProps = cleanProps ?? {};
+            cleanProps.friction = speed;
+          } else if (cleanProps) {
+            delete cleanProps.friction;
+            if (Object.keys(cleanProps).length === 0) cleanProps = null;
+          }
+        }
+
         const entry: Record<string, unknown> = {};
         if (def.id != null) entry.id = def.id;
         entry.flags = def.flags;

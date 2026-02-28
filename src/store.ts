@@ -380,12 +380,19 @@ export const useOBStore = create<OBState>((set, get) => ({
       const oldOtb = existing?.flags ?? 0;
       const newOtb = syncOtbFromVisual(oldOtb, newFlags);
       const newGroup = deriveGroup(newFlags);
+      // Sync friction property from groundSpeed
+      const syncedProps: Record<string, unknown> = existing?.properties ? { ...existing.properties } : {};
+      if (newFlags.ground && newFlags.groundSpeed != null && newFlags.groundSpeed !== 100) {
+        syncedProps.friction = newFlags.groundSpeed;
+      } else {
+        delete syncedProps.friction;
+      }
       const updated: ServerItemData = {
         serverId,
         id: existing?.id ?? id,
         flags: newOtb,
         group: newGroup,
-        properties: existing?.properties ? { ...existing.properties } : null,
+        properties: Object.keys(syncedProps).length > 0 ? syncedProps as any : null,
       };
       const newDefs = new Map(itemDefinitions);
       newDefs.set(serverId, updated);

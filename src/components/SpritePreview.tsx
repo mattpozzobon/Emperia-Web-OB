@@ -654,17 +654,13 @@ export function SpritePreview() {
             const store = useOBStore.getState();
             const newDirtyIds = new Set(store.dirtyIds);
             newDirtyIds.add(thing.id);
-            // Paste flags if copied
-            if (copiedThing.flags) {
-              thing.flags = { ...copiedThing.flags };
-            }
             // Paste frame groups if copied
             if (copiedThing.frameGroups) {
               thing.frameGroups = copiedThing.frameGroups.map(fg => ({ ...fg, sprites: [...fg.sprites], animationLengths: fg.animationLengths.map(a => ({ ...a })) }));
             }
             thing.rawBytes = undefined;
             clearSpriteCache();
-            // Paste server definition if copied
+            // Paste server definition if copied (before flags so updateThingFlags can layer on top)
             if (copiedThing.serverDef && thing.category === 'item') {
               const { clientToServerIds, itemDefinitions } = store;
               const serverId = clientToServerIds.get(thing.id);
@@ -676,10 +672,14 @@ export function SpritePreview() {
                   id: thing.id,
                 });
                 useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1, itemDefinitions: newDefs });
-                return;
               }
             }
-            useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1 });
+            // Paste flags via updateThingFlags so OTB flags & group sync correctly
+            if (copiedThing.flags) {
+              store.updateThingFlags(thing.id, { ...copiedThing.flags });
+            } else {
+              useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1 });
+            }
           }}
           disabled={!useOBStore.getState().copiedThing}
           className={`p-1 rounded transition-colors ${
