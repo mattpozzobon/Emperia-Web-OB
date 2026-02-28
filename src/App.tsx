@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useOBStore } from './store';
+import { useOBStore, getDisplayId } from './store';
 import { FileDropZone } from './components/FileDropZone';
 import { Header } from './components/Header';
 import { CategoryTabs } from './components/CategoryTabs';
@@ -17,6 +17,35 @@ const TAB_LABELS: Record<CenterTab, string> = {
   attributes: 'Attributes',
   server: 'Server',
 };
+
+function SelectedItemBadge() {
+  const selectedId = useOBStore((s) => s.selectedThingId);
+  const objectData = useOBStore((s) => s.objectData);
+  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+  useOBStore((s) => s.editVersion);
+
+  const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
+  if (!thing || !objectData) return null;
+
+  const clientId = getDisplayId(objectData, thing.id);
+  const serverId = clientToServerIds.get(thing.id);
+
+  return (
+    <div className="flex items-center gap-3 text-[11px] font-mono">
+      <span className="flex items-center gap-1.5">
+        <span className="text-emperia-muted">Client</span>
+        <span className="text-cyan-400 font-semibold">{clientId}</span>
+      </span>
+      {serverId != null && (
+        <span className="flex items-center gap-1.5">
+          <span className="text-emperia-muted">Server</span>
+          <span className="text-amber-400 font-semibold">{serverId}</span>
+        </span>
+      )}
+      <span className="text-emperia-muted/60 capitalize text-[10px]">{thing.category}</span>
+    </div>
+  );
+}
 
 export default function App() {
   const loaded = useOBStore((s) => s.loaded);
@@ -38,7 +67,7 @@ export default function App() {
 
         {/* Center: Texture / Properties / Attributes */}
         <div className="flex-1 flex flex-col bg-emperia-bg overflow-hidden">
-          <div className="flex border-b border-emperia-border shrink-0">
+          <div className="flex items-center border-b border-emperia-border shrink-0">
             {(['texture', 'properties', 'attributes', 'server'] as CenterTab[]).map((tab) => (
               <button
                 key={tab}
@@ -53,6 +82,10 @@ export default function App() {
                 {TAB_LABELS[tab]}
               </button>
             ))}
+            <div className="flex-1" />
+            <div className="pr-3">
+              <SelectedItemBadge />
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto">
             {centerTab === 'texture' && <SpritePreview />}

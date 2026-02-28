@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, Upload, Download, FolderOpen } from 'lucide-react';
+import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, ImageUp, Download, Upload, Crop, Eye, Copy, ClipboardPaste } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { decodeSprite, clearSpriteCache } from '../lib/sprite-decoder';
 import { applyOutfitMask, paletteToCSS, OUTFIT_PALETTE, PALETTE_SIZE } from '../lib/outfit-colors';
@@ -37,6 +37,8 @@ export function SpritePreview() {
   const [activeDirection, setActiveDirection] = useState(2); // 0=N,1=E,2=S,3=W — default south
   const [activePatternY, setActivePatternY] = useState(0);
   const [showColorPicker, setShowColorPicker] = useState<keyof OutfitColorIndices | null>(null);
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
+  const copyMenuRef = useRef<HTMLDivElement>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameTimerRef = useRef<number>(0);
@@ -60,6 +62,18 @@ export function SpritePreview() {
     // Default outfits to blend layers
     setBlendLayers(isOutfit);
   }, [selectedId, isOutfit, isEffect, isDistance]);
+
+  // Close copy menu on outside click
+  useEffect(() => {
+    if (!copyMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (copyMenuRef.current && !copyMenuRef.current.contains(e.target as Node)) {
+        setCopyMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [copyMenuOpen]);
 
   const group: FrameGroup | null = thing?.frameGroups[activeGroup] ?? null;
 
@@ -195,6 +209,32 @@ export function SpritePreview() {
     return idx < group.sprites.length ? group.sprites[idx] : 0;
   }, [group, zoom, currentFrame, activeLayer, activeZ, previewMode, activeDirection, activePatternY, renderedPxCount, renderedPyCount]);
 
+  // Given a pixel position on the displayed canvas, find the sprite slot index
+  const getSlotIndexAtPosition = useCallback((clientX: number, clientY: number): number => {
+    if (!group || !canvasRef.current) return -1;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const canvasPixelX = (clientX - rect.left) / zoom;
+    const canvasPixelY = (clientY - rect.top) / zoom;
+
+    const tileCol = Math.floor(canvasPixelX / 32);
+    const tileRow = Math.floor(canvasPixelY / 32);
+
+    const totalCols = renderedPxCount * group.width;
+    const totalRows = renderedPyCount * group.height;
+    if (tileCol < 0 || tileCol >= totalCols || tileRow < 0 || tileRow >= totalRows) return -1;
+
+    const cellCol = Math.floor(tileCol / group.width);
+    const cellRow = Math.floor(tileRow / group.height);
+    const px = previewMode ? (activeDirection < group.patternX ? activeDirection : 0) : cellCol;
+    const py = previewMode ? (activePatternY < group.patternY ? activePatternY : 0) : cellRow;
+
+    const tx = group.width - 1 - (tileCol % group.width);
+    const ty = group.height - 1 - (tileRow % group.height);
+
+    const idx = getSpriteIndex(group, currentFrame, px, py, activeZ, activeLayer, tx, ty);
+    return idx < group.sprites.length ? idx : -1;
+  }, [group, zoom, currentFrame, activeLayer, activeZ, previewMode, activeDirection, activePatternY, renderedPxCount, renderedPyCount]);
+
   const handleImageFiles = useCallback((files: FileList, dropX?: number, dropY?: number) => {
     if (!group || !spriteData) return;
     const file = files[0];
@@ -272,10 +312,32 @@ export function SpritePreview() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
+    setDragTile(null);
+
+    // Handle atlas sprite drag-and-drop
+    const spriteIdStr = e.dataTransfer.getData('application/x-sprite-id');
+    if (spriteIdStr && thing && group) {
+      const spriteId = parseInt(spriteIdStr, 10);
+      if (!isNaN(spriteId) && spriteId > 0) {
+        const slotIdx = getSlotIndexAtPosition(e.clientX, e.clientY);
+        if (slotIdx >= 0) {
+          group.sprites[slotIdx] = spriteId;
+          thing.rawBytes = undefined;
+          clearSpriteCache();
+          const store = useOBStore.getState();
+          const newDirtyIds = new Set(store.dirtyIds);
+          newDirtyIds.add(thing.id);
+          useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1 });
+        }
+        return;
+      }
+    }
+
+    // Handle PNG file drops
     if (e.dataTransfer.files.length > 0) {
       handleImageFiles(e.dataTransfer.files, e.clientX, e.clientY);
     }
-  }, [handleImageFiles]);
+  }, [handleImageFiles, thing, group, getSlotIndexAtPosition]);
 
   const handleExport = () => {
     const canvas = canvasRef.current;
@@ -488,8 +550,9 @@ export function SpritePreview() {
         </div>
       </div>
 
-      {/* Controls row */}
-      <div className="flex items-center justify-center px-4 py-2 gap-2 border-t border-emperia-border">
+      {/* Toolbar */}
+      <div className="flex items-center px-3 py-1.5 gap-1 border-t border-emperia-border flex-wrap">
+        {/* Zoom */}
         <button onClick={() => setZoom(Math.max(1, zoom - 1))} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Zoom out">
           <ZoomOut className="w-3.5 h-3.5" />
         </button>
@@ -497,58 +560,153 @@ export function SpritePreview() {
         <button onClick={() => setZoom(Math.min(8, zoom + 1))} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Zoom in">
           <ZoomIn className="w-3.5 h-3.5" />
         </button>
+
         <div className="w-px h-4 bg-emperia-border mx-0.5" />
-        <button onClick={() => setShowGrid(!showGrid)} className={`p-1 rounded transition-colors ${showGrid ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Show Grid">
+
+        {/* View toggles */}
+        <button onClick={() => setShowGrid(!showGrid)} className={`p-1 rounded transition-colors ${showGrid ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Toggle Grid">
           <Grid3X3 className="w-3.5 h-3.5" />
         </button>
+        <button onClick={() => setShowCropSize(!showCropSize)} className={`p-1 rounded transition-colors ${showCropSize ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Toggle Crop Outline">
+          <Crop className="w-3.5 h-3.5" />
+        </button>
+        {group && (group.patternX > 1 || group.patternY > 1) && (
+          <button onClick={() => setPreviewMode(!previewMode)} className={`p-1 rounded transition-colors ${previewMode ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Toggle Preview Mode">
+            <Eye className="w-3.5 h-3.5" />
+          </button>
+        )}
+
         <div className="w-px h-4 bg-emperia-border mx-0.5" />
+
+        {/* Import / Export PNG */}
         <input ref={fileInputRef} type="file" accept="image/png,image/gif,image/bmp" className="hidden" onChange={(e) => e.target.files && handleImageFiles(e.target.files)} />
         <button onClick={() => fileInputRef.current?.click()} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Import PNG">
-          <Upload className="w-3.5 h-3.5" />
+          <ImageUp className="w-3.5 h-3.5" />
         </button>
         <button onClick={handleExport} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Export PNG">
           <ImageDown className="w-3.5 h-3.5" />
         </button>
+
         <div className="w-px h-4 bg-emperia-border mx-0.5" />
+
+        {/* Import / Export OBD */}
+        <input ref={obdImportRef} type="file" accept=".obd" className="hidden" onChange={handleImportOBD} />
+        <button onClick={() => obdImportRef.current?.click()} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Import OBD">
+          <Upload className="w-3.5 h-3.5" />
+        </button>
         <button onClick={handleExportOBD} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Export OBD">
           <Download className="w-3.5 h-3.5" />
         </button>
-        <input ref={obdImportRef} type="file" accept=".obd" className="hidden" onChange={handleImportOBD} />
-        <button onClick={() => obdImportRef.current?.click()} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Import OBD">
-          <FolderOpen className="w-3.5 h-3.5" />
+
+        <div className="w-px h-4 bg-emperia-border mx-0.5" />
+
+        {/* Copy / Paste item properties */}
+        <div className="relative" ref={copyMenuRef}>
+          <button
+            onClick={() => setCopyMenuOpen(!copyMenuOpen)}
+            className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text"
+            title="Copy properties"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+          {copyMenuOpen && thing && (
+            <div
+              className="absolute bottom-full mb-1 left-0 bg-emperia-surface border border-emperia-border rounded shadow-lg py-1 z-50 min-w-[160px]"
+              onClick={() => setCopyMenuOpen(false)}
+            >
+              {[
+                { label: 'Everything', key: 'all' },
+                { label: 'Flags Only', key: 'flags' },
+                { label: 'Server Properties', key: 'server' },
+                { label: 'Sprites Only', key: 'sprites' },
+              ].map(({ label, key }) => (
+                <button
+                  key={key}
+                  className="w-full text-left px-3 py-1.5 text-[11px] text-emperia-text hover:bg-emperia-hover transition-colors"
+                  onClick={() => {
+                    if (!thing) return;
+                    const { clientToServerIds, itemDefinitions } = useOBStore.getState();
+                    const serverId = clientToServerIds.get(thing.id);
+                    const serverDef = serverId != null ? itemDefinitions.get(serverId) ?? null : null;
+                    const copied: NonNullable<typeof useOBStore extends { getState: () => infer S } ? S extends { copiedThing: infer C } ? C : never : never> = { label };
+                    if (key === 'all' || key === 'flags') {
+                      copied.flags = { ...thing.flags };
+                    }
+                    if (key === 'all' || key === 'sprites') {
+                      copied.frameGroups = thing.frameGroups.map(fg => ({ ...fg, sprites: [...fg.sprites], animationLengths: fg.animationLengths.map(a => ({ ...a })) }));
+                    }
+                    if (key === 'all' || key === 'server') {
+                      copied.serverDef = serverDef ? { ...serverDef, properties: serverDef.properties ? { ...serverDef.properties } : null } : null;
+                    }
+                    useOBStore.setState({ copiedThing: copied });
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => {
+            const { copiedThing } = useOBStore.getState();
+            if (!copiedThing || !thing) return;
+            const store = useOBStore.getState();
+            const newDirtyIds = new Set(store.dirtyIds);
+            newDirtyIds.add(thing.id);
+            // Paste flags if copied
+            if (copiedThing.flags) {
+              thing.flags = { ...copiedThing.flags };
+            }
+            // Paste frame groups if copied
+            if (copiedThing.frameGroups) {
+              thing.frameGroups = copiedThing.frameGroups.map(fg => ({ ...fg, sprites: [...fg.sprites], animationLengths: fg.animationLengths.map(a => ({ ...a })) }));
+            }
+            thing.rawBytes = undefined;
+            clearSpriteCache();
+            // Paste server definition if copied
+            if (copiedThing.serverDef && thing.category === 'item') {
+              const { clientToServerIds, itemDefinitions } = store;
+              const serverId = clientToServerIds.get(thing.id);
+              if (serverId != null) {
+                const newDefs = new Map(itemDefinitions);
+                newDefs.set(serverId, {
+                  ...copiedThing.serverDef,
+                  serverId,
+                  id: thing.id,
+                });
+                useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1, itemDefinitions: newDefs });
+                return;
+              }
+            }
+            useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1 });
+          }}
+          disabled={!useOBStore.getState().copiedThing}
+          className={`p-1 rounded transition-colors ${
+            useOBStore.getState().copiedThing
+              ? 'hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text'
+              : 'text-emperia-muted/30 cursor-not-allowed'
+          }`}
+          title={useOBStore.getState().copiedThing?.label ? `Paste: ${useOBStore.getState().copiedThing!.label}` : 'Paste properties'}
+        >
+          <ClipboardPaste className="w-3.5 h-3.5" />
         </button>
+
+        {/* Animation controls */}
         {isAnimated && (
           <>
             <div className="w-px h-4 bg-emperia-border mx-0.5" />
-            <button onClick={() => { setCurrentFrame((currentFrame - 1 + (group?.animationLength ?? 1)) % (group?.animationLength ?? 1)); setPlaying(false); }} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text">
+            <button onClick={() => { setCurrentFrame((currentFrame - 1 + (group?.animationLength ?? 1)) % (group?.animationLength ?? 1)); setPlaying(false); }} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Previous frame">
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
-            <button onClick={() => setPlaying(!playing)} className={`p-1 rounded transition-colors ${playing ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`}>
+            <button onClick={() => setPlaying(!playing)} className={`p-1 rounded transition-colors ${playing ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title={playing ? 'Pause' : 'Play'}>
               {playing ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
             </button>
-            <button onClick={() => { setCurrentFrame((currentFrame + 1) % (group?.animationLength ?? 1)); setPlaying(false); }} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text">
+            <button onClick={() => { setCurrentFrame((currentFrame + 1) % (group?.animationLength ?? 1)); setPlaying(false); }} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Next frame">
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
             <span className="text-[10px] text-emperia-muted">{currentFrame + 1}/{group?.animationLength}</span>
           </>
-        )}
-      </div>
-
-      {/* Toggles */}
-      <div className="flex items-center px-4 py-1.5 gap-4 border-t border-emperia-border flex-wrap">
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={showCropSize} onChange={() => setShowCropSize(!showCropSize)} className="w-3 h-3 accent-emperia-accent" />
-          <span className="text-[10px] text-emperia-muted">Crop</span>
-        </label>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" checked={showGrid} onChange={() => setShowGrid(!showGrid)} className="w-3 h-3 accent-emperia-accent" />
-          <span className="text-[10px] text-emperia-muted">Grid</span>
-        </label>
-        {group && (group.patternX > 1 || group.patternY > 1) && (
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={previewMode} onChange={() => setPreviewMode(!previewMode)} className="w-3 h-3 accent-emperia-accent" />
-            <span className="text-[10px] text-emperia-muted">Preview</span>
-          </label>
         )}
       </div>
 

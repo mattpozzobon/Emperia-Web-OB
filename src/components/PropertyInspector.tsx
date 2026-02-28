@@ -1,69 +1,135 @@
-import { type ReactNode, useCallback } from 'react';
-import { useOBStore, getDisplayId } from '../store';
+import { type ReactNode, useCallback, useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
+import { useOBStore } from '../store';
 import type { ThingFlags } from '../lib/types';
 
-// All boolean flags with their display labels
-const BOOL_FLAGS: { key: keyof ThingFlags; label: string }[] = [
-  { key: 'ground', label: 'Ground' },
-  { key: 'groundBorder', label: 'Ground Border' },
-  { key: 'onBottom', label: 'On Bottom' },
-  { key: 'onTop', label: 'On Top' },
-  { key: 'container', label: 'Container' },
-  { key: 'stackable', label: 'Stackable' },
-  { key: 'forceUse', label: 'Force Use' },
-  { key: 'multiUse', label: 'Multi Use' },
-  { key: 'writable', label: 'Writable' },
-  { key: 'writableOnce', label: 'Writable Once' },
-  { key: 'fluidContainer', label: 'Fluid Container' },
-  { key: 'splash', label: 'Splash' },
-  { key: 'notWalkable', label: 'Not Walkable' },
-  { key: 'notMoveable', label: 'Not Moveable' },
-  { key: 'blockProjectile', label: 'Block Projectile' },
-  { key: 'notPathable', label: 'Not Pathable' },
-  { key: 'pickupable', label: 'Pickupable' },
-  { key: 'hangable', label: 'Hangable' },
-  { key: 'hookSouth', label: 'Hook South' },
-  { key: 'hookEast', label: 'Hook East' },
-  { key: 'rotateable', label: 'Rotateable' },
-  { key: 'hasLight', label: 'Light' },
-  { key: 'dontHide', label: "Don't Hide" },
-  { key: 'translucent', label: 'Translucent' },
-  { key: 'hasDisplacement', label: 'Displacement' },
-  { key: 'hasElevation', label: 'Elevation' },
-  { key: 'lyingCorpse', label: 'Lying Corpse' },
-  { key: 'animateAlways', label: 'Animate Always' },
-  { key: 'hasMinimapColor', label: 'Minimap Color' },
-  { key: 'fullGround', label: 'Full Ground' },
-  { key: 'look', label: 'Look' },
-  { key: 'cloth', label: 'Cloth' },
-  { key: 'hasMarket', label: 'Market' },
-  { key: 'usable', label: 'Usable' },
-  { key: 'wrapable', label: 'Wrapable' },
-  { key: 'unwrapable', label: 'Unwrapable' },
-  { key: 'topEffect', label: 'Top Effect' },
-  { key: 'noMoveAnimation', label: 'No Move Animation' },
-  { key: 'chargeable', label: 'Chargeable' },
-];
-
-// Numeric properties tied to specific flags
+// Numeric sub-properties shown inline when their parent flag is active
 interface NumericProp {
   key: keyof ThingFlags;
   label: string;
-  parentFlag?: keyof ThingFlags;
   min?: number;
   max?: number;
 }
 
-const NUMERIC_PROPS: NumericProp[] = [
-  { key: 'groundSpeed', label: 'Ground Speed', parentFlag: 'ground', min: 0, max: 65535 },
-  { key: 'lightLevel', label: 'Light Level', parentFlag: 'hasLight', min: 0, max: 65535 },
-  { key: 'lightColor', label: 'Light Color', parentFlag: 'hasLight', min: 0, max: 65535 },
-  { key: 'displacementX', label: 'Displacement X', parentFlag: 'hasDisplacement', min: 0, max: 65535 },
-  { key: 'displacementY', label: 'Displacement Y', parentFlag: 'hasDisplacement', min: 0, max: 65535 },
-  { key: 'elevation', label: 'Elevation', parentFlag: 'hasElevation', min: 0, max: 65535 },
-  { key: 'minimapColor', label: 'Minimap Color', parentFlag: 'hasMinimapColor', min: 0, max: 65535 },
-  { key: 'clothSlot', label: 'Cloth Slot', parentFlag: 'cloth', min: 0, max: 65535 },
+// A single flag entry, optionally with inline numeric sub-properties
+interface FlagEntry {
+  key: keyof ThingFlags;
+  label: string;
+  numericProps?: NumericProp[];
+}
+
+// Organized flag groups — `wide` groups span full width (they have numeric sub-properties)
+const FLAG_GROUPS: { title: string; flags: FlagEntry[]; wide?: boolean }[] = [
+  {
+    title: 'Ground & Stacking',
+    wide: true,
+    flags: [
+      { key: 'ground', label: 'Ground', numericProps: [
+        { key: 'groundSpeed', label: 'Speed', min: 0, max: 65535 },
+      ]},
+      { key: 'groundBorder', label: 'Ground Border' },
+      { key: 'onBottom', label: 'On Bottom' },
+      { key: 'onTop', label: 'On Top' },
+      { key: 'fullGround', label: 'Full Ground' },
+      { key: 'topEffect', label: 'Top Effect' },
+    ],
+  },
+  {
+    title: 'Blocking',
+    flags: [
+      { key: 'notWalkable', label: 'Not Walkable' },
+      { key: 'notMoveable', label: 'Not Moveable' },
+      { key: 'blockProjectile', label: 'Block Projectile' },
+      { key: 'notPathable', label: 'Not Pathable' },
+    ],
+  },
+  {
+    title: 'Fluids',
+    flags: [
+      { key: 'fluidContainer', label: 'Fluid Container' },
+      { key: 'splash', label: 'Splash' },
+    ],
+  },
+  {
+    title: 'Interaction',
+    flags: [
+      { key: 'pickupable', label: 'Pickupable' },
+      { key: 'stackable', label: 'Stackable' },
+      { key: 'container', label: 'Container' },
+      { key: 'forceUse', label: 'Force Use' },
+      { key: 'multiUse', label: 'Multi Use' },
+      { key: 'usable', label: 'Usable' },
+      { key: 'rotateable', label: 'Rotateable' },
+      { key: 'wrapable', label: 'Wrapable' },
+      { key: 'unwrapable', label: 'Unwrapable' },
+    ],
+  },
+  {
+    title: 'Hooks & Hanging',
+    flags: [
+      { key: 'hangable', label: 'Hangable' },
+      { key: 'hookSouth', label: 'Hook South' },
+      { key: 'hookEast', label: 'Hook East' },
+    ],
+  },
+  {
+    title: 'Writing',
+    wide: true,
+    flags: [
+      { key: 'writable', label: 'Writable', numericProps: [
+        { key: 'writableMaxLen', label: 'Max Length', min: 0, max: 65535 },
+      ]},
+      { key: 'writableOnce', label: 'Writable Once', numericProps: [
+        { key: 'writableOnceMaxLen', label: 'Max Length', min: 0, max: 65535 },
+      ]},
+    ],
+  },
+  {
+    title: 'Visual',
+    wide: true,
+    flags: [
+      { key: 'hasLight', label: 'Light', numericProps: [
+        { key: 'lightLevel', label: 'Level', min: 0, max: 65535 },
+        { key: 'lightColor', label: 'Color', min: 0, max: 65535 },
+      ]},
+      { key: 'hasDisplacement', label: 'Displacement', numericProps: [
+        { key: 'displacementX', label: 'X', min: 0, max: 65535 },
+        { key: 'displacementY', label: 'Y', min: 0, max: 65535 },
+      ]},
+      { key: 'hasElevation', label: 'Elevation', numericProps: [
+        { key: 'elevation', label: 'Height', min: 0, max: 65535 },
+      ]},
+      { key: 'hasMinimapColor', label: 'Minimap Color', numericProps: [
+        { key: 'minimapColor', label: 'Color', min: 0, max: 65535 },
+      ]},
+      { key: 'translucent', label: 'Translucent' },
+      { key: 'dontHide', label: "Don't Hide" },
+      { key: 'animateAlways', label: 'Animate Always' },
+      { key: 'noMoveAnimation', label: 'No Move Animation' },
+    ],
+  },
+  {
+    title: 'Equipment & Market',
+    wide: true,
+    flags: [
+      { key: 'cloth', label: 'Cloth', numericProps: [
+        { key: 'clothSlot', label: 'Slot', min: 0, max: 65535 },
+      ]},
+      { key: 'hasMarket', label: 'Market' },
+      { key: 'chargeable', label: 'Chargeable' },
+    ],
+  },
+  {
+    title: 'Miscellaneous',
+    flags: [
+      { key: 'lyingCorpse', label: 'Lying Corpse' },
+      { key: 'look', label: 'Look' },
+    ],
+  },
 ];
+
+// Flat list for the attributes-only view
+const ALL_BOOL_FLAGS = FLAG_GROUPS.flatMap(g => g.flags);
 
 export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?: boolean } = {}) {
   const selectedId = useOBStore((s) => s.selectedThingId);
@@ -73,7 +139,6 @@ export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?:
   useOBStore((s) => s.editVersion);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
-  const displayId = thing && objectData ? getDisplayId(objectData, thing.id) : thing?.id ?? 0;
 
   const toggleFlag = useCallback((key: keyof ThingFlags) => {
     if (!thing) return;
@@ -119,11 +184,6 @@ export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?:
   if (showAttributesOnly) {
     return (
       <div className="p-3 text-xs space-y-4">
-        <Section title="Identity">
-          <ReadonlyRow label="ID" value={displayId} />
-          <ReadonlyRow label="Category" value={thing.category} />
-        </Section>
-
         {thing.frameGroups.map((fg, i) => (
           <Section key={i} title={`Frame Group ${i}${thing.category === 'outfit' ? (i === 0 ? ' (Idle)' : ' (Moving)') : ''}`}>
             <ReadonlyRow label="Size" value={`${fg.width}x${fg.height}`} />
@@ -145,10 +205,10 @@ export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?:
 
         <Section title="Active Flags">
           <div className="space-y-0.5">
-            {BOOL_FLAGS.filter(({ key }) => !!thing.flags[key]).map(({ key, label }) => (
+            {ALL_BOOL_FLAGS.filter(({ key }) => !!thing.flags[key]).map(({ key, label }) => (
               <div key={key} className="text-emperia-text text-xs">{label}</div>
             ))}
-            {BOOL_FLAGS.every(({ key }) => !thing.flags[key]) && (
+            {ALL_BOOL_FLAGS.every(({ key }) => !thing.flags[key]) && (
               <span className="text-emperia-muted italic">None</span>
             )}
           </div>
@@ -158,36 +218,25 @@ export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?:
   }
 
   return (
-    <div className="p-3 text-xs space-y-4">
-      <Section title="Identity">
-        <ReadonlyRow label="ID" value={displayId} />
-        <ReadonlyRow label="Category" value={thing.category} />
-      </Section>
-
-      <Section title="Flags">
-        <div className="grid grid-cols-1 gap-0">
-          {BOOL_FLAGS.map(({ key, label }) => (
-            <label
-              key={key}
-              className="flex items-center gap-2 py-[3px] px-1 rounded hover:bg-emperia-hover cursor-pointer select-none"
-            >
-              <input
-                type="checkbox"
-                checked={!!thing.flags[key]}
-                onChange={() => toggleFlag(key)}
-                className="w-3 h-3 rounded border-emperia-border bg-emperia-surface accent-emperia-accent cursor-pointer"
+    <div className="p-3 text-xs space-y-1">
+      <div className="grid grid-cols-4 gap-1">
+        {FLAG_GROUPS.map((group) => {
+          const activeCount = group.flags.filter(f => !!thing.flags[f.key]).length;
+          const span = group.wide ? 'col-span-2' : '';
+          return (
+            <div key={group.title} className={span}>
+              <FlagGroupSection
+                title={group.title}
+                activeCount={activeCount}
+                flags={group.flags}
+                thingFlags={thing.flags}
+                onToggle={toggleFlag}
+                onNumericChange={setNumericProp}
               />
-              <span className={thing.flags[key] ? 'text-emperia-text' : 'text-emperia-muted'}>
-                {label}
-              </span>
-            </label>
-          ))}
-        </div>
-      </Section>
-
-      <Section title="Properties">
-        <NumericPropsEditor flags={thing.flags} onChange={setNumericProp} />
-      </Section>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -212,42 +261,86 @@ function ReadonlyRow({ label, value }: { label: string; value: string | number |
   );
 }
 
-function NumericPropsEditor({
+function FlagGroupSection({
+  title,
+  activeCount,
   flags,
-  onChange,
+  thingFlags,
+  onToggle,
+  onNumericChange,
 }: {
-  flags: ThingFlags;
-  onChange: (key: keyof ThingFlags, value: number) => void;
+  title: string;
+  activeCount: number;
+  flags: FlagEntry[];
+  thingFlags: ThingFlags;
+  onToggle: (key: keyof ThingFlags) => void;
+  onNumericChange: (key: keyof ThingFlags, value: number) => void;
 }) {
-  const visibleProps = NUMERIC_PROPS.filter((p) => {
-    if (!p.parentFlag) return true;
-    return !!flags[p.parentFlag];
-  });
-
-  if (visibleProps.length === 0) {
-    return <span className="text-emperia-muted italic">No active properties</span>;
-  }
+  const [open, setOpen] = useState(true);
 
   return (
-    <div className="space-y-1">
-      {visibleProps.map((p) => (
-        <div key={p.key} className="flex items-center justify-between gap-2">
-          <span className="text-emperia-muted shrink-0">{p.label}</span>
-          <input
-            type="number"
-            value={flags[p.key] as number ?? 0}
-            min={p.min}
-            max={p.max}
-            onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
-              if (!isNaN(v)) onChange(p.key, Math.max(p.min ?? 0, Math.min(p.max ?? 65535, v)));
-            }}
-            className="w-20 px-1.5 py-0.5 rounded bg-emperia-surface border border-emperia-border
-                       text-emperia-text font-mono text-right text-xs outline-none
-                       focus:border-emperia-accent transition-colors"
-          />
+    <div className="border border-emperia-border/50 rounded overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 bg-emperia-surface/60 hover:bg-emperia-surface transition-colors text-left"
+      >
+        {open
+          ? <ChevronDown className="w-3 h-3 text-emperia-muted shrink-0" />
+          : <ChevronRight className="w-3 h-3 text-emperia-muted shrink-0" />
+        }
+        <span className="text-[10px] font-semibold text-emperia-text uppercase tracking-wider flex-1">
+          {title}
+        </span>
+        {activeCount > 0 && (
+          <span className="text-[9px] font-medium text-emperia-accent bg-emperia-accent/15 px-1.5 py-0.5 rounded-full">
+            {activeCount}
+          </span>
+        )}
+      </button>
+      {open && (
+        <div className="px-1 py-0.5">
+          {flags.map(({ key, label, numericProps }) => {
+            const checked = !!thingFlags[key];
+            return (
+              <div key={key}>
+                <label className="flex items-center gap-2 py-[3px] px-1 rounded hover:bg-emperia-hover cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => onToggle(key)}
+                    className="w-3 h-3 rounded border-emperia-border bg-emperia-surface accent-emperia-accent cursor-pointer"
+                  />
+                  <span className={checked ? 'text-emperia-text' : 'text-emperia-muted'}>
+                    {label}
+                  </span>
+                </label>
+                {checked && numericProps && numericProps.length > 0 && (
+                  <div className="ml-7 mb-1 flex flex-wrap gap-x-3 gap-y-0.5">
+                    {numericProps.map((np) => (
+                      <div key={np.key} className="flex items-center gap-1.5">
+                        <span className="text-emperia-muted text-[10px]">{np.label}</span>
+                        <input
+                          type="number"
+                          value={thingFlags[np.key] as number ?? 0}
+                          min={np.min}
+                          max={np.max}
+                          onChange={(e) => {
+                            const v = parseInt(e.target.value, 10);
+                            if (!isNaN(v)) onNumericChange(np.key, Math.max(np.min ?? 0, Math.min(np.max ?? 65535, v)));
+                          }}
+                          className="w-16 px-1 py-0.5 rounded bg-emperia-surface border border-emperia-border
+                                     text-emperia-text font-mono text-right text-[10px] outline-none
+                                     focus:border-emperia-accent transition-colors"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
-      ))}
+      )}
     </div>
   );
 }

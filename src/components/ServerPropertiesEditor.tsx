@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { useOBStore, getDisplayId } from '../store';
+import { useOBStore } from '../store';
 import { OTB_FLAG_NAMES } from '../lib/types';
 import type { ItemProperties } from '../lib/types';
 
@@ -172,7 +172,6 @@ export function ServerPropertiesEditor() {
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
   const serverId = selectedId != null ? clientToServerIds.get(selectedId) : undefined;
   const def = serverId != null ? itemDefinitions.get(serverId) ?? null : null;
-  const displayId = thing && objectData ? getDisplayId(objectData, thing.id) : selectedId ?? 0;
 
   const props: ItemProperties = useMemo(() => def?.properties ?? {}, [def]);
 
@@ -214,14 +213,6 @@ export function ServerPropertiesEditor() {
 
   return (
     <div className="p-3 text-xs space-y-3 overflow-y-auto">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-emperia-text font-semibold">Item #{displayId}</span>
-        {props.name && <span className="text-emperia-muted">— {props.name}</span>}
-        {storedServerId != null && storedServerId !== selectedId && (
-          <span className="text-emperia-muted/50 text-[10px]">(Server ID: {storedServerId})</span>
-        )}
-      </div>
-
       {/* Stored flags & group from definitions.json */}
       <Section title="OTB Flags & Group">
         <div className="space-y-1">

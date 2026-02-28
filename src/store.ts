@@ -138,6 +138,14 @@ interface OBState {
   editVersion: number;
   /** Set by preview click to tell atlas to scroll to this sprite */
   focusSpriteId: number | null;
+  /** Clipboard for copy/paste of thing properties — each field is optional so partial copies work */
+  copiedThing: {
+    flags?: ThingFlags;
+    frameGroups?: FrameGroup[];
+    serverDef?: ServerItemData | null;
+    /** Label describing what was copied, for UI display */
+    label?: string;
+  } | null;
 
   // Actions
   loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => void;
@@ -198,6 +206,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   filterGroup: -1,
   editVersion: 0,
   focusSpriteId: null,
+  copiedThing: null,
 
   loadFiles: (objBuffer, sprBuffer) => {
     set({ loading: true, error: null });
@@ -221,6 +230,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         dirtySpriteIds: new Set(),
         editVersion: 0,
         focusSpriteId: null,
+        copiedThing: null,
         // Preserve definitions if already loaded
         ...(get().definitionsLoaded ? {} : { itemDefinitions: new Map(), clientToServerIds: new Map(), definitionsLoaded: false }),
       });
@@ -307,6 +317,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       dirtySpriteIds: new Set(),
       editVersion: 0,
       focusSpriteId: null,
+      copiedThing: null,
       itemDefinitions: new Map(),
       clientToServerIds: new Map(),
       definitionsLoaded: false,
@@ -553,12 +564,45 @@ export const useOBStore = create<OBState>((set, get) => ({
     objectData.things.set(insertId, newThing);
     newDirtyIds.add(insertId);
 
-    set({
+    // Auto-create a server definition for new items so the clientId matches the .eobj position
+    const stateUpdate: Partial<OBState> = {
       dirty: true,
       dirtyIds: newDirtyIds,
       selectedThingId: insertId,
       editVersion: editVersion + 1,
-    });
+    };
+
+    if (cat === 'item' && get().definitionsLoaded) {
+      const { itemDefinitions, clientToServerIds } = get();
+      // Only create if this clientId doesn't already have a definition
+      if (!clientToServerIds.has(insertId)) {
+        // Allocate next available serverId (max existing + 1)
+        let maxServerId = 0;
+        for (const sid of itemDefinitions.keys()) {
+          if (sid > maxServerId) maxServerId = sid;
+        }
+        const newServerId = maxServerId + 1;
+
+        const newDef: ServerItemData = {
+          serverId: newServerId,
+          id: insertId, // clientId = .eobj internal ID
+          flags: 0,
+          group: 0,
+          properties: null,
+        };
+
+        const newDefs = new Map(itemDefinitions);
+        newDefs.set(newServerId, newDef);
+        const newC2s = new Map(clientToServerIds);
+        newC2s.set(insertId, newServerId);
+
+        stateUpdate.itemDefinitions = newDefs;
+        stateUpdate.clientToServerIds = newC2s;
+        console.log(`[OB] Auto-created definition: serverId=${newServerId} clientId=${insertId}`);
+      }
+    }
+
+    set(stateUpdate);
 
     return insertId;
   },

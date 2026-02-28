@@ -18,6 +18,7 @@ export function ThingSpriteGrid() {
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const [highlightedSpriteId, setHighlightedSpriteId] = useState<number | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ group: number; index: number } | null>(null);
   const atlasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -170,14 +171,14 @@ export function ThingSpriteGrid() {
   const endRow = Math.min(atlasRows, Math.ceil((scrollTop + containerHeight) / CELL) + 2);
   const visibleAtlas = atlasIds.slice(startRow * ATLAS_COLS, endRow * ATLAS_COLS);
 
-  // Assign atlas sprite to selected slot
-  const handleAtlasClick = useCallback((atlasSpriteId: number) => {
-    if (!selectedSlot || !thing) return;
-    const fg = thing.frameGroups[selectedSlot.group];
+  // Assign a sprite to a specific slot (shared by click and drag-drop)
+  const assignSpriteToSlot = useCallback((slot: { group: number; index: number }, atlasSpriteId: number) => {
+    if (!thing) return;
+    const fg = thing.frameGroups[slot.group];
     if (!fg) return;
 
     // Update the sprite ID in the frame group
-    fg.sprites[selectedSlot.index] = atlasSpriteId;
+    fg.sprites[slot.index] = atlasSpriteId;
 
     // Clear rawBytes to force re-serialization
     thing.rawBytes = undefined;
@@ -194,7 +195,41 @@ export function ThingSpriteGrid() {
       dirtyIds: newDirtyIds,
       editVersion: store.editVersion + 1,
     });
-  }, [selectedSlot, thing]);
+  }, [thing]);
+
+  // Assign atlas sprite to selected slot (click workflow)
+  const handleAtlasClick = useCallback((atlasSpriteId: number) => {
+    if (!selectedSlot || !thing) return;
+    assignSpriteToSlot(selectedSlot, atlasSpriteId);
+  }, [selectedSlot, thing, assignSpriteToSlot]);
+
+  // Drag-and-drop handlers
+  const handleAtlasDragStart = useCallback((e: React.DragEvent, spriteId: number) => {
+    e.dataTransfer.setData('application/x-sprite-id', String(spriteId));
+    e.dataTransfer.effectAllowed = 'copy';
+  }, []);
+
+  const handleSlotDragOver = useCallback((e: React.DragEvent, group: number, index: number) => {
+    if (e.dataTransfer.types.includes('application/x-sprite-id')) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      setDropTarget({ group, index });
+    }
+  }, []);
+
+  const handleSlotDragLeave = useCallback(() => {
+    setDropTarget(null);
+  }, []);
+
+  const handleSlotDrop = useCallback((e: React.DragEvent, group: number, index: number) => {
+    e.preventDefault();
+    setDropTarget(null);
+    const raw = e.dataTransfer.getData('application/x-sprite-id');
+    const spriteId = parseInt(raw, 10);
+    if (!isNaN(spriteId) && spriteId > 0) {
+      assignSpriteToSlot({ group, index }, spriteId);
+    }
+  }, [assignSpriteToSlot]);
 
   if (!spriteData) {
     return <div className="p-3 text-emperia-muted text-xs">Load files to browse sprites</div>;
@@ -218,20 +253,27 @@ export function ThingSpriteGrid() {
                 const isSelected = selectedSlot?.group === group && selectedSlot?.index === index;
                 const isModified = spriteOverrides.has(spriteId);
 
+                const isDragOver = dropTarget?.group === group && dropTarget?.index === index;
+
                 return (
                   <button
                     key={`${group}-${index}`}
                     onClick={() => setSelectedSlot(isSelected ? null : { group, index })}
+                    onDragOver={(e) => handleSlotDragOver(e, group, index)}
+                    onDragLeave={handleSlotDragLeave}
+                    onDrop={(e) => handleSlotDrop(e, group, index)}
                     className={`relative flex items-center justify-center rounded border transition-colors
-                      ${isSelected
-                        ? 'border-emperia-accent bg-emperia-accent/20'
-                        : isModified
-                          ? 'border-amber-500/50 bg-amber-500/10'
-                          : 'border-emperia-border/40 hover:border-emperia-muted'
+                      ${isDragOver
+                        ? 'border-green-400 bg-green-400/20'
+                        : isSelected
+                          ? 'border-emperia-accent bg-emperia-accent/20'
+                          : isModified
+                            ? 'border-amber-500/50 bg-amber-500/10'
+                            : 'border-emperia-border/40 hover:border-emperia-muted'
                       }
                     `}
                     style={{ width: CELL, height: CELL }}
-                    title={`Slot ${i} → Sprite #${spriteId}${isSelected ? ' (selected — click atlas sprite to assign)' : ''}`}
+                    title={`Slot ${i} → Sprite #${spriteId}${isSelected ? ' (selected — click atlas sprite to assign)' : '\nDrag a sprite here or click to select'}`}
                   >
                     {url ? (
                       <img src={url} alt="" className="w-8 h-8" style={{ imageRendering: 'pixelated' }} />
@@ -311,7 +353,9 @@ export function ThingSpriteGrid() {
                 return (
                   <div
                     key={spriteId}
-                    className={`group relative flex items-center justify-center border transition-colors
+                    draggable
+                    onDragStart={(e) => handleAtlasDragStart(e, spriteId)}
+                    className={`group relative flex items-center justify-center border transition-colors cursor-grab active:cursor-grabbing
                       ${isHighlighted
                         ? 'border-green-400 bg-green-400/20'
                         : selectedSlot
@@ -320,7 +364,7 @@ export function ThingSpriteGrid() {
                       }
                     `}
                     style={{ width: CELL, height: CELL }}
-                    title={`#${spriteId}`}
+                    title={`#${spriteId} — drag to a slot above`}
                     onClick={() => handleAtlasClick(spriteId)}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -328,7 +372,7 @@ export function ThingSpriteGrid() {
                     }}
                   >
                     {url ? (
-                      <img src={url} alt="" className="w-8 h-8" style={{ imageRendering: 'pixelated' }} />
+                      <img src={url} alt="" draggable={false} className="w-8 h-8 pointer-events-none" style={{ imageRendering: 'pixelated' }} />
                     ) : (
                       <div className="w-6 h-6" />
                     )}
