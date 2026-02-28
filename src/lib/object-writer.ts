@@ -258,6 +258,9 @@ export function compileObjectData(data: ObjectData, dirtyIds?: Set<number>): Arr
     }
 
     // Re-serialize from parsed data for edited things
+    if (thing.category === 'outfit' && thing.flags.hasDisplacement) {
+      console.log(`[OB] Writing outfit #${id} displacement: x=${thing.flags.displacementX}, y=${thing.flags.displacementY}`);
+    }
     writeFlags(w, thing.flags, data.version);
 
     const isOutfit = thing.category === 'outfit';

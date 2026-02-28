@@ -28,9 +28,13 @@ export function Header() {
   }, [dirty]);
 
   const handleCompile = async () => {
-    if (!objectData || !spriteData) return;
-
-    const { spriteOverrides, itemDefinitions, sourceDir, sourceNames, sourceHandles } = useOBStore.getState();
+    // Read all state fresh from the store to avoid stale closures
+    // (e.g. after OBD import, dirtyIds/spriteOverrides may have changed)
+    const {
+      objectData: od, spriteData: sd, dirtyIds: currentDirtyIds,
+      spriteOverrides, itemDefinitions, sourceDir, sourceNames, sourceHandles,
+    } = useOBStore.getState();
+    if (!od || !sd) return;
 
     // Helper: write to a per-file handle, then sourceDir, then download
     async function saveFile(
@@ -66,14 +70,27 @@ export function Header() {
       downloadFile(buf, fallbackName);
     }
 
-    // Compile .eobj
-    const objBuf = compileObjectData(objectData, dirtyIds);
+    console.log(`[OB] Compiling: ${currentDirtyIds.size} dirty thing(s), ${spriteOverrides.size} sprite override(s)`);
+
+    // Compile .eobj — always do a full rebuild (pass all IDs as dirty)
+    // This avoids issues where previously-saved things would fall back to a stale originalBuffer
+    const allIds = new Set<number>();
+    for (let id = 100; id <= od.itemCount + od.outfitCount + od.effectCount + od.distanceCount; id++) {
+      allIds.add(id);
+    }
+    const objBuf = compileObjectData(od, allIds);
     await saveFile(objBuf, sourceHandles.obj, sourceNames.obj, 'emperia.eobj');
 
+    // Update originalBuffer so future compiles use the correct baseline
+    od.originalBuffer = objBuf;
+
     // Compile .espr (gzip-compressed for ~74% size reduction)
-    const sprBufRaw = compileSpriteData(spriteData, spriteOverrides);
+    const sprBufRaw = compileSpriteData(sd, spriteOverrides);
     const sprBuf = await gzipCompress(sprBufRaw);
     await saveFile(sprBuf, sourceHandles.spr, sourceNames.spr, 'emperia.espr');
+
+    // Update sprite data baseline so future compiles include all sprites
+    sd.originalBuffer = sprBufRaw;
 
     // Compile definitions.json
     {
@@ -95,7 +112,7 @@ export function Header() {
 
         // Sync friction from .eobj groundSpeed for ground items
         const clientId = def.id ?? serverId;
-        const thing = objectData.things.get(clientId);
+        const thing = od.things.get(clientId);
         if (thing?.category === 'item' && thing.flags.ground) {
           const speed = thing.flags.groundSpeed ?? 100;
           if (speed !== 100) {
@@ -139,7 +156,7 @@ export function Header() {
         extended: true,
         frameGroups: true,
       },
-      contentVersion: objectData.version,
+      contentVersion: od.version,
       format: 'emperia-asset-manifest',
       files: {
         sprites: 'emperia.espr',
@@ -249,12 +266,30 @@ export function Header() {
   );
 }
 
-function downloadFile(buffer: ArrayBuffer, filename: string) {
+// Queue of pending downloads — browsers block multiple rapid programmatic downloads.
+// We stagger them by 150ms so each gets through.
+const downloadQueue: { buffer: ArrayBuffer; filename: string }[] = [];
+let downloadTimer: number | null = null;
+
+function flushDownloadQueue() {
+  if (downloadQueue.length === 0) {
+    downloadTimer = null;
+    return;
+  }
+  const { buffer, filename } = downloadQueue.shift()!;
   const blob = new Blob([buffer], { type: 'application/octet-stream' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  downloadTimer = window.setTimeout(flushDownloadQueue, 150);
+}
+
+function downloadFile(buffer: ArrayBuffer, filename: string) {
+  downloadQueue.push({ buffer, filename });
+  if (downloadTimer == null) {
+    flushDownloadQueue();
+  }
 }

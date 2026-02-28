@@ -850,7 +850,16 @@ export const useOBStore = create<OBState>((set, get) => ({
     return JSON.stringify({ items: get().spriteMapEntries }, null, 2);
   },
 
-  markClean: () => set({ dirty: false, dirtyIds: new Set(), dirtySpriteIds: new Set() }),
+  markClean: () => {
+    // Clear rawBytes on all things so future compiles always re-serialize from parsed data
+    const od = get().objectData;
+    if (od) {
+      for (const thing of od.things.values()) {
+        thing.rawBytes = undefined;
+      }
+    }
+    set({ dirty: false, dirtyIds: new Set(), dirtySpriteIds: new Set(), spriteOverrides: new Map() });
+  },
 
   getCategoryRange: (cat) => {
     const od = get().objectData;

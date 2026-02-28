@@ -234,7 +234,7 @@ function readFlags(r: BReader): ThingFlags {
       case FLAG.HAS_LIGHT: f.hasLight = true; f.lightLevel = r.u16(); f.lightColor = r.u16(); break;
       case FLAG.DONT_HIDE: f.dontHide = true; break;
       case FLAG.TRANSLUCENT: f.translucent = true; break;
-      case FLAG.HAS_OFFSET: f.hasDisplacement = true; f.displacementX = r.i16(); f.displacementY = r.i16(); break;
+      case FLAG.HAS_OFFSET: f.hasDisplacement = true; f.displacementX = Math.max(0, r.i16()); f.displacementY = Math.max(0, r.i16()); break;
       case FLAG.HAS_ELEVATION: f.hasElevation = true; f.elevation = r.u16(); break;
       case FLAG.LYING_OBJECT: f.lyingCorpse = true; break;
       case FLAG.ANIMATE_ALWAYS: f.animateAlways = true; break;
