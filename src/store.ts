@@ -263,6 +263,19 @@ export const useOBStore = create<OBState>((set, get) => ({
     }
     set({ itemDefinitions: defs, clientToServerIds: c2s, definitionsLoaded: true });
     console.log(`[OB] Loaded ${defs.size} definitions (by serverId), ${c2s.size} client→server mappings`);
+
+    // Warn if definitions reference clientIds beyond the .eobj item range
+    const od = get().objectData;
+    if (od) {
+      let outOfRange = 0;
+      for (const def of defs.values()) {
+        const cid = def.id ?? 0;
+        if (cid > od.itemCount || cid < 100) outOfRange++;
+      }
+      if (outOfRange > 0) {
+        console.warn(`[OB] ⚠️ ${outOfRange} definitions reference clientIds outside the .eobj range (100–${od.itemCount}). These items will be invisible in-game.`);
+      }
+    }
   },
 
   setSourceDir: (dir, names) => {
@@ -574,30 +587,38 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     if (cat === 'item' && get().definitionsLoaded) {
       const { itemDefinitions, clientToServerIds } = get();
-      // Only create if this clientId doesn't already have a definition
-      if (!clientToServerIds.has(insertId)) {
-        // Allocate next available serverId (max existing + 1)
-        let maxServerId = 0;
-        for (const sid of itemDefinitions.keys()) {
-          if (sid > maxServerId) maxServerId = sid;
-        }
-        const newServerId = maxServerId + 1;
+      // Always create a new server definition for new items.
+      // Even if c2s already maps this clientId to an old serverId, the new .eobj
+      // entry needs its own definition so the server can reference it correctly.
+      const existingServerId = clientToServerIds.get(insertId);
 
-        const newDef: ServerItemData = {
-          serverId: newServerId,
-          id: insertId, // clientId = .eobj internal ID
-          flags: 0,
-          group: 0,
-          properties: null,
-        };
+      // Allocate next available serverId (max existing + 1)
+      let maxServerId = 0;
+      for (const sid of itemDefinitions.keys()) {
+        if (sid > maxServerId) maxServerId = sid;
+      }
+      const newServerId = maxServerId + 1;
 
-        const newDefs = new Map(itemDefinitions);
-        newDefs.set(newServerId, newDef);
-        const newC2s = new Map(clientToServerIds);
-        newC2s.set(insertId, newServerId);
+      const newDef: ServerItemData = {
+        serverId: newServerId,
+        id: insertId, // clientId = .eobj internal ID
+        flags: 0,
+        group: 0,
+        properties: null,
+      };
 
-        stateUpdate.itemDefinitions = newDefs;
-        stateUpdate.clientToServerIds = newC2s;
+      const newDefs = new Map(itemDefinitions);
+      newDefs.set(newServerId, newDef);
+      const newC2s = new Map(clientToServerIds);
+      // Point this clientId to the NEW serverId (overrides any stale mapping)
+      newC2s.set(insertId, newServerId);
+
+      stateUpdate.itemDefinitions = newDefs;
+      stateUpdate.clientToServerIds = newC2s;
+
+      if (existingServerId != null) {
+        console.log(`[OB] Auto-created definition: serverId=${newServerId} clientId=${insertId} (overriding stale mapping to serverId=${existingServerId})`);
+      } else {
         console.log(`[OB] Auto-created definition: serverId=${newServerId} clientId=${insertId}`);
       }
     }
