@@ -30,32 +30,50 @@ export function Header() {
   const handleCompile = async () => {
     if (!objectData || !spriteData) return;
 
-    const { spriteOverrides, itemDefinitions, sourceDir, sourceNames } = useOBStore.getState();
+    const { spriteOverrides, itemDefinitions, sourceDir, sourceNames, sourceHandles } = useOBStore.getState();
 
-    // Helper: write to source directory if available, otherwise download
-    async function saveFile(buf: ArrayBuffer, fileName: string | undefined, fallbackName: string) {
-      if (sourceDir && fileName) {
+    // Helper: write to a per-file handle, then sourceDir, then download
+    async function saveFile(
+      buf: ArrayBuffer,
+      fileHandle: FileSystemFileHandle | null | undefined,
+      dirFileName: string | undefined,
+      fallbackName: string,
+    ) {
+      // 1. Try per-file handle (works even if file is in a different folder)
+      if (fileHandle) {
         try {
-          const fh = await sourceDir.getFileHandle(fileName, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(buf);
+          await writable.close();
+          return;
+        } catch (err) {
+          console.warn(`[OB] Failed to write via file handle (${fileHandle.name}), trying folder fallback:`, err);
+        }
+      }
+      // 2. Try sourceDir + filename
+      if (sourceDir && dirFileName) {
+        try {
+          const fh = await sourceDir.getFileHandle(dirFileName, { create: true });
           const writable = await fh.createWritable();
           await writable.write(buf);
           await writable.close();
           return;
         } catch (err) {
-          console.warn(`[OB] Failed to write ${fileName} to folder, falling back to download:`, err);
+          console.warn(`[OB] Failed to write ${dirFileName} to folder, falling back to download:`, err);
         }
       }
+      // 3. Download
       downloadFile(buf, fallbackName);
     }
 
     // Compile .eobj
     const objBuf = compileObjectData(objectData, dirtyIds);
-    await saveFile(objBuf, sourceNames.obj, 'emperia.eobj');
+    await saveFile(objBuf, sourceHandles.obj, sourceNames.obj, 'emperia.eobj');
 
     // Compile .espr (gzip-compressed for ~74% size reduction)
     const sprBufRaw = compileSpriteData(spriteData, spriteOverrides);
     const sprBuf = await gzipCompress(sprBufRaw);
-    await saveFile(sprBuf, sourceNames.spr, 'emperia.espr');
+    await saveFile(sprBuf, sourceHandles.spr, sourceNames.spr, 'emperia.espr');
 
     // Compile definitions.json
     {
@@ -98,7 +116,16 @@ export function Header() {
       }
 
       const defsJson = JSON.stringify(defsObj, null, 4);
-      await saveFile(new TextEncoder().encode(defsJson).buffer, sourceNames.def, 'definitions.json');
+      await saveFile(new TextEncoder().encode(defsJson).buffer, sourceHandles.def, sourceNames.def, 'definitions.json');
+    }
+
+    // Compile item-to-sprite.json (if loaded)
+    {
+      const { spriteMapLoaded, exportSpriteMapJson } = useOBStore.getState();
+      if (spriteMapLoaded) {
+        const spriteMapJson = exportSpriteMapJson();
+        await saveFile(new TextEncoder().encode(spriteMapJson).buffer, sourceHandles.spriteMap, sourceNames.spriteMap, 'item-to-sprite.json');
+      }
     }
 
     // Write emperia.easset manifest

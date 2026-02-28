@@ -2,7 +2,7 @@
  * Global state for the Object Builder using Zustand.
  */
 import { create } from 'zustand';
-import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData } from './lib/types';
+import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData, ItemToSpriteEntry, ItemToSpriteFile } from './lib/types';
 import { parseObjectData } from './lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from './lib/sprite-decoder';
 import { maybeDecompress } from './lib/emperia-format';
@@ -122,12 +122,25 @@ interface OBState {
   clientToServerIds: Map<number, number>;
   definitionsLoaded: boolean;
 
-  // File System Access API: directory handle for saving back to source folder
+  // Equipment sprite mapping (item-to-sprite.json)
+  /** Raw entries from item-to-sprite.json */
+  spriteMapEntries: ItemToSpriteEntry[];
+  spriteMapLoaded: boolean;
+
+  // File System Access API: handles for saving back to source files
   sourceDir: FileSystemDirectoryHandle | null;
   /** Original file names keyed by role */
-  sourceNames: { obj?: string; spr?: string; def?: string };
+  sourceNames: { obj?: string; spr?: string; def?: string; spriteMap?: string };
+  /** Per-file handles for save-back (files may be in different folders) */
+  sourceHandles: {
+    obj?: FileSystemFileHandle | null;
+    spr?: FileSystemFileHandle | null;
+    def?: FileSystemFileHandle | null;
+    spriteMap?: FileSystemFileHandle | null;
+  };
 
   // UI state
+  centerTab: 'texture' | 'properties' | 'attributes' | 'server' | 'equipment';
   activeCategory: ThingCategory;
   selectedThingId: number | null;
   /** Multi-select set (Ctrl+click / Shift+click in ThingGrid) */
@@ -152,6 +165,8 @@ interface OBState {
   loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => Promise<void>;
   loadDefinitions: (json: Record<string, ServerItemData>) => void;
   setSourceDir: (dir: FileSystemDirectoryHandle, names: OBState['sourceNames']) => void;
+  setSourceHandles: (handles: Partial<OBState['sourceHandles']>) => void;
+  setCenterTab: (tab: OBState['centerTab']) => void;
   setActiveCategory: (cat: ThingCategory) => void;
   setSelectedThingId: (id: number | null) => void;
   toggleThingSelection: (id: number, range?: number[]) => void;
@@ -176,6 +191,13 @@ interface OBState {
   // Server definitions actions
   updateItemDefinition: (itemId: number, data: Partial<ServerItemData>) => void;
 
+  // Equipment sprite mapping actions
+  loadSpriteMap: (json: ItemToSpriteFile) => void;
+  updateSpriteMapEntry: (index: number, entry: ItemToSpriteEntry) => void;
+  addSpriteMapEntry: (entry: ItemToSpriteEntry) => void;
+  removeSpriteMapEntry: (index: number) => void;
+  exportSpriteMapJson: () => string;
+
   // Derived
   getCategoryRange: (cat: ThingCategory) => { start: number; end: number } | null;
 }
@@ -197,9 +219,13 @@ export const useOBStore = create<OBState>((set, get) => ({
   itemDefinitions: new Map(),
   clientToServerIds: new Map(),
   definitionsLoaded: false,
+  spriteMapEntries: [],
+  spriteMapLoaded: false,
   sourceDir: null,
   sourceNames: {},
+  sourceHandles: {},
 
+  centerTab: 'texture',
   activeCategory: 'item',
   selectedThingId: null,
   selectedThingIds: new Set(),
@@ -233,8 +259,9 @@ export const useOBStore = create<OBState>((set, get) => ({
         editVersion: 0,
         focusSpriteId: null,
         copiedThing: null,
-        // Preserve definitions if already loaded
+        // Preserve definitions and sprite map if already loaded
         ...(get().definitionsLoaded ? {} : { itemDefinitions: new Map(), clientToServerIds: new Map(), definitionsLoaded: false }),
+        ...(get().spriteMapLoaded ? {} : { spriteMapEntries: [], spriteMapLoaded: false }),
       });
     } catch (e) {
       set({
@@ -283,6 +310,12 @@ export const useOBStore = create<OBState>((set, get) => ({
   setSourceDir: (dir, names) => {
     set({ sourceDir: dir, sourceNames: { ...get().sourceNames, ...names } });
   },
+
+  setSourceHandles: (handles) => {
+    set({ sourceHandles: { ...get().sourceHandles, ...handles } });
+  },
+
+  setCenterTab: (tab) => set({ centerTab: tab }),
 
   setActiveCategory: (cat) => {
     const range = get().getCategoryRange(cat);
@@ -336,6 +369,9 @@ export const useOBStore = create<OBState>((set, get) => ({
       itemDefinitions: new Map(),
       clientToServerIds: new Map(),
       definitionsLoaded: false,
+      spriteMapEntries: [],
+      spriteMapLoaded: false,
+      sourceHandles: {},
     });
   },
 
@@ -784,6 +820,34 @@ export const useOBStore = create<OBState>((set, get) => ({
     });
 
     return true;
+  },
+
+  // ─── Equipment sprite mapping actions ──────────────────────────────────────
+
+  loadSpriteMap: (json) => {
+    const entries = Array.isArray(json.items) ? json.items : [];
+    set({ spriteMapEntries: entries, spriteMapLoaded: true });
+    console.log(`[OB] Loaded sprite map: ${entries.length} entries`);
+  },
+
+  updateSpriteMapEntry: (index, entry) => {
+    const entries = [...get().spriteMapEntries];
+    entries[index] = entry;
+    set({ spriteMapEntries: entries, dirty: true, editVersion: get().editVersion + 1 });
+  },
+
+  addSpriteMapEntry: (entry) => {
+    const entries = [...get().spriteMapEntries, entry];
+    set({ spriteMapEntries: entries, dirty: true, editVersion: get().editVersion + 1 });
+  },
+
+  removeSpriteMapEntry: (index) => {
+    const entries = get().spriteMapEntries.filter((_, i) => i !== index);
+    set({ spriteMapEntries: entries, dirty: true, editVersion: get().editVersion + 1 });
+  },
+
+  exportSpriteMapJson: () => {
+    return JSON.stringify({ items: get().spriteMapEntries }, null, 2);
   },
 
   markClean: () => set({ dirty: false, dirtyIds: new Set(), dirtySpriteIds: new Set() }),

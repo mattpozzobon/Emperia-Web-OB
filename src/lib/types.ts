@@ -238,6 +238,32 @@ export function deriveGroup(f: ThingFlags): number {
   return 0;                                    // Normal
 }
 
+// ─── Equipment sprite mapping (item-to-sprite.json) ─────────────────────────
+
+/** A single entry in the item-to-sprite.json file. */
+export interface ItemToSpriteEntry {
+  name: string;
+  id: number;
+  sprite_id: number;
+}
+
+/** The raw JSON shape of item-to-sprite.json. */
+export interface ItemToSpriteFile {
+  items: ItemToSpriteEntry[];
+}
+
+/** Equipment slot filter keys used in the UI. */
+export type EquipSlotFilter =
+  | 'all'
+  | 'head'
+  | 'body'
+  | 'legs'
+  | 'feet'
+  | 'left-hand'
+  | 'right-hand'
+  | 'backpack'
+  | 'belt';
+
 /** Server-side item properties (string-keyed, same as definitions.json "properties"). */
 export interface ItemProperties {
   // Identity
