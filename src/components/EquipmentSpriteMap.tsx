@@ -233,9 +233,9 @@ function OutfitSpritePicker({
               return (
                 <button
                   key={id}
-                  onClick={() => onSelect(displayId + 1)}
+                  onClick={() => onSelect(displayId)}
                   className="flex flex-col items-center gap-0.5 p-1 rounded hover:bg-emperia-hover border border-transparent hover:border-emperia-accent/40 transition-colors"
-                  title={`Outfit #${displayId + 1}`}
+                  title={`Outfit #${displayId}`}
                 >
                   <div className="w-10 h-10 checkerboard rounded flex items-center justify-center overflow-hidden">
                     {url ? (
@@ -244,7 +244,7 @@ function OutfitSpritePicker({
                       <div className="w-10 h-10 bg-emperia-bg/50 rounded" />
                     )}
                   </div>
-                  <span className="text-[9px] text-emperia-muted">{displayId + 1}</span>
+                  <span className="text-[9px] text-emperia-muted">{displayId}</span>
                 </button>
               );
             })}

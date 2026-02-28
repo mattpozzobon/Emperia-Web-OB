@@ -93,8 +93,8 @@ const FLAG_GROUPS: { title: string; flags: FlagEntry[]; wide?: boolean }[] = [
         { key: 'lightColor', label: 'Color', min: 0, max: 65535 },
       ]},
       { key: 'hasDisplacement', label: 'Displacement', numericProps: [
-        { key: 'displacementX', label: 'X', min: 0, max: 65535 },
-        { key: 'displacementY', label: 'Y', min: 0, max: 65535 },
+        { key: 'displacementX', label: 'X', min: -512, max: 512 },
+        { key: 'displacementY', label: 'Y', min: -512, max: 512 },
       ]},
       { key: 'hasElevation', label: 'Elevation', numericProps: [
         { key: 'elevation', label: 'Height', min: 0, max: 65535 },

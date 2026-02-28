@@ -1,5 +1,5 @@
 import { useRef } from 'react';
-import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, ImageUp, Download, Upload, Crop, Eye, Copy, ClipboardPaste } from 'lucide-react';
+import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, ImageUp, Download, Upload, Crop, Eye, Copy, ClipboardPaste, Pin, PinOff } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
 import { encodeOBD, decodeOBD } from '../lib/obd';
@@ -30,6 +30,8 @@ interface PreviewToolbarProps {
   copyMenuOpen: boolean;
   setCopyMenuOpen: (o: boolean) => void;
   copyMenuRef: React.RefObject<HTMLDivElement | null>;
+  baseOutfitId: number | null;
+  setBaseOutfitId: (id: number | null) => void;
 }
 
 export function PreviewToolbar({
@@ -37,6 +39,7 @@ export function PreviewToolbar({
   zoom, setZoom, showGrid, setShowGrid, showCropSize, setShowCropSize,
   previewMode, setPreviewMode, playing, setPlaying, currentFrame, setCurrentFrame,
   canvasRef, handleImageFiles, copyMenuOpen, setCopyMenuOpen, copyMenuRef,
+  baseOutfitId, setBaseOutfitId,
 }: PreviewToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const obdImportRef = useRef<HTMLInputElement>(null);
@@ -184,6 +187,39 @@ export function PreviewToolbar({
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
           <span className="text-[10px] text-emperia-muted">{currentFrame + 1}/{group?.animationLength}</span>
+        </>
+      )}
+
+      {/* Pin base outfit controls — pushed to far right (outfit category only) */}
+      {category === 'outfit' && objectData && (
+        <>
+          <div className="flex-1" />
+          <div className="flex items-center gap-0.5">
+            {baseOutfitId != null && baseOutfitId !== thing.id && (
+              <span className="text-[9px] text-amber-400/70 mr-0.5">Base: #{getDisplayId(objectData, baseOutfitId)}</span>
+            )}
+            {(() => {
+              const baseCharId = objectData.itemCount + 134;
+              const isCharPinned = baseOutfitId === baseCharId;
+              return (
+                <button
+                  onClick={() => setBaseOutfitId(isCharPinned ? null : baseCharId)}
+                  className={`p-1 rounded transition-colors ${isCharPinned ? 'bg-sky-500/20 text-sky-400' : 'text-emperia-muted hover:text-sky-400 hover:bg-sky-500/10'}`}
+                  title={isCharPinned ? 'Unpin character base (#134)' : 'Pin outfit #134 as base'}
+                >
+                  <Pin className="w-3.5 h-3.5" />
+                  <span className="sr-only">134</span>
+                </button>
+              );
+            })()}
+            <button
+              onClick={() => setBaseOutfitId(baseOutfitId === thing.id ? null : thing.id)}
+              className={`p-1 rounded transition-colors ${baseOutfitId === thing.id ? 'bg-amber-500/20 text-amber-400' : baseOutfitId != null ? 'bg-amber-500/10 text-amber-400/60 hover:text-amber-400 hover:bg-amber-500/20' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`}
+              title={baseOutfitId === thing.id ? 'Unpin base outfit' : baseOutfitId != null ? 'Replace pinned base with this outfit' : 'Pin current as base outfit'}
+            >
+              {baseOutfitId === thing.id ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+            </button>
+          </div>
         </>
       )}
     </div>

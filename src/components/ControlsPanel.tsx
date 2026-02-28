@@ -90,14 +90,14 @@ export function ControlsPanel({
             <>
               <div className="col-span-3 text-[9px] font-medium text-emperia-muted uppercase tracking-wider mt-1 pt-1 border-t border-emperia-border/30">Offset</div>
               <div className="col-span-1">
-                <ParamField label="X" value={thing.flags.displacementX ?? 0} min={0} max={512}
+                <ParamField label="X" value={thing.flags.displacementX ?? 0} min={-512} max={512}
                   onChange={(v) => {
                     useOBStore.getState().updateThingFlags(thing.id, { ...thing.flags, hasDisplacement: true, displacementX: v });
                   }}
                 />
               </div>
               <div className="col-span-1">
-                <ParamField label="Y" value={thing.flags.displacementY ?? 0} min={0} max={512}
+                <ParamField label="Y" value={thing.flags.displacementY ?? 0} min={-512} max={512}
                   onChange={(v) => {
                     useOBStore.getState().updateThingFlags(thing.id, { ...thing.flags, hasDisplacement: true, displacementY: v });
                   }}

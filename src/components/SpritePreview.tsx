@@ -16,7 +16,7 @@ export function SpritePreview() {
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
   const replaceSprite = useOBStore((s) => s.replaceSprite);
   const addSprite = useOBStore((s) => s.addSprite);
-  useOBStore((s) => s.editVersion);
+  const editVersion = useOBStore((s) => s.editVersion);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
 
@@ -38,6 +38,7 @@ export function SpritePreview() {
   const [showColorPicker, setShowColorPicker] = useState<keyof OutfitColorIndices | null>(null);
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const copyMenuRef = useRef<HTMLDivElement>(null);
+  const [baseOutfitId, setBaseOutfitId] = useState<number | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameTimerRef = useRef<number>(0);
@@ -75,6 +76,67 @@ export function SpritePreview() {
 
   const group: FrameGroup | null = thing?.frameGroups[activeGroup] ?? null;
 
+  // Helper: render a single thing's frame group onto a canvas context using drawImage (alpha-composites)
+  const renderThingLayer = useCallback((
+    ctx: CanvasRenderingContext2D,
+    fg: FrameGroup,
+    frame: number,
+    pxRange: number[],
+    pyRange: number[],
+    cellW: number,
+    cellH: number,
+    useAlpha: boolean,
+    useMask: boolean,
+    colors: OutfitColorIndices,
+    offsetX = 0,
+    offsetY = 0,
+  ) => {
+    if (!spriteData) return;
+    const layers = useMask ? [0] : [0];
+    for (const layer of layers) {
+      for (let pyIdx = 0; pyIdx < pyRange.length; pyIdx++) {
+        const py = pyRange[pyIdx];
+        for (let pxIdx = 0; pxIdx < pxRange.length; pxIdx++) {
+          const px = pxRange[pxIdx];
+          const bx = pxIdx * cellW;
+          const by = pyIdx * cellH;
+          for (let ty = 0; ty < fg.height; ty++) {
+            for (let tx = 0; tx < fg.width; tx++) {
+              const idx = getSpriteIndex(fg, frame, px, py, 0, layer, tx, ty);
+              if (idx >= fg.sprites.length) continue;
+              const sprId = fg.sprites[idx];
+              if (sprId <= 0) continue;
+              const rawData = spriteOverrides.get(sprId) ?? decodeSprite(spriteData, sprId);
+              if (!rawData) continue;
+              const imgData = new ImageData(new Uint8ClampedArray(rawData.data), 32, 32);
+              if (useMask) {
+                const maskIdx = getSpriteIndex(fg, frame, px, py, 0, 1, tx, ty);
+                if (maskIdx < fg.sprites.length) {
+                  const maskSprId = fg.sprites[maskIdx];
+                  if (maskSprId > 0) {
+                    const maskRaw = spriteOverrides.get(maskSprId) ?? decodeSprite(spriteData, maskSprId);
+                    if (maskRaw) applyOutfitMask(imgData, maskRaw, colors);
+                  }
+                }
+              }
+              const dx = offsetX + bx + (fg.width - 1 - tx) * 32;
+              const dy = offsetY + by + (fg.height - 1 - ty) * 32;
+              // Always use drawImage for alpha compositing (base + overlay)
+              if (useAlpha) {
+                const tmp = document.createElement('canvas');
+                tmp.width = 32; tmp.height = 32;
+                tmp.getContext('2d')!.putImageData(imgData, 0, 0);
+                ctx.drawImage(tmp, dx, dy);
+              } else {
+                ctx.putImageData(imgData, dx, dy);
+              }
+            }
+          }
+        }
+      }
+    }
+  }, [spriteData, spriteOverrides]);
+
   const renderFrame = useCallback((frame: number) => {
     const canvas = canvasRef.current;
     if (!canvas || !group || !spriteData) return;
@@ -88,30 +150,66 @@ export function SpritePreview() {
 
     const colsRendered = pxRange.length;
     const rowsRendered = pyRange.length;
-    const totalW = colsRendered * cellW;
-    const totalH = rowsRendered * cellH;
-    canvas.width = totalW;
-    canvas.height = totalH;
+
+    const hasBase = baseOutfitId != null && baseOutfitId !== selectedId;
+
+    // Displacement offsets for overlay sprite relative to the base outfit.
+    // Positive = overlay shifts up-left, Negative = overlay shifts down-right.
+    // Applied uniformly in all directions so the user can tune the offset visually.
+    const dispX = (hasBase && thing?.flags.hasDisplacement) ? (thing.flags.displacementX ?? 0) : 0;
+    const dispY = (hasBase && thing?.flags.hasDisplacement) ? (thing.flags.displacementY ?? 0) : 0;
+    const hasDisp = hasBase && (dispX !== 0 || dispY !== 0);
+
+    // Canvas padding = absolute displacement so both sprites fit regardless of sign
+    const padX = Math.abs(dispX);
+    const padY = Math.abs(dispY);
+    const cellTotalW = cellW + padX;
+    const cellTotalH = cellH + padY;
+    const canvasW = colsRendered * cellTotalW;
+    const canvasH = rowsRendered * cellTotalH;
+    canvas.width = canvasW;
+    canvas.height = canvasH;
 
     const ctx = canvas.getContext('2d')!;
-    ctx.clearRect(0, 0, totalW, totalH);
+    ctx.clearRect(0, 0, canvasW, canvasH);
 
-    // Determine which layers to render
-    const useOutfitMask = isOutfit && blendLayers && group.layers >= 2;
-    const layersToRender = useOutfitMask
-      ? [0] // We'll handle mask compositing manually
-      : blendLayers
-        ? Array.from({ length: group.layers }, (_, i) => i)
-        : [activeLayer];
+    // ── Render each direction/pattern cell ──
+    for (let pyIdx = 0; pyIdx < pyRange.length; pyIdx++) {
+      const py = pyRange[pyIdx];
+      for (let pxIdx = 0; pxIdx < pxRange.length; pxIdx++) {
+        const px = pxRange[pxIdx];
 
-    for (const layer of layersToRender) {
-      for (let pyIdx = 0; pyIdx < pyRange.length; pyIdx++) {
-        const py = pyRange[pyIdx];
-        for (let pxIdx = 0; pxIdx < pxRange.length; pxIdx++) {
-          const px = pxRange[pxIdx];
-          const baseX = pxIdx * cellW;
-          const baseY = pyIdx * cellH;
+        const cellOriginX = pxIdx * cellTotalW;
+        const cellOriginY = pyIdx * cellTotalH;
 
+        // Position base and overlay within the expanded cell.
+        // Positive disp: overlay at (0,0), base shifted right-down by disp.
+        // Negative disp: base at (0,0), overlay shifted right-down by |disp|.
+        const baseAnchorX = cellOriginX + Math.max(0, dispX);
+        const baseAnchorY = cellOriginY + Math.max(0, dispY);
+        const overlayX = cellOriginX + Math.max(0, -dispX);
+        const overlayY = cellOriginY + Math.max(0, -dispY);
+
+        // ── Draw base outfit for this direction ──
+        if (hasBase && objectData) {
+          const baseThing = objectData.things.get(baseOutfitId!);
+          const baseFg = baseThing?.frameGroups[0];
+          if (baseFg) {
+            const bPx = px < baseFg.patternX ? px : 0;
+            const bPy = py < baseFg.patternY ? py : 0;
+            const baseHasMask = baseFg.layers >= 2;
+            renderThingLayer(ctx, baseFg, 0, [bPx], [bPy], baseFg.width * 32, baseFg.height * 32, false, baseHasMask, outfitColors, baseAnchorX, baseAnchorY);
+          }
+        }
+
+        const useOutfitMask = isOutfit && blendLayers && group.layers >= 2;
+        const layersToRender = useOutfitMask
+          ? [0]
+          : blendLayers
+            ? Array.from({ length: group.layers }, (_, i) => i)
+            : [activeLayer];
+
+        for (const layer of layersToRender) {
           for (let ty = 0; ty < group.height; ty++) {
             for (let tx = 0; tx < group.width; tx++) {
               const idx = getSpriteIndex(group, frame, px, py, activeZ, layer, tx, ty);
@@ -122,10 +220,8 @@ export function SpritePreview() {
               const rawData = spriteOverrides.get(spriteId) ?? decodeSprite(spriteData, spriteId);
               if (!rawData) continue;
 
-              // Clone the ImageData so we don't mutate the cache
               const imgData = new ImageData(new Uint8ClampedArray(rawData.data), 32, 32);
 
-              // Apply outfit color mask if applicable
               if (useOutfitMask) {
                 const maskIdx = getSpriteIndex(group, frame, px, py, activeZ, 1, tx, ty);
                 if (maskIdx < group.sprites.length) {
@@ -139,10 +235,11 @@ export function SpritePreview() {
                 }
               }
 
-              const dx = baseX + (group.width - 1 - tx) * 32;
-              const dy = baseY + (group.height - 1 - ty) * 32;
+              const dx = overlayX + (group.width - 1 - tx) * 32;
+              const dy = overlayY + (group.height - 1 - ty) * 32;
 
-              if ((blendLayers && !useOutfitMask && layer > 0)) {
+              // Use drawImage when compositing over base outfit or blending layers
+              if (hasBase || (blendLayers && !useOutfitMask && layer > 0)) {
                 const tmp = document.createElement('canvas');
                 tmp.width = 32; tmp.height = 32;
                 tmp.getContext('2d')!.putImageData(imgData, 0, 0);
@@ -153,9 +250,22 @@ export function SpritePreview() {
             }
           }
         }
+
+        // ── Draw visible-tile border for this cell when displacement is active ──
+        if (hasDisp) {
+          ctx.save();
+          ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)'; // yellow-400
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          // The "tile" is the bottom-right 32×32 of the base outfit area
+          const tileX = baseAnchorX + cellW - 32;
+          const tileY = baseAnchorY + cellH - 32;
+          ctx.strokeRect(tileX + 0.5, tileY + 0.5, 31, 31);
+          ctx.restore();
+        }
       }
     }
-  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers, previewMode, activeDirection, activePatternY, isOutfit, outfitColors]);
+  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers, previewMode, activeDirection, activePatternY, isOutfit, outfitColors, baseOutfitId, selectedId, objectData, renderThingLayer, thing, editVersion]);
 
   useEffect(() => {
     renderFrame(currentFrame);
@@ -470,8 +580,8 @@ export function SpritePreview() {
                   }
                 }}
                 style={{
-                  width: (group ? renderedPxCount * group.width : 1) * 32 * zoom,
-                  height: (group ? renderedPyCount * group.height : 1) * 32 * zoom,
+                  width: (canvasRef.current?.width ?? (group ? renderedPxCount * group.width : 1) * 32) * zoom,
+                  height: (canvasRef.current?.height ?? (group ? renderedPyCount * group.height : 1) * 32) * zoom,
                   imageRendering: 'pixelated',
                 }}
               />
@@ -559,8 +669,8 @@ export function SpritePreview() {
               }
             }}
             style={{
-              width: (group ? renderedPxCount * group.width : 1) * 32 * zoom,
-              height: (group ? renderedPyCount * group.height : 1) * 32 * zoom,
+              width: (canvasRef.current?.width ?? (group ? renderedPxCount * group.width : 1) * 32) * zoom,
+              height: (canvasRef.current?.height ?? (group ? renderedPyCount * group.height : 1) * 32) * zoom,
               imageRendering: 'pixelated',
             }}
           />
@@ -632,6 +742,8 @@ export function SpritePreview() {
         copyMenuOpen={copyMenuOpen}
         setCopyMenuOpen={setCopyMenuOpen}
         copyMenuRef={copyMenuRef}
+        baseOutfitId={baseOutfitId}
+        setBaseOutfitId={setBaseOutfitId}
       />
 
       {/* Frame group selector — always shown for outfits, or when multiple groups exist */}

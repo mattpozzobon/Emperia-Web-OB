@@ -1026,12 +1026,12 @@ export const useOBStore = create<OBState>((set, get) => ({
 
 }));
 
-/** Convert internal map ID to display ID (0-based for outfits/effects/distances). */
+/** Convert internal map ID to display ID (1-based for outfits/effects/distances). */
 export function getDisplayId(objectData: ObjectData, internalId: number): number {
   if (internalId <= objectData.itemCount) return internalId; // items stay as-is (100+)
-  if (internalId <= objectData.itemCount + objectData.outfitCount) return internalId - objectData.itemCount - 1;
-  if (internalId <= objectData.itemCount + objectData.outfitCount + objectData.effectCount) return internalId - objectData.itemCount - objectData.outfitCount - 1;
-  return internalId - objectData.itemCount - objectData.outfitCount - objectData.effectCount - 1;
+  if (internalId <= objectData.itemCount + objectData.outfitCount) return internalId - objectData.itemCount;
+  if (internalId <= objectData.itemCount + objectData.outfitCount + objectData.effectCount) return internalId - objectData.itemCount - objectData.outfitCount;
+  return internalId - objectData.itemCount - objectData.outfitCount - objectData.effectCount;
 }
 
 /** Derive filtered things list outside the store (safe for useMemo). */

@@ -108,8 +108,8 @@ function writeFlags(w: PacketWriter, flags: ThingFlags, version: number): void {
   if (flags.hasDisplacement) {
     writeAttr(ATTR.ThingAttrDisplacement);
     if (version >= 755) {
-      w.writeUInt16(flags.displacementX ?? 0);
-      w.writeUInt16(flags.displacementY ?? 0);
+      w.writeUInt16((flags.displacementX ?? 0) & 0xFFFF);
+      w.writeUInt16((flags.displacementY ?? 0) & 0xFFFF);
     }
   }
   if (flags.hasElevation) {

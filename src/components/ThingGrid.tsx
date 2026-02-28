@@ -116,7 +116,7 @@ export function ThingGrid() {
           }}
         >
           {visibleThings.map((thing) => {
-            const firstSprite = thing.frameGroups[0]?.sprites[0] ?? 0;
+            const firstSprite = thing.frameGroups[0]?.sprites.find((s) => s > 0) ?? 0;
             const url = spriteData ? getSpriteDataUrl(spriteData, firstSprite, spriteOverrides) : null;
             const isSelected = thing.id === selectedId;
             const displayId = objectData ? getDisplayId(objectData, thing.id) : thing.id;
