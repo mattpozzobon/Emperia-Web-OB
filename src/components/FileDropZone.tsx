@@ -17,6 +17,7 @@ export function FileDropZone() {
   const [dragOver, setDragOver] = useState(false);
   const loadDefinitions = useOBStore((s) => s.loadDefinitions);
   const loadSpriteMap = useOBStore((s) => s.loadSpriteMap);
+  const loadHairDefinitions = useOBStore((s) => s.loadHairDefinitions);
   const setSourceDir = useOBStore((s) => s.setSourceDir);
   const setSourceHandles = useOBStore((s) => s.setSourceHandles);
   const objRef = useRef<ArrayBuffer | null>(null);
@@ -25,9 +26,11 @@ export function FileDropZone() {
   const [sprName, setSprName] = useState<string | null>(null);
   const [defName, setDefName] = useState<string | null>(null);
   const [spriteMapName, setSpriteMapName] = useState<string | null>(null);
+  const [hairDefName, setHairDefName] = useState<string | null>(null);
 
   const pendingJsonRef = useRef<ArrayBuffer | null>(null);
   const pendingSpriteMapRef = useRef<ArrayBuffer | null>(null);
+  const pendingHairDefsRef = useRef<ArrayBuffer | null>(null);
   const lastDirRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   // Track collected file handles during folder load for persisting to IndexedDB
@@ -72,6 +75,16 @@ export function FileDropZone() {
       }
       pendingSpriteMapRef.current = null;
     }
+    if (pendingHairDefsRef.current) {
+      try {
+        const text = new TextDecoder().decode(pendingHairDefsRef.current);
+        const json = JSON.parse(text);
+        loadHairDefinitions(json);
+      } catch (err) {
+        console.error('Failed to parse hair-definitions JSON:', err);
+      }
+      pendingHairDefsRef.current = null;
+    }
     loadFiles(objRef.current, sprRef.current);
 
     // Persist whatever handles we collected so far
@@ -80,7 +93,7 @@ export function FileDropZone() {
       // Also store them in Zustand for compile save-back
       setSourceHandles(pendingHandlesRef.current);
     }
-  }, [loadFiles, loadDefinitions, loadSpriteMap, persistSession, setSourceHandles]);
+  }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, persistSession, setSourceHandles]);
 
   const handleFile = useCallback((file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase();
@@ -98,6 +111,9 @@ export function FileDropZone() {
         if (lowerName.includes('item-to-sprite') || lowerName.includes('sprite-map') || lowerName.includes('spritemap')) {
           pendingSpriteMapRef.current = buf;
           setSpriteMapName(file.name);
+        } else if (lowerName.includes('hair-definition') || lowerName.includes('hair_definition')) {
+          pendingHairDefsRef.current = buf;
+          setHairDefName(file.name);
         } else {
           pendingJsonRef.current = buf;
           setDefName(file.name);
@@ -115,7 +131,7 @@ export function FileDropZone() {
       const opts: any = { mode: 'readwrite' };
       if (lastDirRef.current) opts.startIn = lastDirRef.current;
       const dirHandle: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker(opts);
-      const names: { obj?: string; spr?: string; def?: string; spriteMap?: string } = {};
+      const names: { obj?: string; spr?: string; def?: string; spriteMap?: string; hairDefs?: string } = {};
       const handles: SessionHandles = { dir: dirHandle };
 
       // Scan for matching files in the selected folder
@@ -146,6 +162,12 @@ export function FileDropZone() {
           const file = await (entry as FileSystemFileHandle).getFile();
           pendingSpriteMapRef.current = await file.arrayBuffer();
           setSpriteMapName(name);
+        } else if (ext === 'json' && (name.toLowerCase().includes('hair-definition') || name.toLowerCase().includes('hair_definition')) && !(names as any).hairDefs) {
+          (names as any).hairDefs = name;
+          (handles as any).hairDefs = entry as FileSystemFileHandle;
+          const file = await (entry as FileSystemFileHandle).getFile();
+          pendingHairDefsRef.current = await file.arrayBuffer();
+          setHairDefName(name);
         }
       }
 
@@ -214,6 +236,13 @@ export function FileDropZone() {
         loadSpriteMap(JSON.parse(text));
       } catch (e) { console.error('Failed to parse sprite map:', e); }
     }
+    const hairBuf = await readHandle((session as any).hairDefs, 'Hair Definitions');
+    if (hairBuf) {
+      try {
+        const text = new TextDecoder().decode(hairBuf);
+        loadHairDefinitions(JSON.parse(text));
+      } catch (e) { console.error('Failed to parse hair definitions:', e); }
+    }
 
     // Set handles in store for save-back
     setSourceHandles({
@@ -237,7 +266,7 @@ export function FileDropZone() {
     setSpriteMapName(session.spriteMap?.name ?? null);
 
     loadFiles(objBuf, sprBuf);
-  }, [loadFiles, loadDefinitions, loadSpriteMap, setSourceHandles, setSourceDir]);
+  }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, setSourceHandles, setSourceDir]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -357,6 +386,10 @@ export function FileDropZone() {
           <div className={`flex items-center gap-1.5 ${spriteMapName ? 'text-green-400' : 'text-emperia-muted/50'}`}>
             <div className={`w-2 h-2 rounded-full ${spriteMapName ? 'bg-green-400' : 'bg-emperia-border/50'}`} />
             {spriteMapName || 'Sprite Map (.json) — optional'}
+          </div>
+          <div className={`flex items-center gap-1.5 ${hairDefName ? 'text-green-400' : 'text-emperia-muted/50'}`}>
+            <div className={`w-2 h-2 rounded-full ${hairDefName ? 'bg-green-400' : 'bg-emperia-border/50'}`} />
+            {hairDefName || 'Hair Definitions (.json) — optional'}
           </div>
         </div>
 

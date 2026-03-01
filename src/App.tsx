@@ -10,8 +10,9 @@ import { ObjectSlots } from './components/ObjectSlots';
 import { LayerPanel } from './components/LayerPanel';
 import { ServerPropertiesEditor } from './components/ServerPropertiesEditor';
 import { EquipmentSpriteMap } from './components/EquipmentSpriteMap';
+import { HairEditor } from './components/HairEditor';
 
-type CenterTab = 'texture' | 'properties' | 'attributes' | 'server' | 'equipment';
+type CenterTab = 'texture' | 'properties' | 'attributes' | 'server' | 'equipment' | 'hair';
 
 const TAB_LABELS: Record<CenterTab, string> = {
   texture: 'Texture',
@@ -19,6 +20,7 @@ const TAB_LABELS: Record<CenterTab, string> = {
   attributes: 'Attributes',
   server: 'Server',
   equipment: 'Equipment',
+  hair: 'Hair',
 } as const;
 
 function SelectedItemBadge() {
@@ -72,7 +74,7 @@ export default function App() {
         {/* Center: Texture / Properties / Attributes */}
         <div className="flex-1 flex flex-col bg-emperia-bg overflow-hidden">
           <div className="flex items-center border-b border-emperia-border shrink-0">
-            {(['texture', 'properties', 'attributes', 'server', 'equipment'] as CenterTab[]).map((tab) => (
+            {(['texture', 'properties', 'attributes', 'server', 'equipment', 'hair'] as CenterTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setCenterTab(tab)}
@@ -97,6 +99,7 @@ export default function App() {
             {centerTab === 'attributes' && <PropertyInspector showAttributesOnly />}
             {centerTab === 'server' && <ServerPropertiesEditor />}
             {centerTab === 'equipment' && <EquipmentSpriteMap />}
+            {centerTab === 'hair' && <HairEditor />}
           </div>
         </div>
 

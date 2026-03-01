@@ -393,3 +393,57 @@ export interface ServerItemData {
   group: number;
   properties: ItemProperties | null;
 }
+
+// ─── Hair Definitions ────────────────────────────────────────────────────────
+
+/** Race bitmask flags — matches server Race enum values as bit positions. */
+export const enum HairRace {
+  Human = 1 << 0,  // 1
+  Demon = 1 << 1,  // 2
+  Orc   = 1 << 2,  // 4
+}
+export const HAIR_RACE_ALL = HairRace.Human | HairRace.Demon | HairRace.Orc; // 7
+
+/** Gender bitmask flags — matches server Sex enum values as bit positions. */
+export const enum HairGender {
+  Male   = 1 << 0,  // 1
+  Female = 1 << 1,  // 2
+}
+export const HAIR_GENDER_ALL = HairGender.Male | HairGender.Female; // 3
+
+/** Account tier bitmask flags — matches server AccountTier enum values as bit positions. */
+export const enum HairTier {
+  Free  = 1 << 0,  // 1 (Commoner)
+  Noble = 1 << 1,  // 2
+}
+export const HAIR_TIER_ALL = HairTier.Free | HairTier.Noble; // 3
+
+/** A single hair definition entry. */
+export interface HairDefinition {
+  /** Unique numeric hair ID (stable key, used for persistence). */
+  hairId: number;
+  /** Display name shown in UI and character creator. */
+  name: string;
+  /** Outfit sprite ID used by the renderer for the hair layer. */
+  outfitId: number;
+  /** Bitmask of allowed races (HairRace flags). */
+  races: number;
+  /** Bitmask of allowed genders (HairGender flags). */
+  genders: number;
+  /** Bitmask of allowed account tiers (HairTier flags). */
+  tiers: number;
+  /** Sort order for display (lower = first). */
+  sortOrder: number;
+}
+
+/** The JSON shape of hair-definitions.json (keyed by hairId as string). */
+export interface HairDefinitionsFile {
+  [hairId: string]: {
+    name: string;
+    outfitId: number;
+    races: number;
+    genders: number;
+    tiers: number;
+    sortOrder: number;
+  };
+}

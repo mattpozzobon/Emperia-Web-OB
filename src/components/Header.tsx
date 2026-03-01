@@ -29,6 +29,7 @@ const STEP_LABELS = [
   'Definitions (.json)',
   'Sprite Map (.json)',
   'Items OTB (.otb)',
+  'Hair Definitions',
   'Asset Manifest',
 ] as const;
 
@@ -273,8 +274,23 @@ export function Header() {
       skipStep(4);
     }
 
-    // Step 5: Write emperia.easset manifest
-    await runStep(5, async () => {
+    // Step 5: Compile hair-definitions.json
+    {
+      const { hairDefsLoaded, exportHairDefinitionsJson } = useOBStore.getState();
+      if (hairDefsLoaded) {
+        await runStep(5, async () => {
+          const hairJson = exportHairDefinitionsJson();
+          const buf = new TextEncoder().encode(hairJson).buffer;
+          await saveFile(buf, null, 'hair-definitions.json', 'hair-definitions.json');
+          return buf.byteLength;
+        });
+      } else {
+        skipStep(5);
+      }
+    }
+
+    // Step 6: Write emperia.easset manifest
+    await runStep(6, async () => {
       const easset = JSON.stringify({
         version: 1,
         features: {
