@@ -7,6 +7,8 @@ import type { FrameGroup } from '../lib/types';
 import { getSpriteIndex } from './ui-primitives';
 import { PreviewToolbar } from './PreviewToolbar';
 import { ControlsPanel } from './ControlsPanel';
+import { FrameScrubber } from './FrameScrubber';
+import { LayerScrubber } from './LayerScrubber';
 
 
 export function SpritePreview() {
@@ -714,110 +716,25 @@ export function SpritePreview() {
           );
 
           const frameScrubber = isAnimated && group ? (
-            <div
-              className="relative flex flex-col items-center select-none ml-2"
-              style={{ height: Math.max(120, expectedCanvasH * zoom + 16), width: 28 }}
-              onMouseDown={(e) => {
-                if (!group) return;
-                const bar = e.currentTarget;
-                const seek = (clientY: number) => {
-                  const rect = bar.getBoundingClientRect();
-                  const ratio = Math.max(0, Math.min(1, (clientY - rect.top - 8) / (rect.height - 16)));
-                  const frame = Math.round(ratio * (group.animationLength - 1));
-                  setCurrentFrame(frame);
-                  setPlaying(false);
-                };
-                seek(e.clientY);
-                const onMove = (ev: MouseEvent) => seek(ev.clientY);
-                const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-                window.addEventListener('mousemove', onMove);
-                window.addEventListener('mouseup', onUp);
-              }}
-            >
-              {/* Track */}
-              <div className="absolute left-1/2 -translate-x-1/2 top-2 bottom-2 w-[3px] rounded-full bg-emperia-border" />
-              {/* Frame ticks */}
-              {Array.from({ length: group.animationLength }, (_, i) => {
-                const pct = group.animationLength <= 1 ? 50 : 8 + (i / (group.animationLength - 1)) * 84;
-                return (
-                  <div
-                    key={i}
-                    className={`absolute left-1/2 -translate-x-1/2 rounded-full transition-all duration-75 ${
-                      i === currentFrame
-                        ? 'w-3.5 h-3.5 bg-emperia-accent shadow-lg shadow-emperia-accent/40 z-10'
-                        : 'w-1.5 h-1.5 bg-emperia-muted/40 hover:bg-emperia-muted'
-                    }`}
-                    style={{ top: `${pct}%`, transform: 'translate(-50%, -50%)' }}
-                  />
-                );
-              })}
-              {/* Frame label */}
-              <div
-                className="absolute -right-1 text-[8px] font-mono text-emperia-accent whitespace-nowrap"
-                style={{
-                  top: `${group.animationLength <= 1 ? 50 : 8 + (currentFrame / (group.animationLength - 1)) * 84}%`,
-                  transform: 'translateY(-50%) translateX(100%)',
-                  paddingLeft: 4,
-                }}
-              >
-                {currentFrame + 1}/{group.animationLength}
-              </div>
-            </div>
+            <FrameScrubber
+              animationLength={group.animationLength}
+              currentFrame={currentFrame}
+              setCurrentFrame={setCurrentFrame}
+              setPlaying={setPlaying}
+              height={expectedCanvasH * zoom + 16}
+            />
           ) : null;
 
           const hasMultipleLayers = group ? group.layers > 1 : false;
           const layerScrubber = hasMultipleLayers && group ? (
-            <div
-              className="relative flex flex-col items-center select-none ml-1"
-              style={{ height: Math.max(80, expectedCanvasH * zoom + 16), width: 24 }}
-              title="Layer"
-              onMouseDown={(e) => {
-                if (!group) return;
-                const bar = e.currentTarget;
-                const seek = (clientY: number) => {
-                  const rect = bar.getBoundingClientRect();
-                  const ratio = Math.max(0, Math.min(1, (clientY - rect.top - 8) / (rect.height - 16)));
-                  const layer = Math.round(ratio * (group.layers - 1));
-                  setActiveLayer(layer);
-                  setBlendLayers(false);
-                };
-                seek(e.clientY);
-                const onMove = (ev: MouseEvent) => seek(ev.clientY);
-                const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
-                window.addEventListener('mousemove', onMove);
-                window.addEventListener('mouseup', onUp);
-              }}
-            >
-              {/* Track */}
-              <div className="absolute left-1/2 -translate-x-1/2 top-2 bottom-2 w-[3px] rounded-full bg-purple-900/40" />
-              {/* Layer ticks */}
-              {Array.from({ length: group.layers }, (_, i) => {
-                const pct = group.layers <= 1 ? 50 : 8 + (i / (group.layers - 1)) * 84;
-                const isActive = !blendLayers && i === activeLayer;
-                return (
-                  <div
-                    key={i}
-                    className={`absolute left-1/2 -translate-x-1/2 rounded-full transition-all duration-75 ${
-                      isActive
-                        ? 'w-3 h-3 bg-purple-500 shadow-lg shadow-purple-500/40 z-10'
-                        : 'w-1.5 h-1.5 bg-purple-400/30 hover:bg-purple-400/60'
-                    }`}
-                    style={{ top: `${pct}%`, transform: 'translate(-50%, -50%)' }}
-                  />
-                );
-              })}
-              {/* Layer label */}
-              <div
-                className="absolute -right-0.5 text-[7px] font-mono text-purple-400 whitespace-nowrap"
-                style={{
-                  top: blendLayers ? '50%' : `${group.layers <= 1 ? 50 : 8 + (activeLayer / (group.layers - 1)) * 84}%`,
-                  transform: 'translateY(-50%) translateX(100%)',
-                  paddingLeft: 3,
-                }}
-              >
-                {blendLayers ? 'Blend' : `L${activeLayer}`}
-              </div>
-            </div>
+            <LayerScrubber
+              layers={group.layers}
+              activeLayer={activeLayer}
+              setActiveLayer={setActiveLayer}
+              blendLayers={blendLayers}
+              setBlendLayers={setBlendLayers}
+              height={expectedCanvasH * zoom + 16}
+            />
           ) : null;
 
           return showDirButtons ? (
