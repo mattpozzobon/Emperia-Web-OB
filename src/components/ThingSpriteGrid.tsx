@@ -1,9 +1,15 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, Plus, Trash2, X, Minimize2 } from 'lucide-react';
+import { Search, Plus, Trash2, X, Minimize2, Grid2x2 } from 'lucide-react';
 import { useOBStore } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
 import { ObjectSlots } from './ObjectSlots';
 import { AtlasCell } from './AtlasCell';
+
+const TILE_SIZE_OPTIONS = [
+  { value: 1 as const, label: '1×1', desc: 'no padding' },
+  { value: 2 as const, label: '2×2', desc: '4 tiles/group' },
+  { value: 4 as const, label: '4×4', desc: '16 tiles/group' },
+];
 
 const CELL = 40;
 const ATLAS_COLS = 6;
@@ -14,6 +20,7 @@ export function ThingSpriteGrid() {
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
   const focusSpriteId = useOBStore((s) => s.focusSpriteId);
+  const importTileSize = useOBStore((s) => s.importTileSize);
 
   const [selectedSlot, setSelectedSlot] = useState<{ group: number; index: number } | null>(null);
   const [atlasSearch, setAtlasSearch] = useState('');
@@ -28,40 +35,101 @@ export function ThingSpriteGrid() {
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
 
-  // Import PNG(s) as new atlas sprites (splits into 32×32 tiles)
+  // Import PNG(s) as new atlas sprites (always sliced into 32×32 tiles)
+  // When importTileSize > 1, inserts blank padding sprites after each NxN group
+  // so groups align to fresh atlas rows for visual clarity.
   const handleImportPNG = useCallback((files: FileList) => {
     const addSprite = useOBStore.getState().addSprite;
+    const N = importTileSize; // group size: 1=no grouping, 2=2×2 objects, 4=4×4 objects
     Array.from(files).forEach((file) => {
       const img = new Image();
       img.onload = () => {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d')!;
-        const tilesX = Math.max(1, Math.floor(img.width / 32));
-        const tilesY = Math.max(1, Math.floor(img.height / 32));
         canvas.width = 32;
         canvas.height = 32;
+
+        // How many 32px tiles in the source image
+        const tilesX = Math.max(1, Math.floor(img.width / 32));
+        const tilesY = Math.max(1, Math.floor(img.height / 32));
+
+        // How many NxN groups fit in the image
+        const groupsX = N > 1 ? Math.max(1, Math.floor(tilesX / N)) : tilesX;
+        const groupsY = N > 1 ? Math.max(1, Math.floor(tilesY / N)) : tilesY;
+
         const added: number[] = [];
-        for (let ty = 0; ty < tilesY; ty++) {
-          for (let tx = 0; tx < tilesX; tx++) {
-            ctx.clearRect(0, 0, 32, 32);
-            ctx.drawImage(img, tx * 32, ty * 32, 32, 32, 0, 0, 32, 32);
-            const imgData = ctx.getImageData(0, 0, 32, 32);
-            // Skip fully transparent tiles
-            let hasPixel = false;
-            for (let i = 3; i < imgData.data.length; i += 4) {
-              if (imgData.data[i] > 0) { hasPixel = true; break; }
+        // Track atlas position (existing sprites + newly added) so padding
+        // correctly aligns groups to fresh rows
+        let totalAdded = spriteData?.spriteCount ?? 0;
+
+        const addBlankPadding = () => {
+          const posInRow = totalAdded % ATLAS_COLS;
+          if (posInRow === 0) return; // already at row start
+          const blanks = ATLAS_COLS - posInRow;
+          const blankData = new ImageData(32, 32); // fully transparent
+          for (let b = 0; b < blanks; b++) {
+            addSprite(blankData);
+            totalAdded++;
+          }
+        };
+
+        // When grouping, ensure we start on a fresh atlas row
+        if (N > 1) {
+          addBlankPadding();
+        }
+
+        if (N <= 1) {
+          // No grouping — just slice every 32×32 tile
+          for (let ty = 0; ty < tilesY; ty++) {
+            for (let tx = 0; tx < tilesX; tx++) {
+              ctx.clearRect(0, 0, 32, 32);
+              ctx.drawImage(img, tx * 32, ty * 32, 32, 32, 0, 0, 32, 32);
+              const imgData = ctx.getImageData(0, 0, 32, 32);
+              let hasPixel = false;
+              for (let i = 3; i < imgData.data.length; i += 4) {
+                if (imgData.data[i] > 0) { hasPixel = true; break; }
+              }
+              if (!hasPixel) continue;
+              const id = addSprite(imgData);
+              if (id != null) { added.push(id); totalAdded++; }
             }
-            if (!hasPixel) continue;
-            const id = addSprite(imgData);
-            if (id != null) added.push(id);
+          }
+        } else {
+          // Grouped import: iterate over NxN groups
+          // Each group's tiles are laid out row-by-row in the atlas,
+          // with each row padded to fill the full atlas width.
+          // This preserves the 2D spatial layout of each object:
+          //   2×2 object → 2 atlas rows of [tile, tile, blank, blank, blank, blank]
+          //   4×4 object → 4 atlas rows of [t, t, t, t, blank, blank]
+          for (let gy = 0; gy < groupsY; gy++) {
+            for (let gx = 0; gx < groupsX; gx++) {
+              for (let ly = 0; ly < N; ly++) {
+                // Add one row of tiles within this group
+                for (let lx = 0; lx < N; lx++) {
+                  const tx = gx * N + lx;
+                  const ty = gy * N + ly;
+                  if (tx >= tilesX || ty >= tilesY) continue;
+                  ctx.clearRect(0, 0, 32, 32);
+                  ctx.drawImage(img, tx * 32, ty * 32, 32, 32, 0, 0, 32, 32);
+                  const imgData = ctx.getImageData(0, 0, 32, 32);
+                  let hasPixel = false;
+                  for (let i = 3; i < imgData.data.length; i += 4) {
+                    if (imgData.data[i] > 0) { hasPixel = true; break; }
+                  }
+                  const id = addSprite(hasPixel ? imgData : new ImageData(32, 32));
+                  if (id != null) { added.push(id); totalAdded++; }
+                }
+                // Pad rest of atlas row after this group row
+                addBlankPadding();
+              }
+            }
           }
         }
+
         if (added.length > 0) {
-          // Scroll to the first newly added sprite
           setAtlasSearch('');
           setHighlightedSpriteId(added[0]);
           setTimeout(() => setHighlightedSpriteId(null), 2000);
-          // Scroll atlas to the new sprite
           if (atlasRef.current && spriteData) {
             const idx = added[0] - 1;
             const row = Math.floor(idx / ATLAS_COLS);
@@ -71,7 +139,7 @@ export function ThingSpriteGrid() {
       };
       img.src = URL.createObjectURL(file);
     });
-  }, [spriteData]);
+  }, [spriteData, importTileSize]);
 
   // Delete a single sprite (right-click context or delete button)
   const handleDeleteSprite = useCallback((spriteId: number) => {
@@ -346,13 +414,39 @@ export function ThingSpriteGrid() {
             className="hidden"
             onChange={(e) => { if (e.target.files) handleImportPNG(e.target.files); e.target.value = ''; }}
           />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-green-400 transition-colors shrink-0"
-            title="Add new sprites from PNG (auto-splits into 32×32 tiles)"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-green-400 transition-colors"
+              title={`Add new sprites from PNG (32×32 tiles${importTileSize > 1 ? `, grouped ${importTileSize}×${importTileSize} with row padding` : ''})`}
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <div className="relative group">
+              <button
+                className="flex items-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-medium text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover transition-colors border border-emperia-border"
+                title="Import grouping — pads atlas rows between NxN tile groups for visual clarity"
+              >
+                <Grid2x2 className="w-3 h-3" />
+                {TILE_SIZE_OPTIONS.find(o => o.value === importTileSize)?.label}
+              </button>
+              <div className="absolute right-0 top-full mt-0.5 z-50 hidden group-hover:block bg-emperia-panel border border-emperia-border rounded shadow-lg py-0.5 min-w-[90px]">
+                {TILE_SIZE_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => useOBStore.setState({ importTileSize: opt.value })}
+                    className={`w-full text-left px-2 py-0.5 text-[10px] transition-colors ${
+                      importTileSize === opt.value
+                        ? 'text-emperia-accent bg-emperia-accent/10'
+                        : 'text-emperia-text hover:bg-emperia-hover'
+                    }`}
+                  >
+                    {opt.label} <span className="text-emperia-muted">({opt.desc})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
           <button
             onClick={() => {
               const result = useOBStore.getState().compactSpriteAtlas();

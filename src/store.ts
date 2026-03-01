@@ -152,6 +152,8 @@ interface OBState {
   editVersion: number;
   /** Set by preview click to tell atlas to scroll to this sprite */
   focusSpriteId: number | null;
+  /** Import tile grouping: 1=no grouping, 2=2×2 objects, 4=4×4 objects — pads atlas rows between groups for visual clarity */
+  importTileSize: 1 | 2 | 4;
   /** Clipboard for copy/paste of thing properties — each field is optional so partial copies work */
   copiedThing: {
     flags?: ThingFlags;
@@ -237,6 +239,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   filterGroup: -1,
   editVersion: 0,
   focusSpriteId: null,
+  importTileSize: 1,
   copiedThing: null,
 
   loadFiles: async (objBuffer, sprBuffer) => {
