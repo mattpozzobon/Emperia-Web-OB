@@ -42,6 +42,7 @@ export function SpritePreview() {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameTimerRef = useRef<number>(0);
+  const latestRenderKeyRef = useRef('');
 
   const category = useOBStore((s) => s.activeCategory);
   const isOutfit = category === 'outfit';
@@ -75,6 +76,9 @@ export function SpritePreview() {
   }, [copyMenuOpen]);
 
   const group: FrameGroup | null = thing?.frameGroups[activeGroup] ?? null;
+  const idleGroup: FrameGroup | null = thing?.frameGroups[0] ?? null;
+  // Effective layers = max of current group and idle group (masks are shared)
+  const effectiveLayers = Math.max(group?.layers ?? 0, idleGroup?.layers ?? 0);
 
   // Helper: render a single thing's frame group onto a canvas context using drawImage (alpha-composites)
   const renderThingLayer = useCallback((
@@ -137,9 +141,18 @@ export function SpritePreview() {
     }
   }, [spriteData, spriteOverrides]);
 
+  // Stamp a key that uniquely identifies the current render context.
+  // Stale renderFrame closures (from before an import/replace) will see their
+  // captured key no longer matches and bail out before painting.
+  const renderKey = `${editVersion}:${activeGroup}:${selectedId}`;
+  latestRenderKeyRef.current = renderKey;
+
   const renderFrame = useCallback((frame: number) => {
     const canvas = canvasRef.current;
     if (!canvas || !group || !spriteData) return;
+
+    // Skip if this closure is stale (a newer renderFrame has been created)
+    if (latestRenderKeyRef.current !== renderKey) return;
 
     const cellW = group.width * 32;
     const cellH = group.height * 32;
@@ -202,12 +215,33 @@ export function SpritePreview() {
           }
         }
 
-        const useOutfitMask = isOutfit && blendLayers && group.layers >= 2;
+        const useOutfitMask = isOutfit && blendLayers && effectiveLayers >= 2;
+        // When viewing a layer that only exists in idle (e.g. L1 on walking with layers=1),
+        // render from the idle group instead
+        const viewingIdleMask = !blendLayers && activeLayer >= group.layers && idleGroup && activeLayer < idleGroup.layers;
         const layersToRender = useOutfitMask
           ? [0]
           : blendLayers
             ? Array.from({ length: group.layers }, (_, i) => i)
-            : [activeLayer];
+            : viewingIdleMask ? [activeLayer] : (activeLayer < group.layers ? [activeLayer] : []);
+
+        if (viewingIdleMask && idleGroup) {
+          // Render mask layer from idle group for this direction
+          for (let ty = 0; ty < idleGroup.height; ty++) {
+            for (let tx = 0; tx < idleGroup.width; tx++) {
+              const maskIdx = getSpriteIndex(idleGroup, 0, px, py, Math.min(activeZ, idleGroup.patternZ - 1), activeLayer, tx, ty);
+              if (maskIdx >= idleGroup.sprites.length) continue;
+              const maskSprId = idleGroup.sprites[maskIdx];
+              if (maskSprId <= 0) continue;
+              const rawData = spriteOverrides.get(maskSprId) ?? decodeSprite(spriteData, maskSprId);
+              if (!rawData) continue;
+              const imgData = new ImageData(new Uint8ClampedArray(rawData.data), 32, 32);
+              const dx = overlayX + (idleGroup.width - 1 - tx) * 32;
+              const dy = overlayY + (idleGroup.height - 1 - ty) * 32;
+              ctx.putImageData(imgData, dx, dy);
+            }
+          }
+        }
 
         for (const layer of layersToRender) {
           for (let ty = 0; ty < group.height; ty++) {
@@ -223,13 +257,18 @@ export function SpritePreview() {
               const imgData = new ImageData(new Uint8ClampedArray(rawData.data), 32, 32);
 
               if (useOutfitMask) {
-                const maskIdx = getSpriteIndex(group, frame, px, py, activeZ, 1, tx, ty);
-                if (maskIdx < group.sprites.length) {
-                  const maskSpriteId = group.sprites[maskIdx];
-                  if (maskSpriteId > 0) {
-                    const maskRaw = spriteOverrides.get(maskSpriteId) ?? decodeSprite(spriteData, maskSpriteId);
-                    if (maskRaw) {
-                      applyOutfitMask(imgData, maskRaw, outfitColors);
+                // If current group has masks, use them; otherwise fall back to idle group
+                const maskGroup = group.layers >= 2 ? group : idleGroup;
+                if (maskGroup && maskGroup.layers >= 2) {
+                  const maskFrame = group.layers >= 2 ? frame : 0;
+                  const maskIdx = getSpriteIndex(maskGroup, maskFrame, px, py, Math.min(activeZ, maskGroup.patternZ - 1), 1, tx, ty);
+                  if (maskIdx < maskGroup.sprites.length) {
+                    const maskSpriteId = maskGroup.sprites[maskIdx];
+                    if (maskSpriteId > 0) {
+                      const maskRaw = spriteOverrides.get(maskSpriteId) ?? decodeSprite(spriteData, maskSpriteId);
+                      if (maskRaw) {
+                        applyOutfitMask(imgData, maskRaw, outfitColors);
+                      }
                     }
                   }
                 }
@@ -756,7 +795,7 @@ export function SpritePreview() {
         setBaseOutfitId={setBaseOutfitId}
       />
 
-      {/* Frame group selector — always shown for outfits, or when multiple groups exist */}
+      {/* Frame group selector + layer selector */}
       {(thing.frameGroups.length > 1 || isOutfit) && (
         <div className="flex items-center justify-center px-4 py-1.5 gap-1 border-t border-emperia-border">
           {thing.frameGroups.map((_, i) => (
@@ -770,7 +809,33 @@ export function SpritePreview() {
               {i === 0 ? 'Idle' : i === 1 ? 'Moving' : `Group ${i}`}
             </button>
           ))}
-          <span className="text-[9px] text-emperia-muted/50 ml-2">{thing.frameGroups.length} group{thing.frameGroups.length !== 1 ? 's' : ''}</span>
+          <span className="text-[9px] text-emperia-muted/50 ml-1">{thing.frameGroups.length} grp</span>
+
+          {/* Layer selector — shown when any group has multiple layers (masks shared from idle) */}
+          {group && effectiveLayers > 1 && (
+            <>
+              <div className="w-px h-4 bg-emperia-border mx-1" />
+              {Array.from({ length: effectiveLayers }, (_, l) => (
+                <button
+                  key={l}
+                  onClick={() => { setActiveLayer(l); setBlendLayers(false); }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors
+                    ${!blendLayers && activeLayer === l ? 'bg-purple-600 text-white' : 'bg-emperia-surface text-emperia-muted hover:bg-emperia-hover border border-emperia-border'}
+                  `}
+                >
+                  L{l}
+                </button>
+              ))}
+              <button
+                onClick={() => setBlendLayers(true)}
+                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors
+                  ${blendLayers ? 'bg-purple-600 text-white' : 'bg-emperia-surface text-emperia-muted hover:bg-emperia-hover border border-emperia-border'}
+                `}
+              >
+                Blend
+              </button>
+            </>
+          )}
         </div>
       )}
 

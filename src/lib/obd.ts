@@ -515,5 +515,6 @@ export function decodeOBD(compressed: Uint8Array): OBDImportResult {
     });
   }
 
+
   return { category, clientVersion, flags, frameGroups, spritePixels };
 }
