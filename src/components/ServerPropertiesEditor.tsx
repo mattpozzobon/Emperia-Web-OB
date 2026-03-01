@@ -29,7 +29,8 @@ const EQUIPMENT_FIELDS: FieldDef[] = [
     '', 'sword', 'axe', 'club', 'distance', 'shield', 'wand', 'orb', 'magical',
   ]},
   { key: 'slotType', label: 'Slot Type', type: 'select', options: [
-    '', 'hand', 'two-handed', 'head', 'body', 'legs', 'feet', 'ring', 'necklace', 'backpack', 'ammo',
+    '', 'left-hand', 'right-hand', 'hand', 'two-handed', 'head', 'body', 'legs', 'feet',
+    'ring', 'necklace', 'backpack', 'belt', 'ammo', 'quiver',
   ]},
   { key: 'ammoType', label: 'Ammo Type', type: 'string' },
   { key: 'shootType', label: 'Shoot Type', type: 'string' },
