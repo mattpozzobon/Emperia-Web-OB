@@ -3,6 +3,7 @@ import { Search, Plus, Trash2, X, Minimize2, Grid2x2 } from 'lucide-react';
 import { useOBStore } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
 import { AtlasCell } from './AtlasCell';
+import { useSpriteTooltip } from './SpriteTooltip';
 
 const TILE_SIZE_OPTIONS = [
   { value: 1 as const, label: '1×1', desc: 'no padding' },
@@ -22,6 +23,8 @@ export function ThingSpriteGrid() {
   const importTileSize = useOBStore((s) => s.importTileSize);
 
   const selectedSlots = useOBStore((s) => s.selectedSlots);
+
+  const tooltip = useSpriteTooltip(spriteData, spriteOverrides);
 
   const [atlasSearch, setAtlasSearch] = useState('');
   const [scrollTop, setScrollTop] = useState(0);
@@ -343,7 +346,7 @@ export function ThingSpriteGrid() {
     return <div className="p-3 text-emperia-muted text-xs">Load files to browse sprites</div>;
   }
 
-  return (
+  return (<>
     <div className="flex flex-col h-full">
       {/* Full sprite atlas */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -481,6 +484,9 @@ export function ThingSpriteGrid() {
                   }}
                   onDragStart={(e) => handleAtlasDragStart(e, spriteId)}
                   onDelete={() => handleDeleteSprite(spriteId)}
+                  onMouseEnter={(e) => tooltip.show(spriteId, `#${spriteId}`, e)}
+                  onMouseMove={tooltip.move}
+                  onMouseLeave={tooltip.hide}
                 />
               ))}
             </div>
@@ -488,5 +494,6 @@ export function ThingSpriteGrid() {
         </div>
       </div>
     </div>
-  );
+    {tooltip.portal}
+  </>);
 }

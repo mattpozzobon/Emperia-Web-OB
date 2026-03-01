@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useOBStore } from '../store';
 import type { ThingFlags } from '../lib/types';
@@ -128,10 +128,7 @@ const FLAG_GROUPS: { title: string; flags: FlagEntry[]; wide?: boolean }[] = [
   },
 ];
 
-// Flat list for the attributes-only view
-const ALL_BOOL_FLAGS = FLAG_GROUPS.flatMap(g => g.flags);
-
-export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?: boolean } = {}) {
+export function PropertyInspector() {
   const selectedId = useOBStore((s) => s.selectedThingId);
   const objectData = useOBStore((s) => s.objectData);
   const updateThingFlags = useOBStore((s) => s.updateThingFlags);
@@ -181,42 +178,6 @@ export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?:
     );
   }
 
-  if (showAttributesOnly) {
-    return (
-      <div className="p-3 text-xs space-y-4">
-        {thing.frameGroups.map((fg, i) => (
-          <Section key={i} title={`Frame Group ${i}${thing.category === 'outfit' ? (i === 0 ? ' (Idle)' : ' (Moving)') : ''}`}>
-            <ReadonlyRow label="Size" value={`${fg.width}x${fg.height}`} />
-            <ReadonlyRow label="Layers" value={fg.layers} />
-            <ReadonlyRow label="Pattern X" value={fg.patternX} />
-            <ReadonlyRow label="Pattern Y" value={fg.patternY} />
-            <ReadonlyRow label="Pattern Z" value={fg.patternZ} />
-            <ReadonlyRow label="Animations" value={fg.animationLength} />
-            <ReadonlyRow label="Sprites" value={fg.sprites.length} />
-            {fg.animationLength > 1 && (
-              <>
-                <ReadonlyRow label="Async" value={fg.asynchronous ? 'Yes' : 'No'} />
-                <ReadonlyRow label="Loop Count" value={fg.nLoop === 0 ? 'Infinite' : fg.nLoop} />
-                <ReadonlyRow label="Start Frame" value={fg.start} />
-              </>
-            )}
-          </Section>
-        ))}
-
-        <Section title="Active Flags">
-          <div className="space-y-0.5">
-            {ALL_BOOL_FLAGS.filter(({ key }) => !!thing.flags[key]).map(({ key, label }) => (
-              <div key={key} className="text-emperia-text text-xs">{label}</div>
-            ))}
-            {ALL_BOOL_FLAGS.every(({ key }) => !thing.flags[key]) && (
-              <span className="text-emperia-muted italic">None</span>
-            )}
-          </div>
-        </Section>
-      </div>
-    );
-  }
-
   return (
     <div className="p-3 text-xs space-y-1">
       <div className="grid grid-cols-4 gap-1">
@@ -237,26 +198,6 @@ export function PropertyInspector({ showAttributesOnly }: { showAttributesOnly?:
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div>
-      <h3 className="text-emperia-accent font-semibold text-[11px] uppercase tracking-wider mb-1.5 pb-1 border-b border-emperia-border">
-        {title}
-      </h3>
-      <div className="space-y-0.5">{children}</div>
-    </div>
-  );
-}
-
-function ReadonlyRow({ label, value }: { label: string; value: string | number | boolean }) {
-  return (
-    <div className="flex justify-between py-0.5">
-      <span className="text-emperia-muted">{label}</span>
-      <span className="text-emperia-text font-mono">{String(value)}</span>
     </div>
   );
 }

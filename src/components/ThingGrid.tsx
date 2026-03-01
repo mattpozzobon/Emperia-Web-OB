@@ -1,6 +1,7 @@
 import { useCallback, useRef, useEffect, useState, useMemo } from 'react';
 import { useOBStore, getThingsForCategory, getDisplayId } from '../store';
 import { getSpriteDataUrl } from '../lib/sprite-decoder';
+import { useSpriteTooltip } from './SpriteTooltip';
 
 const CELL_SIZE = 40;
 const VISIBLE_BUFFER = 20; // extra items to render above/below viewport
@@ -20,6 +21,8 @@ export function ThingGrid() {
   const filterGroup = useOBStore((s) => s.filterGroup);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+
+  const tooltip = useSpriteTooltip(spriteData, spriteOverrides);
 
   const things = useMemo(
     () => getThingsForCategory(objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, clientToServerIds),
@@ -98,7 +101,7 @@ export function ThingGrid() {
     }
   }, [selectedId, things]);
 
-  return (
+  return (<>
     <div
       ref={containerRef}
       onScroll={handleScroll}
@@ -123,7 +126,7 @@ export function ThingGrid() {
             const serverId = clientToServerIds?.get(thing.id);
             const def = serverId != null ? itemDefinitions?.get(serverId) : undefined;
             const itemName = def?.properties?.name;
-            const tooltip = itemName ? `#${displayId} — ${itemName}` : `#${displayId}`;
+            const tipText = itemName ? `#${displayId} — ${itemName}` : `#${displayId}`;
 
             const isMultiSelected = selectedIds.has(thing.id);
 
@@ -157,7 +160,10 @@ export function ThingGrid() {
                   }
                 `}
                 style={{ width: CELL_SIZE, height: CELL_SIZE }}
-                title={tooltip}
+                title={tipText}
+                onMouseEnter={(e) => tooltip.show(firstSprite, tipText, e)}
+                onMouseMove={tooltip.move}
+                onMouseLeave={tooltip.hide}
               >
                 {url ? (
                   <img
@@ -178,5 +184,6 @@ export function ThingGrid() {
         </div>
       </div>
     </div>
-  );
+    {tooltip.portal}
+  </>);
 }

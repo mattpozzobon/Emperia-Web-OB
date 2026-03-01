@@ -15,12 +15,16 @@ interface AtlasCellProps {
   onContextMenu: (e: React.MouseEvent) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDelete: () => void;
+  onMouseEnter?: (e: React.MouseEvent) => void;
+  onMouseMove?: (e: React.MouseEvent) => void;
+  onMouseLeave?: () => void;
 }
 
 export function AtlasCell({
   spriteId, spriteData, spriteOverrides,
   isHighlighted, isAtlasSelected, hasSelectedSlot,
   onClick, onContextMenu, onDragStart, onDelete,
+  onMouseEnter, onMouseMove, onMouseLeave,
 }: AtlasCellProps) {
   const url = getSpriteDataUrl(spriteData, spriteId, spriteOverrides);
 
@@ -42,6 +46,9 @@ export function AtlasCell({
       title={`#${spriteId}${isAtlasSelected ? ' (selected)' : ''} — Ctrl+click to multi-select, Shift+click for range`}
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onMouseEnter={onMouseEnter}
+      onMouseMove={onMouseMove}
+      onMouseLeave={onMouseLeave}
     >
       {url ? (
         <img src={url} alt="" draggable={false} className="w-8 h-8 pointer-events-none" style={{ imageRendering: 'pixelated' }} />

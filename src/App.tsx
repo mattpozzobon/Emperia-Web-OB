@@ -12,12 +12,11 @@ import { ServerPropertiesEditor } from './components/ServerPropertiesEditor';
 import { EquipmentSpriteMap } from './components/EquipmentSpriteMap';
 import { HairEditor } from './components/HairEditor';
 
-type CenterTab = 'texture' | 'properties' | 'attributes' | 'server' | 'equipment' | 'hair';
+type CenterTab = 'texture' | 'properties' | 'server' | 'equipment' | 'hair';
 
 const TAB_LABELS: Record<CenterTab, string> = {
   texture: 'Texture',
   properties: 'Properties',
-  attributes: 'Attributes',
   server: 'Server',
   equipment: 'Equipment',
   hair: 'Hair',
@@ -74,7 +73,7 @@ export default function App() {
         {/* Center: Texture / Properties / Attributes */}
         <div className="flex-1 flex flex-col bg-emperia-bg overflow-hidden">
           <div className="flex items-center border-b border-emperia-border shrink-0">
-            {(['texture', 'properties', 'attributes', 'server', 'equipment', 'hair'] as CenterTab[]).map((tab) => (
+            {(['texture', 'properties', 'server', 'equipment', 'hair'] as CenterTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setCenterTab(tab)}
@@ -96,7 +95,6 @@ export default function App() {
           <div className="flex-1 overflow-y-auto">
             {centerTab === 'texture' && <SpritePreview />}
             {centerTab === 'properties' && <PropertyInspector />}
-            {centerTab === 'attributes' && <PropertyInspector showAttributesOnly />}
             {centerTab === 'server' && <ServerPropertiesEditor />}
             {centerTab === 'equipment' && <EquipmentSpriteMap />}
             {centerTab === 'hair' && <HairEditor />}

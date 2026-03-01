@@ -60,7 +60,7 @@ export interface OBState {
   };
 
   // UI state
-  centerTab: 'texture' | 'properties' | 'attributes' | 'server' | 'equipment' | 'hair';
+  centerTab: 'texture' | 'properties' | 'server' | 'equipment' | 'hair';
   activeCategory: ThingCategory;
   selectedThingId: number | null;
   /** Multi-select set (Ctrl+click / Shift+click in ThingGrid) */
