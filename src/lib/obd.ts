@@ -516,5 +516,111 @@ export function decodeOBD(compressed: Uint8Array): OBDImportResult {
   }
 
 
+  // Outfits: when walking group has fewer layers than idle, its sprite data
+  // was truncated from a layers=2 source.  Frame 0 contains correct base
+  // sprites in layers=1 stride; frame 1 is garbled partial idle data.
+  // Fix: remap frame 0 into layers=2 (base→L0, idle masks→L1), then append
+  // idle's sprites as the final animation frame.
+  if (category === 'outfit' && frameGroups.length >= 2) {
+    const idle = frameGroups[0];
+    for (let gi = 1; gi < frameGroups.length; gi++) {
+      const fg = frameGroups[gi];
+      if (fg.layers >= idle.layers) continue;
+
+      const tpd = fg.width * fg.height;                           // 4 tiles per layer-slot
+      const dirs = fg.patternX * fg.patternY * fg.patternZ;       // 4 directions
+      const oldPerDir = fg.layers * tpd;                           // 4 (layers=1)
+      const newPerDir = idle.layers * tpd;                         // 8 (layers=2)
+      const newPerFrame = dirs * newPerDir;                        // 32
+
+      // Only use frame 0's base sprites (layers=1), discard garbled frame 1+
+      const oldFrame0 = fg.sprites.slice(0, dirs * oldPerDir);    // 16 sprites
+
+      // Build frame 0 in layers=2 stride: base from walking, masks from idle
+      const frame0: number[] = new Array(newPerFrame).fill(0);
+      for (let d = 0; d < dirs; d++) {
+        // L0: walking base sprites
+        for (let t = 0; t < tpd; t++) {
+          frame0[d * newPerDir + t] = oldFrame0[d * oldPerDir + t];
+        }
+        // L1+: mask sprites from idle (same direction, frame 0)
+        for (let extraL = 1; extraL < idle.layers; extraL++) {
+          for (let t = 0; t < tpd; t++) {
+            frame0[d * newPerDir + extraL * tpd + t] =
+              idle.sprites[d * newPerDir + extraL * tpd + t];
+          }
+        }
+      }
+
+      // Frame 1 = idle's complete sprite data (standing pose)
+      const frame1 = idle.sprites.slice(0, newPerFrame);
+
+      fg.layers = idle.layers;
+      fg.sprites = [...frame0, ...frame1];
+      fg.animationLength = 2;
+
+      // Ensure animation durations match
+      while (fg.animationLengths.length > 2) fg.animationLengths.pop();
+      while (fg.animationLengths.length < 2) {
+        fg.animationLengths.push({ min: 100, max: 100 });
+      }
+    }
+  }
+
+  // ── Diagnostic dump ──
+  const spriteHash = (img: ImageData | undefined): string => {
+    if (!img) return 'EMPTY';
+    let h = 0;
+    for (let j = 0; j < img.data.length; j += 4) {
+      if (img.data[j + 3] > 0) { // only count non-transparent pixels
+        h = (h * 31 + img.data[j] + img.data[j+1] * 256 + img.data[j+2] * 65536) | 0;
+      }
+    }
+    return h.toString(16).padStart(8, '0');
+  };
+  console.group('[OBD DIAGNOSTIC]');
+  console.log('OBD version:', obdVersion, '| Client:', clientVersion, '| Category:', category);
+  console.log('Frame groups:', frameGroups.length);
+
+  // Build hash lookup for idle sprites
+  const idleHashes = new Map<string, string>(); // hash → "dir=X L=Y tile=Z"
+  if (category === 'outfit' && frameGroups.length >= 1) {
+    const idle = frameGroups[0];
+    const tpd = idle.width * idle.height;
+    console.log(`  Idle (Group 0): w=${idle.width} h=${idle.height} layers=${idle.layers} pX=${idle.patternX} frames=${idle.animationLength} sprites=${idle.sprites.length}`);
+    for (let i = 0; i < idle.sprites.length; i++) {
+      const h = spriteHash(spritePixels.get(idle.sprites[i]));
+      const dir = Math.floor(i / (idle.layers * tpd));
+      const layer = Math.floor((i % (idle.layers * tpd)) / tpd);
+      const tile = i % tpd;
+      const label = `idle[${i}] dir=${dir} L=${layer} tile=${tile}`;
+      idleHashes.set(h + '_' + i, label);
+      console.log(`    [${i}] hash=${h}  ${label}`);
+    }
+  }
+
+  // Walking group
+  for (let gi = 1; gi < frameGroups.length; gi++) {
+    const fg = frameGroups[gi];
+    const tpd = fg.width * fg.height;
+    const spf = fg.layers * fg.patternX * fg.patternY * fg.patternZ * tpd;
+    console.log(`  Walking (Group ${gi}): w=${fg.width} h=${fg.height} layers=${fg.layers} pX=${fg.patternX} frames=${fg.animationLength} sprites=${fg.sprites.length} spritesPerFrame=${spf}`);
+    for (let i = 0; i < fg.sprites.length; i++) {
+      const h = spriteHash(spritePixels.get(fg.sprites[i]));
+      const f = Math.floor(i / spf);
+      const rem = i % spf;
+      const dir = Math.floor(rem / (fg.layers * tpd));
+      const layer = Math.floor((rem % (fg.layers * tpd)) / tpd);
+      const tile = rem % tpd;
+      // Find matching idle sprite
+      let match = '';
+      for (const [key, label] of idleHashes) {
+        if (key.startsWith(h + '_')) { match = ` ← MATCHES ${label}`; break; }
+      }
+      console.log(`    [${i}] hash=${h} f=${f} dir=${dir} L=${layer} tile=${tile}${match}`);
+    }
+  }
+  console.groupEnd();
+
   return { category, clientVersion, flags, frameGroups, spritePixels };
 }
