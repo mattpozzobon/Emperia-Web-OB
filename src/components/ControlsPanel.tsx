@@ -1,6 +1,4 @@
 import { useOBStore } from '../store';
-import { paletteToCSS, OUTFIT_PALETTE, PALETTE_SIZE } from '../lib/outfit-colors';
-import type { OutfitColorIndices } from '../lib/outfit-colors';
 import type { ThingType, FrameGroup } from '../lib/types';
 import { ParamField, StepperBtn } from './ui-primitives';
 
@@ -16,28 +14,13 @@ interface ControlsPanelProps {
   setActivePatternY: (p: number) => void;
   activeZ: number;
   setActiveZ: (z: number) => void;
-  activeLayer: number;
-  setActiveLayer: (l: number) => void;
-  blendLayers: boolean;
-  setBlendLayers: (b: boolean) => void;
-  currentFrame: number;
-  setCurrentFrame: (f: number) => void;
-  playing: boolean;
-  setPlaying: (p: boolean) => void;
-  outfitColors: OutfitColorIndices;
-  setOutfitColors: (c: OutfitColorIndices) => void;
-  showColorPicker: keyof OutfitColorIndices | null;
-  setShowColorPicker: (c: keyof OutfitColorIndices | null) => void;
   updateFrameGroupProp: (key: string, value: number) => void;
 }
 
 export function ControlsPanel({
   thing, group, isOutfit, isDistance, previewMode,
   activeDirection, setActiveDirection, activePatternY, setActivePatternY,
-  activeZ, setActiveZ, activeLayer, setActiveLayer,
-  blendLayers, setBlendLayers, currentFrame, setCurrentFrame,
-  playing, setPlaying, outfitColors, setOutfitColors,
-  showColorPicker, setShowColorPicker, updateFrameGroupProp,
+  activeZ, setActiveZ, updateFrameGroupProp,
 }: ControlsPanelProps) {
   return (
     <div className="border-t border-emperia-border text-[10px]">
@@ -85,74 +68,6 @@ export function ControlsPanel({
         activeZ={activeZ}
         setActiveZ={setActiveZ}
       />
-
-      {/* ═══════════════════════════════════════════════ */}
-      {/* ── LAYER ────────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════ */}
-      {group.layers > 1 && (
-        <>
-          <SectionHeader label="Layer" colorClass="bg-purple-950/30 text-purple-400" />
-          <div className="px-4 py-1.5 flex items-center gap-1">
-            <span className="text-emperia-muted shrink-0">Layer:</span>
-            <StepperBtn onClick={() => setActiveLayer(Math.max(0, activeLayer - 1))} disabled={blendLayers}>‹</StepperBtn>
-            <span className={`font-mono w-8 text-center text-[9px] ${blendLayers ? 'text-emperia-muted' : 'text-emperia-text'}`}>
-              {blendLayers ? 'All' : `${activeLayer + 1}/${group.layers}`}
-            </span>
-            <StepperBtn onClick={() => setActiveLayer(Math.min(group.layers - 1, activeLayer + 1))} disabled={blendLayers}>›</StepperBtn>
-            <label className="flex items-center gap-0.5 cursor-pointer ml-1">
-              <input type="checkbox" checked={blendLayers} onChange={() => setBlendLayers(!blendLayers)} className="w-2.5 h-2.5 accent-emperia-accent" />
-              <span className="text-emperia-muted text-[9px]">Blend</span>
-            </label>
-          </div>
-        </>
-      )}
-
-      {/* ═══════════════════════════════════════════════ */}
-      {/* ── ANIMATION ────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════ */}
-      <AnimationControls
-        thing={thing}
-        group={group}
-        currentFrame={currentFrame}
-        setCurrentFrame={setCurrentFrame}
-        playing={playing}
-        setPlaying={setPlaying}
-        updateFrameGroupProp={updateFrameGroupProp}
-      />
-
-      {/* ═══════════════════════════════════════════════ */}
-      {/* ── OFFSET ───────────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════ */}
-      {(isOutfit || thing.flags.hasDisplacement) && (
-        <>
-          <SectionHeader label="Offset" />
-          <div className="px-4 py-1.5 grid grid-cols-3 gap-x-3 gap-y-1">
-            <ParamField label="Offset X" value={thing.flags.displacementX ?? 0} min={-512} max={512}
-              onChange={(v) => {
-                useOBStore.getState().updateThingFlags(thing.id, { ...thing.flags, hasDisplacement: true, displacementX: v });
-              }}
-            />
-            <ParamField label="Offset Y" value={thing.flags.displacementY ?? 0} min={-512} max={512}
-              onChange={(v) => {
-                useOBStore.getState().updateThingFlags(thing.id, { ...thing.flags, hasDisplacement: true, displacementY: v });
-              }}
-            />
-            <div />
-          </div>
-        </>
-      )}
-
-      {/* ═══════════════════════════════════════════════ */}
-      {/* ── OUTFIT COLORS ────────────────────────────── */}
-      {/* ═══════════════════════════════════════════════ */}
-      {isOutfit && blendLayers && group.layers >= 2 && (
-        <OutfitColorControls
-          outfitColors={outfitColors}
-          setOutfitColors={setOutfitColors}
-          showColorPicker={showColorPicker}
-          setShowColorPicker={setShowColorPicker}
-        />
-      )}
 
     </div>
   );
@@ -229,124 +144,4 @@ function PreviewControls({
   );
 }
 
-function AnimationControls({
-  thing, group, currentFrame, setCurrentFrame, playing, setPlaying, updateFrameGroupProp,
-}: {
-  thing: ThingType;
-  group: FrameGroup;
-  currentFrame: number;
-  setCurrentFrame: (f: number) => void;
-  playing: boolean;
-  setPlaying: (p: boolean) => void;
-  updateFrameGroupProp: (key: string, value: number) => void;
-}) {
-  if (group.animationLength <= 1) return null;
 
-  return (
-    <>
-      <SectionHeader label="Animation" colorClass="bg-emerald-950/30 text-emerald-400" />
-      <div className="px-4 py-1.5">
-        {/* Frame stepper + play */}
-        <div className="flex items-center gap-1 mb-1">
-          <span className="text-emperia-muted shrink-0">Frame:</span>
-          <StepperBtn onClick={() => { setCurrentFrame((currentFrame - 1 + group.animationLength) % group.animationLength); setPlaying(false); }}>‹</StepperBtn>
-          <span className="text-emperia-text font-mono w-10 text-center text-[9px]">{currentFrame + 1}/{group.animationLength}</span>
-          <StepperBtn onClick={() => { setCurrentFrame((currentFrame + 1) % group.animationLength); setPlaying(false); }}>›</StepperBtn>
-          <button
-            onClick={() => setPlaying(!playing)}
-            className={`ml-1 px-1.5 py-0.5 rounded text-[9px] transition-colors ${playing ? 'bg-emperia-accent text-white' : 'bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text'}`}
-          >{playing ? 'Stop' : 'Play'}</button>
-        </div>
-
-        {/* Settings grid */}
-        <div className="grid grid-cols-3 gap-x-3 gap-y-1">
-          <div className="flex items-center gap-1">
-            <span className="text-emperia-muted shrink-0">Mode:</span>
-            <select
-              value={group.asynchronous}
-              onChange={(e) => updateFrameGroupProp('asynchronous', Number(e.target.value))}
-              className="flex-1 px-1 py-0 bg-emperia-surface border border-emperia-border rounded text-[9px] text-emperia-text outline-none focus:border-emperia-accent"
-            >
-              <option value={0}>Sync</option>
-              <option value={1}>Async</option>
-            </select>
-          </div>
-          <ParamField label="Loop count" value={group.nLoop} min={0} max={255} onChange={(v) => updateFrameGroupProp('nLoop', v)} />
-          <ParamField label="Start frame" value={group.start} min={0} max={group.animationLength - 1} onChange={(v) => updateFrameGroupProp('start', v)} />
-        </div>
-
-        {/* Per-frame durations */}
-        {group.animationLengths[currentFrame] && (
-          <div className="grid grid-cols-3 gap-x-3 gap-y-1 mt-1 pt-1 border-t border-emperia-border/20">
-            <div className="col-span-3 text-[8px] text-emperia-muted">Frame {currentFrame + 1} duration (ms)</div>
-            <ParamField label="Min" value={group.animationLengths[currentFrame].min} min={0} max={65535}
-              onChange={(v) => {
-                group.animationLengths[currentFrame].min = v;
-                thing.rawBytes = undefined;
-                const store = useOBStore.getState();
-                const ids = new Set(store.dirtyIds); ids.add(thing.id);
-                useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
-              }}
-            />
-            <ParamField label="Max" value={group.animationLengths[currentFrame].max} min={0} max={65535}
-              onChange={(v) => {
-                group.animationLengths[currentFrame].max = v;
-                thing.rawBytes = undefined;
-                const store = useOBStore.getState();
-                const ids = new Set(store.dirtyIds); ids.add(thing.id);
-                useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
-              }}
-            />
-            <div />
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-function OutfitColorControls({
-  outfitColors, setOutfitColors, showColorPicker, setShowColorPicker,
-}: {
-  outfitColors: OutfitColorIndices;
-  setOutfitColors: (c: OutfitColorIndices) => void;
-  showColorPicker: keyof OutfitColorIndices | null;
-  setShowColorPicker: (c: keyof OutfitColorIndices | null) => void;
-}) {
-  return (
-    <>
-      <SectionHeader label="Colors" />
-      <div className="px-4 py-1.5">
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-          {(['head', 'body', 'legs', 'feet'] as const).map((channel) => (
-            <div key={channel} className="flex items-center gap-1">
-              <button
-                onClick={() => setShowColorPicker(showColorPicker === channel ? null : channel)}
-                className="w-4 h-4 rounded border border-emperia-border shrink-0"
-                style={{ backgroundColor: paletteToCSS(outfitColors[channel]) }}
-                title={`${channel}: ${outfitColors[channel]}`}
-              />
-              <span className="text-emperia-muted capitalize text-[9px]">{channel}</span>
-              <StepperBtn onClick={() => setOutfitColors({ ...outfitColors, [channel]: Math.max(0, outfitColors[channel] - 1) })}>‹</StepperBtn>
-              <span className="text-emperia-text font-mono w-5 text-center text-[9px]">{outfitColors[channel]}</span>
-              <StepperBtn onClick={() => setOutfitColors({ ...outfitColors, [channel]: Math.min(PALETTE_SIZE - 1, outfitColors[channel] + 1) })}>›</StepperBtn>
-            </div>
-          ))}
-        </div>
-        {showColorPicker && (
-          <div className="mt-1 p-1 bg-emperia-surface border border-emperia-border rounded grid gap-px" style={{ gridTemplateColumns: 'repeat(19, 14px)' }}>
-            {OUTFIT_PALETTE.map((_, idx) => (
-              <button
-                key={idx}
-                onClick={() => { setOutfitColors({ ...outfitColors, [showColorPicker]: idx }); setShowColorPicker(null); }}
-                className={`w-3.5 h-3.5 rounded-sm border ${outfitColors[showColorPicker] === idx ? 'border-white' : 'border-transparent'}`}
-                style={{ backgroundColor: paletteToCSS(idx) }}
-                title={`${idx}`}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </>
-  );
-}

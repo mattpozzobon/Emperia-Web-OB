@@ -3,6 +3,7 @@
  */
 import { create } from 'zustand';
 import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData, ItemToSpriteEntry, ItemToSpriteFile } from './lib/types';
+import type { OutfitColorIndices } from './lib/outfit-colors';
 import { parseObjectData } from './lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from './lib/sprite-decoder';
 import { maybeDecompress } from './lib/emperia-format';
@@ -165,6 +166,14 @@ interface OBState {
     label?: string;
   } | null;
 
+  // Preview state (shared between SpritePreview and LayerPanel)
+  activeLayer: number;
+  blendLayers: boolean;
+  currentFrame: number;
+  playing: boolean;
+  outfitColors: OutfitColorIndices;
+  showColorPicker: keyof OutfitColorIndices | null;
+
   // Actions
   loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => Promise<void>;
   loadDefinitions: (json: Record<string, ServerItemData>) => void;
@@ -244,6 +253,13 @@ export const useOBStore = create<OBState>((set, get) => ({
   importTileSize: 1,
   selectedSlots: [],
   copiedThing: null,
+
+  activeLayer: 0,
+  blendLayers: false,
+  currentFrame: 0,
+  playing: false,
+  outfitColors: { head: 0, body: 0, legs: 0, feet: 0 },
+  showColorPicker: null,
 
   loadFiles: async (objBuffer, sprBuffer) => {
     set({ loading: true, error: null });

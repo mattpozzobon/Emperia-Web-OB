@@ -7,6 +7,7 @@ import { SpritePreview } from './components/SpritePreview';
 import { PropertyInspector } from './components/PropertyInspector';
 import { ThingSpriteGrid } from './components/ThingSpriteGrid';
 import { ObjectSlots } from './components/ObjectSlots';
+import { LayerPanel } from './components/LayerPanel';
 import { ServerPropertiesEditor } from './components/ServerPropertiesEditor';
 import { EquipmentSpriteMap } from './components/EquipmentSpriteMap';
 
@@ -99,9 +100,10 @@ export default function App() {
           </div>
         </div>
 
-        {/* Middle-right: Object sprite slots */}
-        <div className="w-[260px] border-l border-emperia-border bg-emperia-bg overflow-hidden flex flex-col">
+        {/* Middle-right: Object sprite slots + layer/offset/colors */}
+        <div className="w-[260px] border-l border-emperia-border bg-emperia-bg overflow-y-auto flex flex-col">
           <ObjectSlots />
+          <LayerPanel />
         </div>
 
         {/* Right: Sprite atlas browser */}

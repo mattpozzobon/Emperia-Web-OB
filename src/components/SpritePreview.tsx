@@ -21,21 +21,33 @@ export function SpritePreview() {
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
 
   const [activeGroup, setActiveGroup] = useState(0);
-  const [currentFrame, setCurrentFrame] = useState(0);
-  const [playing, setPlaying] = useState(false);
+  const currentFrame = useOBStore((s) => s.currentFrame);
+  const setCurrentFrame = (f: number | ((prev: number) => number)) => {
+    if (typeof f === 'function') {
+      useOBStore.setState((s) => ({ currentFrame: f(s.currentFrame) }));
+    } else {
+      useOBStore.setState({ currentFrame: f });
+    }
+  };
+  const playing = useOBStore((s) => s.playing);
+  const setPlaying = (p: boolean) => useOBStore.setState({ playing: p });
   const [zoom, setZoom] = useState(4);
   const [showGrid, setShowGrid] = useState(false);
   const [showCropSize, setShowCropSize] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [dragTile, setDragTile] = useState<{ col: number; row: number } | null>(null);
-  const [activeLayer, setActiveLayer] = useState(0);
+  const activeLayer = useOBStore((s) => s.activeLayer);
+  const setActiveLayer = (l: number) => useOBStore.setState({ activeLayer: l });
   const [activeZ, setActiveZ] = useState(0);
-  const [blendLayers, setBlendLayers] = useState(false);
-  const [outfitColors, setOutfitColors] = useState<OutfitColorIndices>({ head: 0, body: 0, legs: 0, feet: 0 });
+  const blendLayers = useOBStore((s) => s.blendLayers);
+  const setBlendLayers = (b: boolean) => useOBStore.setState({ blendLayers: b });
+  const outfitColors = useOBStore((s) => s.outfitColors);
+  const setOutfitColors = (c: OutfitColorIndices) => useOBStore.setState({ outfitColors: c });
   const [previewMode, setPreviewMode] = useState(false); // true = single direction/pattern preview
   const [activeDirection, setActiveDirection] = useState(2); // 0=N,1=E,2=S,3=W — default south
   const [activePatternY, setActivePatternY] = useState(0);
-  const [showColorPicker, setShowColorPicker] = useState<keyof OutfitColorIndices | null>(null);
+  const showColorPicker = useOBStore((s) => s.showColorPicker);
+  const setShowColorPicker = (c: keyof OutfitColorIndices | null) => useOBStore.setState({ showColorPicker: c });
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const copyMenuRef = useRef<HTMLDivElement>(null);
   const [baseOutfitId, setBaseOutfitId] = useState<number | null>(null);
@@ -51,16 +63,12 @@ export function SpritePreview() {
 
   useEffect(() => {
     setActiveGroup(0);
-    setCurrentFrame(0);
-    setPlaying(false);
-    setActiveLayer(0);
+    useOBStore.setState({ currentFrame: 0, playing: false, activeLayer: 0, blendLayers: false, showColorPicker: null });
     setActiveZ(0);
     setActiveDirection(2);
     setActivePatternY(0);
     // Default outfits to preview mode, items to pattern mode
     setPreviewMode(isOutfit || isEffect || isDistance);
-    // Default outfits to blend layers
-    setBlendLayers(isOutfit);
   }, [selectedId, isOutfit, isEffect, isDistance]);
 
   // Close copy menu on outside click
@@ -543,7 +551,18 @@ export function SpritePreview() {
       </div>
 
       {/* Sprite preview area */}
-      <div className="flex-1 flex items-center justify-center overflow-auto min-h-0">
+      <div
+        className="flex-1 flex items-center justify-center overflow-auto min-h-0"
+        onWheel={(e) => {
+          if (!isAnimated || !group) return;
+          e.preventDefault();
+          setPlaying(false);
+          setCurrentFrame((prev) => {
+            const delta = e.deltaY > 0 ? 1 : -1;
+            return (prev + delta + group.animationLength) % group.animationLength;
+          });
+        }}
+      >
         {(() => {
           // Determine if we should show spatial direction buttons
           // Outfits: patternX=4, patternY=1 → 4 cardinal dirs (N/E/S/W)
@@ -667,15 +686,127 @@ export function SpritePreview() {
             </div>
           );
 
+          const frameScrubber = isAnimated && group ? (
+            <div
+              className="relative flex flex-col items-center select-none ml-2"
+              style={{ height: Math.max(120, expectedCanvasH * zoom + 16), width: 28 }}
+              onMouseDown={(e) => {
+                if (!group) return;
+                const bar = e.currentTarget;
+                const seek = (clientY: number) => {
+                  const rect = bar.getBoundingClientRect();
+                  const ratio = Math.max(0, Math.min(1, (clientY - rect.top - 8) / (rect.height - 16)));
+                  const frame = Math.round(ratio * (group.animationLength - 1));
+                  setCurrentFrame(frame);
+                  setPlaying(false);
+                };
+                seek(e.clientY);
+                const onMove = (ev: MouseEvent) => seek(ev.clientY);
+                const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+              }}
+            >
+              {/* Track */}
+              <div className="absolute left-1/2 -translate-x-1/2 top-2 bottom-2 w-[3px] rounded-full bg-emperia-border" />
+              {/* Frame ticks */}
+              {Array.from({ length: group.animationLength }, (_, i) => {
+                const pct = group.animationLength <= 1 ? 50 : 8 + (i / (group.animationLength - 1)) * 84;
+                return (
+                  <div
+                    key={i}
+                    className={`absolute left-1/2 -translate-x-1/2 rounded-full transition-all duration-75 ${
+                      i === currentFrame
+                        ? 'w-3.5 h-3.5 bg-emperia-accent shadow-lg shadow-emperia-accent/40 z-10'
+                        : 'w-1.5 h-1.5 bg-emperia-muted/40 hover:bg-emperia-muted'
+                    }`}
+                    style={{ top: `${pct}%`, transform: 'translate(-50%, -50%)' }}
+                  />
+                );
+              })}
+              {/* Frame label */}
+              <div
+                className="absolute -right-1 text-[8px] font-mono text-emperia-accent whitespace-nowrap"
+                style={{
+                  top: `${group.animationLength <= 1 ? 50 : 8 + (currentFrame / (group.animationLength - 1)) * 84}%`,
+                  transform: 'translateY(-50%) translateX(100%)',
+                  paddingLeft: 4,
+                }}
+              >
+                {currentFrame + 1}/{group.animationLength}
+              </div>
+            </div>
+          ) : null;
+
+          const hasMultipleLayers = group ? group.layers > 1 : false;
+          const layerScrubber = hasMultipleLayers && group ? (
+            <div
+              className="relative flex flex-col items-center select-none ml-1"
+              style={{ height: Math.max(80, expectedCanvasH * zoom + 16), width: 24 }}
+              title="Layer"
+              onMouseDown={(e) => {
+                if (!group) return;
+                const bar = e.currentTarget;
+                const seek = (clientY: number) => {
+                  const rect = bar.getBoundingClientRect();
+                  const ratio = Math.max(0, Math.min(1, (clientY - rect.top - 8) / (rect.height - 16)));
+                  const layer = Math.round(ratio * (group.layers - 1));
+                  setActiveLayer(layer);
+                  setBlendLayers(false);
+                };
+                seek(e.clientY);
+                const onMove = (ev: MouseEvent) => seek(ev.clientY);
+                const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+                window.addEventListener('mousemove', onMove);
+                window.addEventListener('mouseup', onUp);
+              }}
+            >
+              {/* Track */}
+              <div className="absolute left-1/2 -translate-x-1/2 top-2 bottom-2 w-[3px] rounded-full bg-purple-900/40" />
+              {/* Layer ticks */}
+              {Array.from({ length: group.layers }, (_, i) => {
+                const pct = group.layers <= 1 ? 50 : 8 + (i / (group.layers - 1)) * 84;
+                const isActive = !blendLayers && i === activeLayer;
+                return (
+                  <div
+                    key={i}
+                    className={`absolute left-1/2 -translate-x-1/2 rounded-full transition-all duration-75 ${
+                      isActive
+                        ? 'w-3 h-3 bg-purple-500 shadow-lg shadow-purple-500/40 z-10'
+                        : 'w-1.5 h-1.5 bg-purple-400/30 hover:bg-purple-400/60'
+                    }`}
+                    style={{ top: `${pct}%`, transform: 'translate(-50%, -50%)' }}
+                  />
+                );
+              })}
+              {/* Layer label */}
+              <div
+                className="absolute -right-0.5 text-[7px] font-mono text-purple-400 whitespace-nowrap"
+                style={{
+                  top: blendLayers ? '50%' : `${group.layers <= 1 ? 50 : 8 + (activeLayer / (group.layers - 1)) * 84}%`,
+                  transform: 'translateY(-50%) translateX(100%)',
+                  paddingLeft: 3,
+                }}
+              >
+                {blendLayers ? 'Blend' : `L${activeLayer}`}
+              </div>
+            </div>
+          ) : null;
+
           return showDirButtons ? (
-          <div className="grid gap-1" style={{ gridTemplateColumns: 'auto auto auto', gridTemplateRows: 'auto auto auto', justifyItems: 'center', alignItems: 'center' }}>
-            {gridCells.map((cell, i) =>
-              cell === 'canvas' ? <div key="canvas">{canvasEl}</div>
-              : cell != null ? dirBtn(cell, i)
-              : <div key={`empty-${i}`} className="w-9 h-9" />
-            )}
+          <div className="flex items-center">
+            <div className="grid gap-1" style={{ gridTemplateColumns: 'auto auto auto', gridTemplateRows: 'auto auto auto', justifyItems: 'center', alignItems: 'center' }}>
+              {gridCells.map((cell, i) =>
+                cell === 'canvas' ? <div key="canvas">{canvasEl}</div>
+                : cell != null ? dirBtn(cell, i)
+                : <div key={`empty-${i}`} className="w-9 h-9" />
+              )}
+            </div>
+            {frameScrubber}
+            {layerScrubber}
           </div>
         ) : (
+        <div className="flex items-center">
         <div
           className={`checkerboard rounded-lg border relative transition-colors
             ${dragOver ? 'border-emperia-accent border-2' : 'border-emperia-border'}`}
@@ -754,6 +885,9 @@ export function SpritePreview() {
             />
           )}
         </div>
+        {frameScrubber}
+        {layerScrubber}
+        </div>
         )})()}
       </div>
 
@@ -786,7 +920,7 @@ export function SpritePreview() {
         setBaseOutfitId={setBaseOutfitId}
       />
 
-      {/* Frame group selector + layer selector */}
+      {/* Frame group selector */}
       {(thing.frameGroups.length > 1 || isOutfit) && (
         <div className="flex items-center justify-center px-4 py-1.5 gap-1 border-t border-emperia-border">
           {thing.frameGroups.map((_, i) => (
@@ -801,32 +935,6 @@ export function SpritePreview() {
             </button>
           ))}
           <span className="text-[9px] text-emperia-muted/50 ml-1">{thing.frameGroups.length} grp</span>
-
-          {/* Layer selector — shown when group has multiple layers */}
-          {group && group.layers > 1 && (
-            <>
-              <div className="w-px h-4 bg-emperia-border mx-1" />
-              {Array.from({ length: group.layers }, (_, l) => (
-                <button
-                  key={l}
-                  onClick={() => { setActiveLayer(l); setBlendLayers(false); }}
-                  className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors
-                    ${!blendLayers && activeLayer === l ? 'bg-purple-600 text-white' : 'bg-emperia-surface text-emperia-muted hover:bg-emperia-hover border border-emperia-border'}
-                  `}
-                >
-                  L{l}
-                </button>
-              ))}
-              <button
-                onClick={() => setBlendLayers(true)}
-                className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors
-                  ${blendLayers ? 'bg-purple-600 text-white' : 'bg-emperia-surface text-emperia-muted hover:bg-emperia-hover border border-emperia-border'}
-                `}
-              >
-                Blend
-              </button>
-            </>
-          )}
         </div>
       )}
 
@@ -844,18 +952,6 @@ export function SpritePreview() {
           setActivePatternY={setActivePatternY}
           activeZ={activeZ}
           setActiveZ={setActiveZ}
-          activeLayer={activeLayer}
-          setActiveLayer={setActiveLayer}
-          blendLayers={blendLayers}
-          setBlendLayers={setBlendLayers}
-          currentFrame={currentFrame}
-          setCurrentFrame={setCurrentFrame}
-          playing={playing}
-          setPlaying={setPlaying}
-          outfitColors={outfitColors}
-          setOutfitColors={setOutfitColors}
-          showColorPicker={showColorPicker}
-          setShowColorPicker={setShowColorPicker}
           updateFrameGroupProp={updateFrameGroupProp}
         />
       )}
