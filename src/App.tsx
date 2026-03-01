@@ -6,6 +6,7 @@ import { ThingGrid } from './components/ThingGrid';
 import { SpritePreview } from './components/SpritePreview';
 import { PropertyInspector } from './components/PropertyInspector';
 import { ThingSpriteGrid } from './components/ThingSpriteGrid';
+import { ObjectSlots } from './components/ObjectSlots';
 import { ServerPropertiesEditor } from './components/ServerPropertiesEditor';
 import { EquipmentSpriteMap } from './components/EquipmentSpriteMap';
 
@@ -98,7 +99,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* Right: Sprite slots + sprite atlas browser */}
+        {/* Middle-right: Object sprite slots */}
+        <div className="w-[260px] border-l border-emperia-border bg-emperia-bg overflow-hidden flex flex-col">
+          <ObjectSlots />
+        </div>
+
+        {/* Right: Sprite atlas browser */}
         <div className="w-72 border-l border-emperia-border bg-emperia-bg overflow-hidden flex flex-col">
           <ThingSpriteGrid />
         </div>

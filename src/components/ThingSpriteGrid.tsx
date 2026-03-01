@@ -2,7 +2,6 @@ import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Search, Plus, Trash2, X, Minimize2, Grid2x2 } from 'lucide-react';
 import { useOBStore } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
-import { ObjectSlots } from './ObjectSlots';
 import { AtlasCell } from './AtlasCell';
 
 const TILE_SIZE_OPTIONS = [
@@ -22,12 +21,12 @@ export function ThingSpriteGrid() {
   const focusSpriteId = useOBStore((s) => s.focusSpriteId);
   const importTileSize = useOBStore((s) => s.importTileSize);
 
-  const [selectedSlot, setSelectedSlot] = useState<{ group: number; index: number } | null>(null);
+  const selectedSlots = useOBStore((s) => s.selectedSlots);
+
   const [atlasSearch, setAtlasSearch] = useState('');
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const [highlightedSpriteId, setHighlightedSpriteId] = useState<number | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ group: number; index: number } | null>(null);
   const [selectedAtlasIds, setSelectedAtlasIds] = useState<Set<number>>(new Set());
   const [lastClickedAtlasId, setLastClickedAtlasId] = useState<number | null>(null);
   const atlasRef = useRef<HTMLDivElement>(null);
@@ -58,28 +57,19 @@ export function ThingSpriteGrid() {
         const groupsY = N > 1 ? Math.max(1, Math.floor(tilesY / N)) : tilesY;
 
         const added: number[] = [];
-        // Track atlas position (existing sprites + newly added) so padding
-        // correctly aligns groups to fresh rows
-        let totalAdded = spriteData?.spriteCount ?? 0;
 
-        const addBlankPadding = () => {
+        // Helper to pad remaining columns of the current atlas row
+        let totalAdded = spriteData?.spriteCount ?? 0;
+        const padToRowEnd = () => {
           const posInRow = totalAdded % ATLAS_COLS;
-          if (posInRow === 0) return; // already at row start
+          if (posInRow === 0) return;
           const blanks = ATLAS_COLS - posInRow;
-          const blankData = new ImageData(32, 32); // fully transparent
-          for (let b = 0; b < blanks; b++) {
-            addSprite(blankData);
-            totalAdded++;
-          }
+          const blankData = new ImageData(32, 32);
+          for (let b = 0; b < blanks; b++) { addSprite(blankData); totalAdded++; }
         };
 
-        // When grouping, ensure we start on a fresh atlas row
-        if (N > 1) {
-          addBlankPadding();
-        }
-
         if (N <= 1) {
-          // No grouping — just slice every 32×32 tile
+          // No grouping — just slice every 32×32 tile sequentially
           for (let ty = 0; ty < tilesY; ty++) {
             for (let tx = 0; tx < tilesX; tx++) {
               ctx.clearRect(0, 0, 32, 32);
@@ -95,32 +85,43 @@ export function ThingSpriteGrid() {
             }
           }
         } else {
-          // Grouped import: iterate over NxN groups
-          // Each group's tiles are laid out row-by-row in the atlas,
-          // with each row padded to fill the full atlas width.
-          // This preserves the 2D spatial layout of each object:
-          //   2×2 object → 2 atlas rows of [tile, tile, blank, blank, blank, blank]
-          //   4×4 object → 4 atlas rows of [t, t, t, t, blank, blank]
+          // Grouped import: pack NxN groups side-by-side across atlas rows.
+          // How many groups fit per atlas row: floor(ATLAS_COLS / N)
+          //   2×2 → 3 groups per row (3×2 = 6 cols, perfect fit)
+          //   4×4 → 1 group per row  (1×4 = 4 cols + 2 blank)
+          const groupsPerRow = Math.max(1, Math.floor(ATLAS_COLS / N));
+
+          // Ensure we start on a fresh atlas row
+          padToRowEnd();
+
+          // Iterate over source image group rows
           for (let gy = 0; gy < groupsY; gy++) {
-            for (let gx = 0; gx < groupsX; gx++) {
+            // Process groups in this source row in batches that fit the atlas width
+            for (let gxBase = 0; gxBase < groupsX; gxBase += groupsPerRow) {
+              const batchCount = Math.min(groupsPerRow, groupsX - gxBase);
+
+              // For each tile-row within the NxN group height
               for (let ly = 0; ly < N; ly++) {
-                // Add one row of tiles within this group
-                for (let lx = 0; lx < N; lx++) {
-                  const tx = gx * N + lx;
-                  const ty = gy * N + ly;
-                  if (tx >= tilesX || ty >= tilesY) continue;
-                  ctx.clearRect(0, 0, 32, 32);
-                  ctx.drawImage(img, tx * 32, ty * 32, 32, 32, 0, 0, 32, 32);
-                  const imgData = ctx.getImageData(0, 0, 32, 32);
-                  let hasPixel = false;
-                  for (let i = 3; i < imgData.data.length; i += 4) {
-                    if (imgData.data[i] > 0) { hasPixel = true; break; }
+                // Emit tiles from each group in this batch, left to right
+                for (let b = 0; b < batchCount; b++) {
+                  const gx = gxBase + b;
+                  for (let lx = 0; lx < N; lx++) {
+                    const tx = gx * N + lx;
+                    const ty = gy * N + ly;
+                    if (tx >= tilesX || ty >= tilesY) continue;
+                    ctx.clearRect(0, 0, 32, 32);
+                    ctx.drawImage(img, tx * 32, ty * 32, 32, 32, 0, 0, 32, 32);
+                    const imgData = ctx.getImageData(0, 0, 32, 32);
+                    let hasPixel = false;
+                    for (let i = 3; i < imgData.data.length; i += 4) {
+                      if (imgData.data[i] > 0) { hasPixel = true; break; }
+                    }
+                    const id = addSprite(hasPixel ? imgData : new ImageData(32, 32));
+                    if (id != null) { added.push(id); totalAdded++; }
                   }
-                  const id = addSprite(hasPixel ? imgData : new ImageData(32, 32));
-                  if (id != null) { added.push(id); totalAdded++; }
                 }
-                // Pad rest of atlas row after this group row
-                addBlankPadding();
+                // Pad if batch didn't fill the full atlas row
+                padToRowEnd();
               }
             }
           }
@@ -149,7 +150,7 @@ export function ThingSpriteGrid() {
   }, []);
 
   // Reset slot selection when thing changes
-  useEffect(() => { setSelectedSlot(null); }, [selectedId]);
+  useEffect(() => { useOBStore.setState({ selectedSlots: [] }); }, [selectedId]);
 
   // Scroll atlas to focusSpriteId when preview is clicked
   useEffect(() => {
@@ -169,19 +170,6 @@ export function ThingSpriteGrid() {
   }, [focusSpriteId, spriteData]);
 
   const editVersion = useOBStore((s) => s.editVersion);
-
-  // Collect thing's sprite slots (with duplicates — each slot is editable)
-  const slots = useMemo(() => {
-    if (!thing) return [];
-    const result: { spriteId: number; group: number; index: number }[] = [];
-    thing.frameGroups.forEach((fg, gi) => {
-      fg.sprites.forEach((spriteId, si) => {
-        result.push({ spriteId, group: gi, index: si });
-      });
-    });
-    return result;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [thing, editVersion]);
 
   // Atlas: all sprite IDs (filtered by search)
   const atlasIds = useMemo(() => {
@@ -302,10 +290,15 @@ export function ThingSpriteGrid() {
   }, [selectedAtlasIds, usedSpriteIds]);
 
   // Atlas click handler — supports multi-select with Ctrl/Shift
+  // When object slots are selected, clicking an atlas sprite assigns it to all selected slots
   const handleAtlasCellClick = useCallback((e: React.MouseEvent, spriteId: number) => {
-    // If a slot is selected, assign the sprite to it (original behavior)
-    if (selectedSlot && thing) {
-      assignSpriteToSlot(selectedSlot, spriteId);
+    // If object sprite slots are selected, assign the clicked atlas sprite to all of them
+    if (selectedSlots.length > 0 && thing) {
+      for (const slot of selectedSlots) {
+        assignSpriteToSlot(slot, spriteId);
+      }
+      // Clear slot selection after assignment
+      useOBStore.setState({ selectedSlots: [] });
       return;
     }
 
@@ -338,7 +331,7 @@ export function ThingSpriteGrid() {
       });
       setLastClickedAtlasId(spriteId);
     }
-  }, [selectedSlot, thing, assignSpriteToSlot, lastClickedAtlasId, atlasIds]);
+  }, [selectedSlots, thing, assignSpriteToSlot, lastClickedAtlasId, atlasIds]);
 
   // Drag-and-drop handlers
   const handleAtlasDragStart = useCallback((e: React.DragEvent, spriteId: number) => {
@@ -346,51 +339,13 @@ export function ThingSpriteGrid() {
     e.dataTransfer.effectAllowed = 'copy';
   }, []);
 
-  const handleSlotDragOver = useCallback((e: React.DragEvent, group: number, index: number) => {
-    if (e.dataTransfer.types.includes('application/x-sprite-id')) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      setDropTarget({ group, index });
-    }
-  }, []);
-
-  const handleSlotDragLeave = useCallback(() => {
-    setDropTarget(null);
-  }, []);
-
-  const handleSlotDrop = useCallback((e: React.DragEvent, group: number, index: number) => {
-    e.preventDefault();
-    setDropTarget(null);
-    const raw = e.dataTransfer.getData('application/x-sprite-id');
-    const spriteId = parseInt(raw, 10);
-    if (!isNaN(spriteId) && spriteId > 0) {
-      assignSpriteToSlot({ group, index }, spriteId);
-    }
-  }, [assignSpriteToSlot]);
-
   if (!spriteData) {
     return <div className="p-3 text-emperia-muted text-xs">Load files to browse sprites</div>;
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top: Thing's sprite slots */}
-      {thing && (
-        <ObjectSlots
-          thing={thing}
-          spriteData={spriteData}
-          spriteOverrides={spriteOverrides}
-          slots={slots}
-          selectedSlot={selectedSlot}
-          setSelectedSlot={setSelectedSlot}
-          dropTarget={dropTarget}
-          onSlotDragOver={handleSlotDragOver}
-          onSlotDragLeave={handleSlotDragLeave}
-          onSlotDrop={handleSlotDrop}
-        />
-      )}
-
-      {/* Bottom: Full sprite atlas */}
+      {/* Full sprite atlas */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <div className="px-2 py-1.5 border-b border-emperia-border flex items-center gap-1.5">
           <span className="text-[10px] font-medium text-emperia-text uppercase tracking-wider shrink-0">
@@ -514,7 +469,7 @@ export function ThingSpriteGrid() {
                   spriteOverrides={spriteOverrides}
                   isHighlighted={spriteId === highlightedSpriteId}
                   isAtlasSelected={selectedAtlasIds.has(spriteId)}
-                  hasSelectedSlot={!!selectedSlot}
+                  hasSelectedSlot={selectedSlots.length > 0}
                   onClick={(e) => handleAtlasCellClick(e, spriteId)}
                   onContextMenu={(e) => {
                     e.preventDefault();
