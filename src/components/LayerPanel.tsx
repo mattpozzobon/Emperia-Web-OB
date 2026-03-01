@@ -57,7 +57,7 @@ export function LayerPanel() {
   if (!thing || (!hasMultipleLayers && !showOffset && !isAnimated)) return null;
 
   return (
-    <div className="border-t border-emperia-border text-[10px]">
+    <div className="border-t border-emperia-border text-[10px] space-y-1">
 
       {/* ── LAYER ── */}
       {hasMultipleLayers && group && (
@@ -65,7 +65,7 @@ export function LayerPanel() {
           <div className="px-2 py-1 bg-purple-950/30 border-b border-emperia-border/40">
             <span className="text-[9px] font-semibold uppercase tracking-wider text-purple-400 opacity-80">Layer</span>
           </div>
-          <div className="px-3 py-1.5 flex items-center gap-1">
+          <div className="px-3 py-2 flex items-center gap-1">
             <span className="text-emperia-muted shrink-0">Layer:</span>
             <StepperBtn onClick={() => useOBStore.setState({ activeLayer: Math.max(0, activeLayer - 1), blendLayers: false })} disabled={blendLayers}>‹</StepperBtn>
             <span className={`font-mono w-8 text-center text-[9px] ${blendLayers ? 'text-emperia-muted' : 'text-emperia-text'}`}>
@@ -86,9 +86,9 @@ export function LayerPanel() {
           <div className="px-2 py-1 bg-emerald-950/30 border-y border-emperia-border/40">
             <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-400 opacity-80">Animation</span>
           </div>
-          <div className="px-3 py-1.5">
+          <div className="px-3 py-2.5 space-y-2.5">
             {/* Frame stepper + play */}
-            <div className="flex items-center gap-1 mb-1">
+            <div className="flex items-center gap-1">
               <span className="text-emperia-muted shrink-0">Frame:</span>
               <StepperBtn onClick={() => { useOBStore.setState({ currentFrame: (currentFrame - 1 + group.animationLength) % group.animationLength, playing: false }); }}>‹</StepperBtn>
               <span className="text-emperia-text font-mono w-10 text-center text-[9px]">{currentFrame + 1}/{group.animationLength}</span>
@@ -99,46 +99,49 @@ export function LayerPanel() {
               >{playing ? 'Stop' : 'Play'}</button>
             </div>
 
-            {/* Settings grid */}
-            <div className="grid grid-cols-3 gap-x-3 gap-y-1">
+            {/* Settings */}
+            <div className="bg-emperia-surface/40 rounded px-2.5 py-2 space-y-2">
               <div className="flex items-center gap-1">
                 <span className="text-emperia-muted shrink-0">Mode:</span>
                 <select
                   value={group.asynchronous}
                   onChange={(e) => updateFrameGroupProp('asynchronous', Number(e.target.value))}
-                  className="flex-1 px-1 py-0 bg-emperia-surface border border-emperia-border rounded text-[9px] text-emperia-text outline-none focus:border-emperia-accent"
+                  className="flex-1 px-1 py-0.5 bg-emperia-surface border border-emperia-border rounded text-[9px] text-emperia-text outline-none focus:border-emperia-accent"
                 >
                   <option value={0}>Sync</option>
                   <option value={1}>Async</option>
                 </select>
               </div>
-              <ParamField label="Loop" value={group.nLoop} min={0} max={255} onChange={(v) => updateFrameGroupProp('nLoop', v)} />
-              <ParamField label="Start" value={group.start} min={0} max={group.animationLength - 1} onChange={(v) => updateFrameGroupProp('start', v)} />
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                <ParamField label="Loop count" value={group.nLoop} min={0} max={255} onChange={(v) => updateFrameGroupProp('nLoop', v)} />
+                <ParamField label="Start frame" value={group.start} min={0} max={group.animationLength - 1} onChange={(v) => updateFrameGroupProp('start', v)} />
+              </div>
             </div>
 
             {/* Per-frame durations */}
             {group.animationLengths[currentFrame] && (
-              <div className="grid grid-cols-3 gap-x-3 gap-y-1 mt-1 pt-1 border-t border-emperia-border/20">
-                <div className="col-span-3 text-[8px] text-emperia-muted">Frame {currentFrame + 1} duration (ms)</div>
-                <ParamField label="Min" value={group.animationLengths[currentFrame].min} min={0} max={65535}
-                  onChange={(v) => {
-                    group.animationLengths[currentFrame].min = v;
-                    thing.rawBytes = undefined;
-                    const store = useOBStore.getState();
-                    const ids = new Set(store.dirtyIds); ids.add(thing.id);
-                    useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
-                  }}
-                />
-                <ParamField label="Max" value={group.animationLengths[currentFrame].max} min={0} max={65535}
-                  onChange={(v) => {
-                    group.animationLengths[currentFrame].max = v;
-                    thing.rawBytes = undefined;
-                    const store = useOBStore.getState();
-                    const ids = new Set(store.dirtyIds); ids.add(thing.id);
-                    useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
-                  }}
-                />
-                <div />
+              <div className="bg-emerald-950/20 border border-emerald-500/10 rounded px-2.5 py-2 space-y-1.5">
+                <div className="text-[8px] text-emerald-400/70 font-medium">Frame {currentFrame + 1} duration (ms)</div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                  <ParamField label="Min" value={group.animationLengths[currentFrame].min} min={0} max={65535}
+                    onChange={(v) => {
+                      group.animationLengths[currentFrame].min = v;
+                      thing.rawBytes = undefined;
+                      const store = useOBStore.getState();
+                      const ids = new Set(store.dirtyIds); ids.add(thing.id);
+                      useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
+                    }}
+                  />
+                  <ParamField label="Max" value={group.animationLengths[currentFrame].max} min={0} max={65535}
+                    onChange={(v) => {
+                      group.animationLengths[currentFrame].max = v;
+                      thing.rawBytes = undefined;
+                      const store = useOBStore.getState();
+                      const ids = new Set(store.dirtyIds); ids.add(thing.id);
+                      useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
+                    }}
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -151,7 +154,7 @@ export function LayerPanel() {
           <div className="px-2 py-1 bg-emperia-surface/60 border-y border-emperia-border/40">
             <span className="text-[9px] font-semibold uppercase tracking-wider text-emperia-muted">Offset</span>
           </div>
-          <div className="px-3 py-1.5 grid grid-cols-2 gap-x-3 gap-y-1">
+          <div className="px-3 py-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
             <ParamField label="X" value={thing.flags.displacementX ?? 0} min={-512} max={512}
               onChange={(v) => {
                 useOBStore.getState().updateThingFlags(thing.id, { ...thing.flags, hasDisplacement: true, displacementX: v });
@@ -172,8 +175,8 @@ export function LayerPanel() {
           <div className="px-2 py-1 bg-emperia-surface/60 border-y border-emperia-border/40">
             <span className="text-[9px] font-semibold uppercase tracking-wider text-emperia-muted">Colors</span>
           </div>
-          <div className="px-3 py-1.5">
-            <div className="grid grid-cols-2 gap-x-3 gap-y-1">
+          <div className="px-3 py-2">
+            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
               {(['head', 'body', 'legs', 'feet'] as const).map((channel) => (
                 <div key={channel} className="flex items-center gap-1">
                   <button

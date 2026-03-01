@@ -36,6 +36,7 @@ export function SpritePreview() {
   const [showCropSize, setShowCropSize] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [dragTile, setDragTile] = useState<{ col: number; row: number } | null>(null);
+  const [hoverTile, setHoverTile] = useState<{ col: number; row: number } | null>(null);
   const activeLayer = useOBStore((s) => s.activeLayer);
   const setActiveLayer = (l: number) => useOBStore.setState({ activeLayer: l });
   const [activeZ, setActiveZ] = useState(0);
@@ -628,6 +629,21 @@ export function SpritePreview() {
               }}
               onDragLeave={() => { setDragOver(false); setDragTile(null); }}
               onDrop={(e) => { setDragTile(null); handleDrop(e); }}
+              onMouseMove={(e) => {
+                if (!canvasRef.current || !group) { setHoverTile(null); return; }
+                const totalCols = renderedPxCount * group.width;
+                const totalRows = renderedPyCount * group.height;
+                if (totalCols <= 1 && totalRows <= 1) { setHoverTile(null); return; }
+                const rect = canvasRef.current.getBoundingClientRect();
+                const col = Math.floor((e.clientX - rect.left) / (32 * zoom));
+                const row = Math.floor((e.clientY - rect.top) / (32 * zoom));
+                if (col >= 0 && col < totalCols && row >= 0 && row < totalRows) {
+                  setHoverTile((prev) => (prev?.col === col && prev?.row === row) ? prev : { col, row });
+                } else {
+                  setHoverTile(null);
+                }
+              }}
+              onMouseLeave={() => setHoverTile(null)}
             >
               <canvas
                 ref={canvasRef}
@@ -678,6 +694,17 @@ export function SpritePreview() {
                   style={{
                     left: 8 + dragTile.col * 32 * zoom,
                     top: 8 + dragTile.row * 32 * zoom,
+                    width: 32 * zoom,
+                    height: 32 * zoom,
+                  }}
+                />
+              )}
+              {hoverTile && !dragOver && (
+                <div
+                  className="absolute pointer-events-none border border-white/40 bg-white/5 rounded-sm"
+                  style={{
+                    left: 8 + hoverTile.col * 32 * zoom,
+                    top: 8 + hoverTile.row * 32 * zoom,
                     width: 32 * zoom,
                     height: 32 * zoom,
                   }}
@@ -829,6 +856,21 @@ export function SpritePreview() {
           }}
           onDragLeave={() => { setDragOver(false); setDragTile(null); }}
           onDrop={(e) => { setDragTile(null); handleDrop(e); }}
+          onMouseMove={(e) => {
+            if (!canvasRef.current || !group) { setHoverTile(null); return; }
+            const totalCols = renderedPxCount * group.width;
+            const totalRows = renderedPyCount * group.height;
+            if (totalCols <= 1 && totalRows <= 1) { setHoverTile(null); return; }
+            const rect = canvasRef.current.getBoundingClientRect();
+            const col = Math.floor((e.clientX - rect.left) / (32 * zoom));
+            const row = Math.floor((e.clientY - rect.top) / (32 * zoom));
+            if (col >= 0 && col < totalCols && row >= 0 && row < totalRows) {
+              setHoverTile((prev) => (prev?.col === col && prev?.row === row) ? prev : { col, row });
+            } else {
+              setHoverTile(null);
+            }
+          }}
+          onMouseLeave={() => setHoverTile(null)}
         >
           <canvas
             ref={canvasRef}
@@ -879,6 +921,17 @@ export function SpritePreview() {
               style={{
                 left: 8 + dragTile.col * 32 * zoom,
                 top: 8 + dragTile.row * 32 * zoom,
+                width: 32 * zoom,
+                height: 32 * zoom,
+              }}
+            />
+          )}
+          {hoverTile && !dragOver && (
+            <div
+              className="absolute pointer-events-none border border-white/40 bg-white/5 rounded-sm"
+              style={{
+                left: 8 + hoverTile.col * 32 * zoom,
+                top: 8 + hoverTile.row * 32 * zoom,
                 width: 32 * zoom,
                 height: 32 * zoom,
               }}
