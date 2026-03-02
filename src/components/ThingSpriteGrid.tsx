@@ -416,11 +416,15 @@ export function ThingSpriteGrid() {
             onClick={() => {
               const result = useOBStore.getState().compactSpriteAtlas();
               if (!result) return;
-              if (result.removed === 0) {
-                alert('Atlas is already compact — no blank or unreferenced sprites found.');
+              if (result.removed === 0 && result.deduplicated === 0 && result.blanked === 0) {
+                alert('Atlas is already compact — no duplicates, blanks, or unreferenced sprites found.');
               } else {
                 setSelectedAtlasIds(new Set());
-                alert(`Compacted atlas: removed ${result.removed} blank/unreferenced sprites.\n${result.oldCount} → ${result.newCount} sprites.\n\nAll references have been remapped.`);
+                const parts: string[] = [];
+                if (result.blanked > 0) parts.push(`${result.blanked} blank sprites nulled`);
+                if (result.deduplicated > 0) parts.push(`${result.deduplicated} duplicate sprites merged`);
+                if (result.removed > 0) parts.push(`${result.removed} unreferenced sprites removed`);
+                alert(`Compacted atlas: ${parts.join(', ')}.\n${result.oldCount} → ${result.newCount} sprites.\n\nAll references have been remapped.`);
               }
             }}
             className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-amber-400 transition-colors shrink-0"

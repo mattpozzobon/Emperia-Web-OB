@@ -160,7 +160,7 @@ export interface OBState {
   updateItemDefinition: (itemId: number, data: Partial<ServerItemData>) => void;
 
   // Sprite atlas maintenance
-  compactSpriteAtlas: () => { removed: number; oldCount: number; newCount: number } | null;
+  compactSpriteAtlas: () => { removed: number; deduplicated: number; blanked: number; oldCount: number; newCount: number } | null;
 
   // Sprite group actions
   addSpriteGroup: (label: string, cols: number, rows: number, spriteIds: number[]) => number;

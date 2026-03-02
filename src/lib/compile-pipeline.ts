@@ -7,6 +7,7 @@ import { compileObjectData } from './object-writer';
 import { compileSpriteData } from './sprite-writer';
 import { gzipCompress } from './emperia-format';
 import { compileItemsOtb } from './otb-writer';
+import { compileItemsXml } from './items-xml-writer';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,7 @@ export const STEP_LABELS = [
   'Definitions (.json)',
   'Sprite Map (.json)',
   'Items OTB (.otb)',
+  'Items XML (.xml)',
   'Hair Definitions',
   'Asset Manifest',
   'Copy to Output Dirs',
@@ -266,7 +268,7 @@ export async function runCompile(
   // Step 4: Compile items.otb
   if (itemDefinitions.size > 0) {
     await runStep(4, async () => {
-      const otbBuf = compileItemsOtb(itemDefinitions);
+      const otbBuf = compileItemsOtb(itemDefinitions, od);
       await saveFile(otbBuf, null, 'items.otb', 'items.otb');
       compiledFiles.push({ name: 'items.otb', buf: otbBuf });
       return otbBuf.byteLength;
@@ -275,11 +277,23 @@ export async function runCompile(
     skipStep(4);
   }
 
-  // Step 5: Compile hair-definitions.json
+  // Step 5: Compile items.xml
+  if (itemDefinitions.size > 0) {
+    await runStep(5, async () => {
+      const xmlBuf = compileItemsXml(itemDefinitions, od);
+      await saveFile(xmlBuf, null, 'items.xml', 'items.xml');
+      compiledFiles.push({ name: 'items.xml', buf: xmlBuf });
+      return xmlBuf.byteLength;
+    });
+  } else {
+    skipStep(5);
+  }
+
+  // Step 6: Compile hair-definitions.json
   {
     const { hairDefsLoaded, exportHairDefinitionsJson } = useOBStore.getState();
     if (hairDefsLoaded) {
-      await runStep(5, async () => {
+      await runStep(6, async () => {
         const hairJson = exportHairDefinitionsJson();
         const buf = new TextEncoder().encode(hairJson).buffer;
         await saveFile(buf, null, 'hair-definitions.json', 'hair-definitions.json');
@@ -287,12 +301,12 @@ export async function runCompile(
         return buf.byteLength;
       });
     } else {
-      skipStep(5);
+      skipStep(6);
     }
   }
 
-  // Step 6: Write emperia.easset manifest
-  await runStep(6, async () => {
+  // Step 7: Write emperia.easset manifest
+  await runStep(7, async () => {
     const easset = JSON.stringify({
       version: 1,
       features: {
@@ -316,9 +330,9 @@ export async function runCompile(
     return buf.byteLength;
   });
 
-  // Step 7: Copy compiled files to extra output directories (filtered per dir)
+  // Step 8: Copy compiled files to extra output directories (filtered per dir)
   if (outputDirs.length > 0 && compiledFiles.length > 0) {
-    await runStep(7, async () => {
+    await runStep(8, async () => {
       let totalBytes = 0;
       for (const dir of outputDirs) {
         const filter = dir.files && dir.files.length > 0 ? dir.files : null;
@@ -338,7 +352,7 @@ export async function runCompile(
       return totalBytes;
     });
   } else {
-    skipStep(7);
+    skipStep(8);
   }
 
   // Finalize

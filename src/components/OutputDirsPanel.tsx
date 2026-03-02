@@ -33,8 +33,8 @@ const PRESETS = [
   {
     id: 'map-editor',
     label: 'Map Editor',
-    description: 'items.otb only',
-    files: ['items.otb'],
+    description: 'items.otb + items.xml',
+    files: ['items.otb', 'items.xml'],
   },
   {
     id: 'custom',

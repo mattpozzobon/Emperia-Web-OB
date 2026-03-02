@@ -604,6 +604,7 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     thing.flags = emptyFlags;
     thing.frameGroups = [emptyFrameGroup];
+    thing.rawBytes = undefined;
 
     const newDirtyIds = new Set(get().dirtyIds);
     newDirtyIds.add(id);

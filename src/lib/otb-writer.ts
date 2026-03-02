@@ -14,7 +14,7 @@
  *
  * Data bytes matching 0xFD/0xFE/0xFF are escaped with a 0xFD prefix.
  */
-import type { ServerItemData } from './types';
+import type { ServerItemData, ObjectData } from './types';
 
 // OTB node markers
 const NODE_ESC  = 0xFD;
@@ -102,39 +102,62 @@ function buildRootNodeData(): Uint8Array {
 }
 
 /**
- * Generate a complete items.otb binary from the server's item definitions.
+ * Generate a complete items.otb binary.
+ *
+ * Strategy:
+ *  1. Emit all definitions from itemDefinitions (keyed by serverId).
+ *  2. For every client ID in 100…objectData.itemCount that was NOT
+ *     already covered by a definition, emit a passthrough entry
+ *     (serverId = clientId, group = 0, flags = 0).
+ *
+ * This guarantees every .eobj item has an OTB entry and every
+ * server-side item definition is present — with zero duplicates.
  *
  * @param itemDefinitions Map of server ID → ServerItemData
+ * @param objectData      The loaded .eobj data (provides total item count)
  * @returns ArrayBuffer containing the OTB file
  */
-export function compileItemsOtb(itemDefinitions: Map<number, ServerItemData>): ArrayBuffer {
+export function compileItemsOtb(
+  itemDefinitions: Map<number, ServerItemData>,
+  objectData: ObjectData,
+): ArrayBuffer {
   const parts: Uint8Array[] = [];
 
-  // File identifier: 4 zero bytes (parsed as "OTBI" by DiskNodeFileReadHandle)
+  // File identifier: 4 zero bytes (accepted as wildcard by RME)
   parts.push(new Uint8Array(4));
 
   // Root node start
   parts.push(new Uint8Array([NODE_INIT]));
-
-  // Root node data (escaped)
   parts.push(escapeBytes(buildRootNodeData()));
 
-  // Sort by server ID for deterministic output
-  const sortedIds = Array.from(itemDefinitions.keys())
-    .filter((sid) => sid >= 100)
-    .sort((a, b) => a - b);
+  // Track which client IDs are covered AND which server IDs are emitted
+  const coveredClientIds = new Set<number>();
+  const emittedServerIds = new Set<number>();
 
-  // Child nodes — one per item
-  for (const sid of sortedIds) {
-    const def = itemDefinitions.get(sid)!;
-    if (def.group === 14) continue; // skip deprecated
+  // Collect all definitions sorted by server ID
+  const sortedDefs = Array.from(itemDefinitions.values())
+    .filter((d) => d.group !== 14) // skip deprecated
+    .sort((a, b) => a.serverId - b.serverId);
 
-    const clientID = def.id ?? sid;
-    const raw = buildItemNodeData(sid, clientID, def.group, def.flags);
-    const escaped = escapeBytes(raw);
-
+  // Phase 1: Emit every definition entry
+  for (const def of sortedDefs) {
+    const clientID = def.id ?? def.serverId;
+    const raw = buildItemNodeData(def.serverId, clientID, def.group, def.flags);
     parts.push(new Uint8Array([NODE_INIT]));
-    parts.push(escaped);
+    parts.push(escapeBytes(raw));
+    parts.push(new Uint8Array([NODE_TERM]));
+    coveredClientIds.add(clientID);
+    emittedServerIds.add(def.serverId);
+  }
+
+  // Phase 2: Fill passthrough entries for client IDs not already covered
+  const maxClientId = 99 + objectData.itemCount; // items start at 100
+  for (let cid = 100; cid <= maxClientId; cid++) {
+    if (coveredClientIds.has(cid)) continue; // client ID covered by a definition
+    if (emittedServerIds.has(cid)) continue;  // would duplicate a server ID from Phase 1
+    const raw = buildItemNodeData(cid, cid, 0, 0);
+    parts.push(new Uint8Array([NODE_INIT]));
+    parts.push(escapeBytes(raw));
     parts.push(new Uint8Array([NODE_TERM]));
   }
 
