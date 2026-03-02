@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, ClipboardPaste } from 'lucide-react';
 import { useOBStore } from '../store';
 import type { ThingFlags } from '../lib/types';
 
@@ -170,6 +170,23 @@ export function PropertyInspector() {
     updateThingFlags(thing.id, newFlags);
   }, [thing, updateThingFlags]);
 
+  const copiedThing = useOBStore((s) => s.copiedThing);
+  const hasCopiedFlags = !!copiedThing?.flags;
+
+  const handleCopyProps = useCallback(() => {
+    if (!thing) return;
+    useOBStore.setState({
+      copiedThing: { flags: { ...thing.flags }, label: 'Flags Only' },
+    });
+  }, [thing]);
+
+  const handlePasteProps = useCallback(() => {
+    if (!thing) return;
+    const { copiedThing: ct } = useOBStore.getState();
+    if (!ct?.flags) return;
+    updateThingFlags(thing.id, { ...ct.flags });
+  }, [thing, updateThingFlags]);
+
   if (!thing) {
     return (
       <div className="p-4 text-emperia-muted text-sm">
@@ -180,6 +197,32 @@ export function PropertyInspector() {
 
   return (
     <div className="p-3 text-xs space-y-1">
+      <div className="flex items-center gap-1 mb-1">
+        <button
+          onClick={handleCopyProps}
+          className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text transition-colors border border-emperia-border/50"
+          title="Copy properties"
+        >
+          <Copy className="w-3 h-3" />
+          Copy
+        </button>
+        <button
+          onClick={handlePasteProps}
+          disabled={!hasCopiedFlags}
+          className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-colors border border-emperia-border/50 ${
+            hasCopiedFlags
+              ? 'hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text'
+              : 'text-emperia-muted/30 cursor-not-allowed'
+          }`}
+          title={hasCopiedFlags ? `Paste: ${copiedThing?.label ?? 'Properties'}` : 'Nothing copied'}
+        >
+          <ClipboardPaste className="w-3 h-3" />
+          Paste
+        </button>
+        {hasCopiedFlags && (
+          <span className="text-[9px] text-emperia-accent ml-1">{copiedThing?.label}</span>
+        )}
+      </div>
       <div className="grid grid-cols-4 gap-1">
         {FLAG_GROUPS.map((group) => {
           const activeCount = group.flags.filter(f => !!thing.flags[f.key]).length;

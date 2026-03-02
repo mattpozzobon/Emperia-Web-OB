@@ -251,7 +251,21 @@ export const useOBStore = create<OBState>((set, get) => ({
     // Sync server OTB flags & group from updated visual flags
     if (thing.category === 'item') {
       const { clientToServerIds } = get();
-      const serverId = clientToServerIds.get(id) ?? id;
+      let serverId = clientToServerIds.get(id);
+      const newDefs = new Map(itemDefinitions);
+      let newC2s: Map<number, number> | undefined;
+
+      // Auto-create a server definition if this item doesn't have one yet
+      if (serverId == null) {
+        let maxServerId = 0;
+        for (const sid of itemDefinitions.keys()) {
+          if (sid > maxServerId) maxServerId = sid;
+        }
+        serverId = maxServerId + 1;
+        newC2s = new Map(clientToServerIds);
+        newC2s.set(id, serverId);
+      }
+
       const existing = itemDefinitions.get(serverId);
       const oldOtb = existing?.flags ?? 0;
       const newOtb = syncOtbFromVisual(oldOtb, newFlags);
@@ -270,7 +284,6 @@ export const useOBStore = create<OBState>((set, get) => ({
         group: newGroup,
         properties: Object.keys(syncedProps).length > 0 ? syncedProps as any : null,
       };
-      const newDefs = new Map(itemDefinitions);
       newDefs.set(serverId, updated);
       set({
         dirty: true,
@@ -279,6 +292,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         redoStack: [],
         editVersion: editVersion + 1,
         itemDefinitions: newDefs,
+        ...(newC2s ? { clientToServerIds: newC2s } : {}),
       });
     } else {
       set({
@@ -653,7 +667,7 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     clearSpriteCache();
 
-    set({
+    const stateUpdate: Partial<OBState> = {
       dirty: true,
       dirtyIds: shiftedDirtyIds,
       spriteOverrides: newOverrides,
@@ -661,7 +675,35 @@ export const useOBStore = create<OBState>((set, get) => ({
       selectedThingId: newId,
       activeCategory: cat,
       editVersion: editVersion + 1,
-    });
+    };
+
+    // Auto-create a server definition for imported items
+    if (cat === 'item' && get().definitionsLoaded) {
+      const { itemDefinitions, clientToServerIds } = get();
+      let maxServerId = 0;
+      for (const sid of itemDefinitions.keys()) {
+        if (sid > maxServerId) maxServerId = sid;
+      }
+      const newServerId = maxServerId + 1;
+
+      const newDef: ServerItemData = {
+        serverId: newServerId,
+        id: newId,
+        flags: 0,
+        group: 0,
+        properties: null,
+      };
+
+      const newDefs = new Map(itemDefinitions);
+      newDefs.set(newServerId, newDef);
+      const newC2s = new Map(clientToServerIds);
+      newC2s.set(newId, newServerId);
+
+      stateUpdate.itemDefinitions = newDefs;
+      stateUpdate.clientToServerIds = newC2s;
+    }
+
+    set(stateUpdate);
 
     return newId;
   },
@@ -693,13 +735,43 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     clearSpriteCache();
 
-    set({
+    const stateUpdate: Partial<OBState> = {
       dirty: true,
       dirtyIds: newDirtyIds,
       spriteOverrides: newOverrides,
       dirtySpriteIds: newDirtySpriteIds,
       editVersion: editVersion + 1,
-    });
+    };
+
+    // Ensure a server definition exists for replaced items
+    if (existing.category === 'item' && get().definitionsLoaded) {
+      const { itemDefinitions, clientToServerIds } = get();
+      if (!clientToServerIds.has(targetId)) {
+        let maxServerId = 0;
+        for (const sid of itemDefinitions.keys()) {
+          if (sid > maxServerId) maxServerId = sid;
+        }
+        const newServerId = maxServerId + 1;
+
+        const newDef: ServerItemData = {
+          serverId: newServerId,
+          id: targetId,
+          flags: 0,
+          group: 0,
+          properties: null,
+        };
+
+        const newDefs = new Map(itemDefinitions);
+        newDefs.set(newServerId, newDef);
+        const newC2s = new Map(clientToServerIds);
+        newC2s.set(targetId, newServerId);
+
+        stateUpdate.itemDefinitions = newDefs;
+        stateUpdate.clientToServerIds = newC2s;
+      }
+    }
+
+    set(stateUpdate);
 
     return true;
   },

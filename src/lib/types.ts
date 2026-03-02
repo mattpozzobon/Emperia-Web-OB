@@ -167,6 +167,7 @@ const VISUAL_MAPPED_BITS =
   (1 << 22) |  // FLAG_CLIENTCHARGES    ← chargeable
   (1 << 23) |  // FLAG_LOOKTHROUGH      ← translucent
   (1 << 24) |  // FLAG_ANIMATION        ← animateAlways
+  (1 << 25) |  // FLAG_FULLTILE         ← fullGround
   (1 << 26);   // FLAG_FORCEUSE         ← forceUse
 
 /**
@@ -180,7 +181,7 @@ function visualToOtbBits(f: ThingFlags): number {
   if (f.hasElevation)     bits |= (1 << 3);
   if (f.forceUse || f.multiUse) bits |= (1 << 4);
   if (f.pickupable)       bits |= (1 << 5);
-  if (!f.notMoveable)     bits |= (1 << 6);
+  if (!f.notMoveable && !f.ground && !f.groundBorder) bits |= (1 << 6);
   if (f.stackable)        bits |= (1 << 7);
   if (f.onTop)            bits |= (1 << 13);
   if (f.writable || f.writableOnce) bits |= (1 << 14);
@@ -191,6 +192,7 @@ function visualToOtbBits(f: ThingFlags): number {
   if (f.chargeable)       bits |= (1 << 22);
   if (f.translucent)      bits |= (1 << 23);
   if (f.animateAlways)    bits |= (1 << 24);
+  if (f.fullGround)       bits |= (1 << 25);
   if (f.forceUse)         bits |= (1 << 26);
   return bits;
 }
