@@ -36,17 +36,26 @@ export function compileSpriteData(
   data: SpriteData,
   spriteOverrides?: Map<number, ImageData>,
 ): ArrayBuffer {
-  // No modifications? Return original file, patching header flags if needed.
-  if (!spriteOverrides || spriteOverrides.size === 0) {
-    console.log('[OB] Sprite compile: no edits, returning original buffer');
+  // Check if the atlas was resized (e.g. after compact) by comparing current
+  // spriteCount against the count stored in the original buffer.
+  let originalCount = 0;
+  {
+    const ob = data.originalBuffer;
+    const hdr = isEmperiaFormat(new Uint8Array(ob));
+    const off = hdr ? EMPERIA_HEADER_SIZE : 4; // skip header/signature
+    const dv = new DataView(ob, off);
+    originalCount = data.version > 760 ? dv.getUint32(0, true) : dv.getUint16(0, true);
+  }
+  const atlasResized = data.spriteCount !== originalCount;
+
+  // No modifications and atlas wasn't resized? Return original file as-is.
+  if ((!spriteOverrides || spriteOverrides.size === 0) && !atlasResized) {
     return patchHeaderFlags(data.originalBuffer, data.version);
   }
 
-  console.log(`[OB] Sprite compile: rebuilding with ${spriteOverrides.size} modified sprite(s)`);
-
   // Encode all modified sprites upfront
   const encodedOverrides = new Map<number, Uint8Array>();
-  for (const [id, imgData] of spriteOverrides) {
+  for (const [id, imgData] of spriteOverrides ?? []) {
     encodedOverrides.set(id, encodeSprite(imgData));
   }
 

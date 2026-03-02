@@ -175,7 +175,6 @@ export function FileDropZone() {
       setSourceDir(dirHandle, names);
       lastDirRef.current = dirHandle;
       saveLastDirHandle(dirHandle);
-      console.log('[OB] Opened folder:', dirHandle.name, names);
       tryAutoLoad();
     } catch { /* user cancelled */ }
   }, [tryAutoLoad, setSourceDir]);
@@ -202,7 +201,7 @@ export function FileDropZone() {
         const file = await handle.getFile();
         return file.arrayBuffer();
       } catch (e) {
-        console.warn(`[OB] Failed to read ${label}:`, e);
+        console.error(`[OB] Failed to read ${label}:`, e);
         permFailed.push(label);
         return null;
       }

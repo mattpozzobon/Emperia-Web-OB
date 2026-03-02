@@ -3,6 +3,7 @@ import { Search, Plus, Trash2, X, Minimize2, Grid2x2 } from 'lucide-react';
 import { useOBStore } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
 import { AtlasCell } from './AtlasCell';
+import { SpriteGroupTray } from './SpriteGroupTray';
 import { useSpriteTooltip } from './SpriteTooltip';
 
 const TILE_SIZE_OPTIONS = [
@@ -88,30 +89,27 @@ export function ThingSpriteGrid() {
             }
           }
         } else {
-          // Grouped import: pack NxN groups side-by-side across atlas rows.
-          // How many groups fit per atlas row: floor(ATLAS_COLS / N)
-          //   2×2 → 3 groups per row (3×2 = 6 cols, perfect fit)
-          //   4×4 → 1 group per row  (1×4 = 4 cols + 2 blank)
-          const groupsPerRow = Math.max(1, Math.floor(ATLAS_COLS / N));
+          // Grouped import: slice NxN groups and create sprite group entries.
+          const addSpriteGroup = useOBStore.getState().addSpriteGroup;
+          const baseName = file.name.replace(/\.[^.]+$/, '');
 
           // Ensure we start on a fresh atlas row
           padToRowEnd();
 
-          // Iterate over source image group rows
+          let groupIdx = 0;
           for (let gy = 0; gy < groupsY; gy++) {
-            // Process groups in this source row in batches that fit the atlas width
-            for (let gxBase = 0; gxBase < groupsX; gxBase += groupsPerRow) {
-              const batchCount = Math.min(groupsPerRow, groupsX - gxBase);
-
-              // For each tile-row within the NxN group height
+            for (let gx = 0; gx < groupsX; gx++) {
+              // Slice this NxN group in row-major order
+              const groupSpriteIds: number[] = [];
               for (let ly = 0; ly < N; ly++) {
-                // Emit tiles from each group in this batch, left to right
-                for (let b = 0; b < batchCount; b++) {
-                  const gx = gxBase + b;
-                  for (let lx = 0; lx < N; lx++) {
-                    const tx = gx * N + lx;
-                    const ty = gy * N + ly;
-                    if (tx >= tilesX || ty >= tilesY) continue;
+                for (let lx = 0; lx < N; lx++) {
+                  const tx = gx * N + lx;
+                  const ty = gy * N + ly;
+                  if (tx >= tilesX || ty >= tilesY) {
+                    // Out-of-bounds tile — add as blank
+                    const id = addSprite(new ImageData(32, 32));
+                    if (id != null) { groupSpriteIds.push(id); added.push(id); totalAdded++; }
+                  } else {
                     ctx.clearRect(0, 0, 32, 32);
                     ctx.drawImage(img, tx * 32, ty * 32, 32, 32, 0, 0, 32, 32);
                     const imgData = ctx.getImageData(0, 0, 32, 32);
@@ -120,12 +118,21 @@ export function ThingSpriteGrid() {
                       if (imgData.data[i] > 0) { hasPixel = true; break; }
                     }
                     const id = addSprite(hasPixel ? imgData : new ImageData(32, 32));
-                    if (id != null) { added.push(id); totalAdded++; }
+                    if (id != null) { groupSpriteIds.push(id); added.push(id); totalAdded++; }
                   }
                 }
-                // Pad if batch didn't fill the full atlas row
+                // Pad atlas row for visual alignment
                 padToRowEnd();
               }
+
+              // Create a sprite group entry for drag-and-drop
+              if (groupSpriteIds.length === N * N) {
+                const label = groupsX * groupsY > 1
+                  ? `${baseName} #${groupIdx + 1}`
+                  : baseName;
+                addSpriteGroup(label, N, N, groupSpriteIds);
+              }
+              groupIdx++;
             }
           }
         }
@@ -493,6 +500,7 @@ export function ThingSpriteGrid() {
           </div>
         </div>
       </div>
+      <SpriteGroupTray />
     </div>
     {tooltip.portal}
   </>);

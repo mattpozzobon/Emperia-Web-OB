@@ -25,28 +25,9 @@ export function createCompactAtlasAction(set: Set_, get: Get_) {
         }
       }
 
-      // Step 2: Determine which IDs are "non-blank" — have real data or are referenced
-      // A sprite is kept if: (a) it's referenced by a thing, OR (b) it has pixel data
-      const keepIds = new Set<number>();
-      for (let id = 1; id <= oldCount; id++) {
-        if (referencedIds.has(id)) {
-          keepIds.add(id);
-          continue;
-        }
-        // Check if it has real data (address in original OR non-blank override)
-        const hasAddr = spriteData.addresses.has(id);
-        const override = spriteOverrides.get(id);
-        if (override) {
-          // Check if override is fully transparent (blank from deleteSprite)
-          let hasPixel = false;
-          for (let i = 3; i < override.data.length; i += 4) {
-            if (override.data[i] > 0) { hasPixel = true; break; }
-          }
-          if (hasPixel) keepIds.add(id);
-        } else if (hasAddr) {
-          keepIds.add(id);
-        }
-      }
+      // Step 2: Keep only sprites that are actually referenced by a thing.
+      // Unreferenced sprites are dead weight regardless of pixel content.
+      const keepIds = referencedIds;
 
       const removed = oldCount - keepIds.size;
       if (removed === 0) return { removed: 0, oldCount, newCount: oldCount };
@@ -126,7 +107,6 @@ export function createCompactAtlasAction(set: Set_, get: Get_) {
         editVersion: editVersion + 1,
       });
 
-      console.log(`[OB] Compacted sprite atlas: ${oldCount} → ${newCount} (removed ${removed} blank/unreferenced sprites)`);
       return { removed, oldCount, newCount };
     },
   };

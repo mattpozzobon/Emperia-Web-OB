@@ -8,10 +8,11 @@ import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from '../lib/sp
 import { maybeDecompress } from '../lib/emperia-format';
 import { syncOtbFromVisual, deriveGroup } from '../lib/types';
 import type { OBState } from './store-types';
-import { shiftThingsDown, allocateThingId } from './thing-helpers';
+import { shiftThingsDown, allocateThingId, remapSpriteIds } from './thing-helpers';
 import { createHairSlice } from './hair-slice';
 import { createSpriteMapSlice } from './sprite-map-slice';
 import { createCompactAtlasAction } from './compact-atlas';
+import { createSpriteGroupSlice } from './sprite-group-slice';
 
 export const useOBStore = create<OBState>((set, get) => ({
   objectData: null,
@@ -48,6 +49,8 @@ export const useOBStore = create<OBState>((set, get) => ({
   editVersion: 0,
   focusSpriteId: null,
   importTileSize: 1,
+  spriteGroups: [],
+  nextSpriteGroupId: 1,
   selectedSlots: [],
   copiedThing: null,
 
@@ -116,20 +119,6 @@ export const useOBStore = create<OBState>((set, get) => ({
       }
     }
     set({ itemDefinitions: defs, clientToServerIds: c2s, definitionsLoaded: true });
-    console.log(`[OB] Loaded ${defs.size} definitions (by serverId), ${c2s.size} client→server mappings`);
-
-    // Warn if definitions reference clientIds beyond the .eobj item range
-    const od = get().objectData;
-    if (od) {
-      let outOfRange = 0;
-      for (const def of defs.values()) {
-        const cid = def.id ?? 0;
-        if (cid > od.itemCount || cid < 100) outOfRange++;
-      }
-      if (outOfRange > 0) {
-        console.warn(`[OB] ⚠️ ${outOfRange} definitions reference clientIds outside the .eobj range (100–${od.itemCount}). These items will be invisible in-game.`);
-      }
-    }
   },
 
   // ─── Source file handles ────────────────────────────────────────────────────
@@ -524,11 +513,6 @@ export const useOBStore = create<OBState>((set, get) => ({
       stateUpdate.itemDefinitions = newDefs;
       stateUpdate.clientToServerIds = newC2s;
 
-      if (existingServerId != null) {
-        console.log(`[OB] Auto-created definition: serverId=${newServerId} clientId=${insertId} (overriding stale mapping to serverId=${existingServerId})`);
-      } else {
-        console.log(`[OB] Auto-created definition: serverId=${newServerId} clientId=${insertId}`);
-      }
     }
 
     set(stateUpdate);
@@ -581,29 +565,10 @@ export const useOBStore = create<OBState>((set, get) => ({
     // Step 1: Allocate a new thing ID and shift higher categories
     const { insertId: newId, dirtyIds: shiftedDirtyIds } = allocateThingId(objectData, cat, get().dirtyIds);
 
-    // Step 2: Remap sprite IDs to new IDs starting from spriteData.spriteCount + 1
-    // and store the pixel data as overrides
-    const newOverrides = new Map(spriteOverrides);
-    const newDirtySpriteIds = new Set(dirtySpriteIds);
-    const idRemap = new Map<number, number>();
-
-    for (const [oldId, imgData] of spritePixels) {
-      if (oldId === 0) continue;
-      if (idRemap.has(oldId)) continue;
-      spriteData.spriteCount++;
-      const newSpriteId = spriteData.spriteCount;
-      idRemap.set(oldId, newSpriteId);
-      newOverrides.set(newSpriteId, imgData);
-      newDirtySpriteIds.add(newSpriteId);
-    }
-
-    // Step 3: Clone frame groups with remapped sprite IDs
-    const remappedGroups = frameGroups.map((fg, i) => ({
-      ...fg,
-      type: i,
-      sprites: fg.sprites.map(sid => sid === 0 ? 0 : (idRemap.get(sid) ?? sid)),
-      animationLengths: fg.animationLengths.map(d => ({ ...d })),
-    }));
+    // Step 2: Remap sprite IDs and clone frame groups
+    const { newOverrides, newDirtySpriteIds, remappedGroups } = remapSpriteIds(
+      spriteData, spriteOverrides, dirtySpriteIds, frameGroups, spritePixels,
+    );
 
     const newThing: ThingType = {
       id: newId,
@@ -636,30 +601,12 @@ export const useOBStore = create<OBState>((set, get) => ({
     const existing = objectData.things.get(targetId);
     if (!existing) return false;
 
-    // Step 1: Remap sprite IDs to new IDs (same as importThing)
-    const newOverrides = new Map(spriteOverrides);
-    const newDirtySpriteIds = new Set(dirtySpriteIds);
-    const idRemap = new Map<number, number>();
+    // Step 1: Remap sprite IDs and clone frame groups
+    const { newOverrides, newDirtySpriteIds, remappedGroups } = remapSpriteIds(
+      spriteData, spriteOverrides, dirtySpriteIds, frameGroups, spritePixels,
+    );
 
-    for (const [oldId, imgData] of spritePixels) {
-      if (oldId === 0) continue;
-      if (idRemap.has(oldId)) continue;
-      spriteData.spriteCount++;
-      const newSpriteId = spriteData.spriteCount;
-      idRemap.set(oldId, newSpriteId);
-      newOverrides.set(newSpriteId, imgData);
-      newDirtySpriteIds.add(newSpriteId);
-    }
-
-    // Step 2: Clone frame groups with remapped sprite IDs
-    const remappedGroups = frameGroups.map((fg, i) => ({
-      ...fg,
-      type: i,
-      sprites: fg.sprites.map(sid => sid === 0 ? 0 : (idRemap.get(sid) ?? sid)),
-      animationLengths: fg.animationLengths.map(d => ({ ...d })),
-    }));
-
-    // Step 3: Overwrite the existing thing in-place (same ID and category)
+    // Step 2: Overwrite the existing thing in-place (same ID and category)
     const replacedThing: ThingType = {
       id: targetId,
       category: existing.category,
@@ -690,6 +637,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   ...createSpriteMapSlice(set, get),
   ...createHairSlice(set, get),
   ...createCompactAtlasAction(set, get),
+  ...createSpriteGroupSlice(set, get),
 
   // ─── Utility ────────────────────────────────────────────────────────────────
 

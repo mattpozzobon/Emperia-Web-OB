@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef } from 'react';
-import { getSpriteDataUrl } from '../lib/sprite-decoder';
+import { getSpriteDataUrl, clearSpriteCache } from '../lib/sprite-decoder';
 import { useOBStore } from '../store';
 import type { SpriteData } from '../lib/types';
 
@@ -67,6 +67,25 @@ export function ObjectSlots() {
     }
   }, [selectedSlots, isSlotSelected, slots]);
 
+  const handleDeleteSlots = useCallback(() => {
+    if (!thing || selectedSlots.length === 0) return;
+    for (const slot of selectedSlots) {
+      const fg = thing.frameGroups[slot.group];
+      if (fg) fg.sprites[slot.index] = 0;
+    }
+    thing.rawBytes = undefined;
+    clearSpriteCache();
+    const store = useOBStore.getState();
+    const newDirtyIds = new Set(store.dirtyIds);
+    newDirtyIds.add(thing.id);
+    useOBStore.setState({
+      dirty: true,
+      dirtyIds: newDirtyIds,
+      selectedSlots: [],
+      editVersion: store.editVersion + 1,
+    });
+  }, [thing, selectedSlots]);
+
   if (!thing || !spriteData || slots.length === 0) return null;
 
   return (
@@ -120,8 +139,15 @@ export function ObjectSlots() {
             Click an atlas sprite to assign to {selectedSlots.length > 1 ? `${selectedSlots.length} slots` : 'slot'}
           </span>
           <button
+            onClick={handleDeleteSlots}
+            className="text-[10px] text-red-400 hover:text-red-300 ml-auto"
+            title="Remove sprites from selected slots (set to empty)"
+          >
+            Delete
+          </button>
+          <button
             onClick={() => useOBStore.setState({ selectedSlots: [] })}
-            className="text-[10px] text-emperia-muted hover:text-emperia-text ml-auto"
+            className="text-[10px] text-emperia-muted hover:text-emperia-text"
           >
             Clear
           </button>

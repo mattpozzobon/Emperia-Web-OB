@@ -56,7 +56,7 @@ export async function saveLastDirHandle(handle: FileSystemDirectoryHandle): Prom
     });
     db.close();
   } catch (e) {
-    console.warn('[OB] Failed to save dir handle:', e);
+    console.error('[OB] Failed to save dir handle:', e);
   }
 }
 
@@ -72,7 +72,7 @@ export async function loadLastDirHandle(): Promise<FileSystemDirectoryHandle | n
     db.close();
     return handle;
   } catch (e) {
-    console.warn('[OB] Failed to load dir handle:', e);
+    console.error('[OB] Failed to load dir handle:', e);
     return null;
   }
 }
@@ -89,9 +89,8 @@ export async function saveSessionHandles(handles: SessionHandles): Promise<void>
       tx.onerror = () => rej(tx.error);
     });
     db.close();
-    console.log('[OB] Saved session handles');
   } catch (e) {
-    console.warn('[OB] Failed to save session handles:', e);
+    console.error('[OB] Failed to save session handles:', e);
   }
 }
 
@@ -107,7 +106,7 @@ export async function loadSessionHandles(): Promise<SessionHandles | null> {
     db.close();
     return handles;
   } catch (e) {
-    console.warn('[OB] Failed to load session handles:', e);
+    console.error('[OB] Failed to load session handles:', e);
     return null;
   }
 }

@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useOBStore } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
 import { paletteToCSS, OUTFIT_PALETTE, PALETTE_SIZE } from '../lib/outfit-colors';
@@ -142,6 +142,7 @@ export function LayerPanel() {
                     }}
                   />
                 </div>
+                <SetAllDurations thing={thing} group={group} />
               </div>
             )}
           </div>
@@ -209,6 +210,43 @@ export function LayerPanel() {
         </>
       )}
 
+    </div>
+  );
+}
+
+function SetAllDurations({ thing, group }: { thing: { id: number; rawBytes?: Uint8Array }; group: { animationLengths: { min: number; max: number }[] } }) {
+  const [val, setVal] = useState(group.animationLengths[0]?.min ?? 100);
+
+  return (
+    <div className="flex items-center gap-1.5 pt-1 border-t border-emerald-500/10">
+      <span className="text-[8px] text-emerald-400/70 shrink-0">Set all:</span>
+      <input
+        type="number"
+        value={val}
+        min={0}
+        max={65535}
+        onChange={(e) => {
+          const v = parseInt(e.target.value, 10);
+          if (!isNaN(v)) setVal(Math.max(0, Math.min(65535, v)));
+        }}
+        className="w-14 px-1 py-0.5 bg-emperia-surface border border-emperia-border rounded text-[9px] text-emperia-text font-mono text-center outline-none focus:border-emperia-accent"
+      />
+      <span className="text-[8px] text-emperia-muted">ms</span>
+      <button
+        onClick={() => {
+          for (const dur of group.animationLengths) {
+            dur.min = val;
+            dur.max = val;
+          }
+          thing.rawBytes = undefined;
+          const store = useOBStore.getState();
+          const ids = new Set(store.dirtyIds); ids.add(thing.id);
+          useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
+        }}
+        className="px-1.5 py-0.5 rounded text-[8px] bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-600/50 transition-colors"
+      >
+        Apply
+      </button>
     </div>
   );
 }

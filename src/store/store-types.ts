@@ -10,6 +10,20 @@ export interface UndoEntry {
   newFlags: ThingFlags;
 }
 
+/** A group of imported sprites that form a logical multi-tile unit (e.g. 2×2 item). */
+export interface SpriteGroup {
+  /** Unique ID for this group */
+  id: number;
+  /** Label (e.g. filename) */
+  label: string;
+  /** Tile columns in the group */
+  cols: number;
+  /** Tile rows in the group */
+  rows: number;
+  /** Sprite IDs in row-major order: [row][col] flattened to spriteIds[row * cols + col] */
+  spriteIds: number[];
+}
+
 export interface OBState {
   // Data
   objectData: ObjectData | null;
@@ -74,6 +88,10 @@ export interface OBState {
   focusSpriteId: number | null;
   /** Import tile grouping: 1=no grouping, 2=2×2 objects, 4=4×4 objects — pads atlas rows between groups for visual clarity */
   importTileSize: 1 | 2 | 4;
+  /** Imported sprite groups available for drag-and-drop onto the canvas */
+  spriteGroups: SpriteGroup[];
+  /** Auto-incrementing counter for sprite group IDs */
+  nextSpriteGroupId: number;
   /** Selected object sprite slots — shared between ObjectSlots and atlas for multi-select assignment */
   selectedSlots: { group: number; index: number }[];
   /** Clipboard for copy/paste of thing properties — each field is optional so partial copies work */
@@ -126,6 +144,11 @@ export interface OBState {
 
   // Sprite atlas maintenance
   compactSpriteAtlas: () => { removed: number; oldCount: number; newCount: number } | null;
+
+  // Sprite group actions
+  addSpriteGroup: (label: string, cols: number, rows: number, spriteIds: number[]) => number;
+  removeSpriteGroup: (id: number) => void;
+  clearSpriteGroups: () => void;
 
   // Equipment sprite mapping actions
   loadSpriteMap: (json: ItemToSpriteFile) => void;

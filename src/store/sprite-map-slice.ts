@@ -12,7 +12,6 @@ export function createSpriteMapSlice(set: Set_, get: Get_) {
     loadSpriteMap: (json: ItemToSpriteFile) => {
       const entries = Array.isArray(json.items) ? json.items : [];
       set({ spriteMapEntries: entries, spriteMapLoaded: true });
-      console.log(`[OB] Loaded sprite map: ${entries.length} entries`);
     },
 
     updateSpriteMapEntry: (index: number, entry: ItemToSpriteEntry) => {

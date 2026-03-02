@@ -37,6 +37,7 @@ export function SpritePreview() {
   const [showGrid, setShowGrid] = useState(false);
   const [showCropSize, setShowCropSize] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
   const [dragTile, setDragTile] = useState<{ col: number; row: number } | null>(null);
   const [hoverTile, setHoverTile] = useState<{ col: number; row: number } | null>(null);
   const activeLayer = useOBStore((s) => s.activeLayer);
@@ -155,32 +156,12 @@ export function SpritePreview() {
   const renderKey = `${editVersion}:${activeGroup}:${selectedId}`;
   latestRenderKeyRef.current = renderKey;
 
-  const walkingDiagRef = useRef(false);
   const renderFrame = useCallback((frame: number) => {
     const canvas = canvasRef.current;
     if (!canvas || !group || !spriteData) return;
 
     // Skip if this closure is stale (a newer renderFrame has been created)
     if (latestRenderKeyRef.current !== renderKey) return;
-
-    // One-shot render diagnostic for walking groups
-    if (isOutfit && activeGroup > 0 && !walkingDiagRef.current) {
-      walkingDiagRef.current = true;
-      console.group('[RENDER DIAG] Walking group post-remap');
-      console.log(`layers=${group.layers} frames=${group.animationLength} sprites=${group.sprites.length} pX=${group.patternX}`);
-      const dirNames = ['N', 'E', 'S', 'W'];
-      for (let f = 0; f < group.animationLength; f++) {
-        for (let dir = 0; dir < group.patternX; dir++) {
-          for (let l = 0; l < group.layers; l++) {
-            const idx = getSpriteIndex(group, f, dir, 0, 0, l, 0, 0);
-            const sid = idx < group.sprites.length ? group.sprites[idx] : -1;
-            const hasPixels = sid > 0 && (spriteOverrides.has(sid) || !!decodeSprite(spriteData, sid));
-            console.log(`  f=${f} ${dirNames[dir]} L${l}: idx=${idx} sid=${sid} hasPixels=${hasPixels}`);
-          }
-        }
-      }
-      console.groupEnd();
-    }
 
     const cellW = group.width * 32;
     const cellH = group.height * 32;
@@ -468,12 +449,79 @@ export function SpritePreview() {
     img.src = URL.createObjectURL(file);
   }, [group, thing, spriteData, currentFrame, replaceSprite, addSprite, getSpriteAtPosition]);
 
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback(() => {
+    dragCounterRef.current--;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setDragOver(false);
+      setDragTile(null);
+    }
+  }, []);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
+    dragCounterRef.current = 0;
     setDragOver(false);
     setDragTile(null);
 
-    // Handle atlas sprite drag-and-drop
+    // Handle sprite group drag-and-drop (multi-tile)
+    const groupStr = e.dataTransfer.getData('application/x-sprite-group');
+    if (groupStr && thing && group) {
+      try {
+        const sg = JSON.parse(groupStr) as { cols: number; rows: number; spriteIds: number[] };
+        if (sg.spriteIds?.length === sg.cols * sg.rows) {
+          // Determine which pattern cell was dropped on
+          const rect = canvasRef.current?.getBoundingClientRect();
+          if (rect) {
+            const canvasPixelX = (e.clientX - rect.left) / zoom;
+            const canvasPixelY = (e.clientY - rect.top) / zoom;
+            const tileCol = Math.floor(canvasPixelX / 32);
+            const tileRow = Math.floor(canvasPixelY / 32);
+
+            // Pattern cell the drop landed in
+            const cellCol = Math.floor(tileCol / group.width);
+            const cellRow = Math.floor(tileRow / group.height);
+            const px = previewMode ? (activeDirection < group.patternX ? activeDirection : 0) : cellCol;
+            const py = previewMode ? (activePatternY < group.patternY ? activePatternY : 0) : cellRow;
+
+            // Place each tile from the group into the correct slot.
+            // Group spriteIds are row-major (top-left to bottom-right).
+            // OTB tile coords are flipped: tx=width-1 is left, ty=height-1 is top.
+            let placed = false;
+            for (let row = 0; row < sg.rows && row < group.height; row++) {
+              for (let col = 0; col < sg.cols && col < group.width; col++) {
+                const sid = sg.spriteIds[row * sg.cols + col];
+                if (sid <= 0) continue;
+                const tx = group.width - 1 - col;
+                const ty = group.height - 1 - row;
+                const idx = getSpriteIndex(group, currentFrame, px, py, activeZ, activeLayer, tx, ty);
+                if (idx >= 0 && idx < group.sprites.length) {
+                  group.sprites[idx] = sid;
+                  placed = true;
+                }
+              }
+            }
+            if (placed) {
+              thing.rawBytes = undefined;
+              clearSpriteCache();
+              const store = useOBStore.getState();
+              const newDirtyIds = new Set(store.dirtyIds);
+              newDirtyIds.add(thing.id);
+              useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1 });
+            }
+          }
+          return;
+        }
+      } catch { /* ignore parse errors */ }
+    }
+
+    // Handle atlas sprite drag-and-drop (single)
     const spriteIdStr = e.dataTransfer.getData('application/x-sprite-id');
     if (spriteIdStr && thing && group) {
       const spriteId = parseInt(spriteIdStr, 10);
@@ -496,7 +544,18 @@ export function SpritePreview() {
     if (e.dataTransfer.files.length > 0) {
       handleImageFiles(e.dataTransfer.files, e.clientX, e.clientY);
     }
-  }, [handleImageFiles, thing, group, getSlotIndexAtPosition]);
+  }, [handleImageFiles, thing, group, getSlotIndexAtPosition, zoom, previewMode, activeDirection, activePatternY, activeZ, activeLayer, currentFrame]);
+
+  const handleCanvasClick = useCallback((e: React.MouseEvent) => {
+    const slotIdx = getSlotIndexAtPosition(e.clientX, e.clientY);
+    if (slotIdx >= 0 && group) {
+      const spriteId = group.sprites[slotIdx];
+      useOBStore.setState({
+        selectedSlots: [{ group: activeGroup, index: slotIdx }],
+        focusSpriteId: spriteId > 0 ? spriteId : null,
+      });
+    }
+  }, [getSlotIndexAtPosition, group, activeGroup]);
 
   // Update a frame group property and mark dirty
   const updateFrameGroupProp = useCallback((key: string, value: number) => {
@@ -613,9 +672,9 @@ export function SpritePreview() {
               className={`checkerboard rounded-lg border relative transition-colors
                 ${dragOver ? 'border-emperia-accent border-2' : 'border-emperia-border'}`}
               style={{ padding: 8 }}
+              onDragEnter={handleDragEnter}
               onDragOver={(e) => {
                 e.preventDefault();
-                setDragOver(true);
                 if (canvasRef.current && group) {
                   const rect = canvasRef.current.getBoundingClientRect();
                   const col = Math.floor((e.clientX - rect.left) / (32 * zoom));
@@ -629,8 +688,8 @@ export function SpritePreview() {
                   }
                 }
               }}
-              onDragLeave={() => { setDragOver(false); setDragTile(null); }}
-              onDrop={(e) => { setDragTile(null); handleDrop(e); }}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
               onMouseMove={(e) => {
                 if (!canvasRef.current || !group) { setHoverTile(null); return; }
                 const totalCols = renderedPxCount * group.width;
@@ -650,12 +709,7 @@ export function SpritePreview() {
               <canvas
                 ref={canvasRef}
                 className="cursor-pointer"
-                onClick={(e) => {
-                  const spriteId = getSpriteAtPosition(e.clientX, e.clientY);
-                  if (spriteId > 0) {
-                    useOBStore.setState({ focusSpriteId: spriteId });
-                  }
-                }}
+                onClick={handleCanvasClick}
                 style={{
                   width: expectedCanvasW * zoom,
                   height: expectedCanvasH * zoom,
@@ -755,9 +809,9 @@ export function SpritePreview() {
           className={`checkerboard rounded-lg border relative transition-colors
             ${dragOver ? 'border-emperia-accent border-2' : 'border-emperia-border'}`}
           style={{ padding: 8 }}
+          onDragEnter={handleDragEnter}
           onDragOver={(e) => {
             e.preventDefault();
-            setDragOver(true);
             if (canvasRef.current && group) {
               const rect = canvasRef.current.getBoundingClientRect();
               const col = Math.floor((e.clientX - rect.left) / (32 * zoom));
@@ -771,8 +825,8 @@ export function SpritePreview() {
               }
             }
           }}
-          onDragLeave={() => { setDragOver(false); setDragTile(null); }}
-          onDrop={(e) => { setDragTile(null); handleDrop(e); }}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           onMouseMove={(e) => {
             if (!canvasRef.current || !group) { setHoverTile(null); return; }
             const totalCols = renderedPxCount * group.width;
@@ -792,12 +846,7 @@ export function SpritePreview() {
           <canvas
             ref={canvasRef}
             className="cursor-pointer"
-            onClick={(e) => {
-              const spriteId = getSpriteAtPosition(e.clientX, e.clientY);
-              if (spriteId > 0) {
-                useOBStore.setState({ focusSpriteId: spriteId });
-              }
-            }}
+            onClick={handleCanvasClick}
             style={{
               width: expectedCanvasW * zoom,
               height: expectedCanvasH * zoom,

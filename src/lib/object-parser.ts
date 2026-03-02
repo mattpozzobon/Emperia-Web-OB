@@ -308,9 +308,5 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
     things.set(id, { id, category, flags, frameGroups, rawBytes });
   }
 
-  console.log(
-    `[OB] Parsed ${things.size} things: items=${itemCount} outfits=${outfitCount} effects=${effectCount} distances=${distanceCount}`
-  );
-
   return { version, itemCount, outfitCount, effectCount, distanceCount, things, originalBuffer: buffer };
 }

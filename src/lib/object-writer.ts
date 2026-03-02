@@ -191,7 +191,6 @@ function writeFrameGroup(w: PacketWriter, fg: FrameGroup, version: number, write
 export function compileObjectData(data: ObjectData, dirtyIds?: Set<number>): ArrayBuffer {
   // No edits? Return the original file, patching header flags if needed.
   if (!dirtyIds || dirtyIds.size === 0) {
-    console.log('[OB] Compile: no edits, returning original buffer');
     const buf = data.originalBuffer.slice(0);
     const bytes = new Uint8Array(buf);
     if (bytes.length >= EMPERIA_HEADER_SIZE && isEmperiaFormat(bytes)) {
@@ -209,7 +208,6 @@ export function compileObjectData(data: ObjectData, dirtyIds?: Set<number>): Arr
     return buf;
   }
 
-  console.log(`[OB] Compile: rebuilding with ${dirtyIds.size} edited thing(s)`);
 
   const w = new PacketWriter(1024 * 1024); // 1MB initial
 
@@ -258,9 +256,6 @@ export function compileObjectData(data: ObjectData, dirtyIds?: Set<number>): Arr
     }
 
     // Re-serialize from parsed data for edited things
-    if (thing.category === 'outfit' && thing.flags.hasDisplacement) {
-      console.log(`[OB] Writing outfit #${id} displacement: x=${thing.flags.displacementX}, y=${thing.flags.displacementY}`);
-    }
     writeFlags(w, thing.flags, data.version);
 
     const isOutfit = thing.category === 'outfit';

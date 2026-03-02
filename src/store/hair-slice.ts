@@ -27,7 +27,6 @@ export function createHairSlice(set: Set_, get: Get_) {
       }
       defs.sort((a, b) => a.sortOrder - b.sortOrder || a.hairId - b.hairId);
       set({ hairDefinitions: defs, hairDefsLoaded: true, selectedHairId: defs[0]?.hairId ?? null });
-      console.log(`[OB] Loaded ${defs.length} hair definitions`);
     },
 
     addHairDefinition: (hair: HairDefinition) => {

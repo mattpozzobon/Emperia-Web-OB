@@ -156,7 +156,7 @@ export async function runCompile(
         await writable.close();
         return;
       } catch (err) {
-        console.warn(`[OB] Failed to write via file handle (${fileHandle.name}), trying folder fallback:`, err);
+        console.error(`[OB] Failed to write via file handle (${fileHandle.name}), trying folder fallback:`, err);
       }
     }
     if (sourceDir && dirFileName) {
@@ -167,13 +167,11 @@ export async function runCompile(
         await writable.close();
         return;
       } catch (err) {
-        console.warn(`[OB] Failed to write ${dirFileName} to folder, falling back to download:`, err);
+        console.error(`[OB] Failed to write ${dirFileName} to folder, falling back to download:`, err);
       }
     }
     downloadFile(buf, fallbackName);
   }
-
-  console.log(`[OB] Compiling: ${currentDirtyIds.size} dirty thing(s), ${spriteOverrides.size} sprite override(s)`);
 
   // Step 0: Compile .eobj
   await runStep(0, async () => {
@@ -318,8 +316,4 @@ export async function runCompile(
     totalElapsed: endTime - startTime,
   }));
 
-  if (sourceDir) {
-    console.log('[OB] Saved to source folder:', sourceDir.name);
-  }
-  console.log(`[OB] Compile ${hasErrors ? 'finished with errors' : 'complete'} in ${formatMs(endTime - startTime)}`);
 }

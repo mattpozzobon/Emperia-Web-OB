@@ -1,7 +1,7 @@
 /**
  * Pure helper functions for thing ID allocation and shifting.
  */
-import type { ObjectData, ThingCategory } from '../lib/types';
+import type { ObjectData, ThingCategory, FrameGroup, SpriteData } from '../lib/types';
 
 /**
  * Shift all things with id >= shiftFrom up by 1.
@@ -44,6 +44,45 @@ export function shiftThingsDown(od: ObjectData, shiftAfter: number, oldTotal: nu
     newDirty.add(d > shiftAfter ? d - 1 : d);
   }
   return newDirty;
+}
+
+/**
+ * Remap imported sprite pixel data into fresh atlas IDs and clone frame groups
+ * with remapped references.  Shared by importThing / replaceThing.
+ */
+export function remapSpriteIds(
+  spriteData: SpriteData,
+  spriteOverrides: Map<number, ImageData>,
+  dirtySpriteIds: Set<number>,
+  frameGroups: FrameGroup[],
+  spritePixels: Map<number, ImageData>,
+): {
+  newOverrides: Map<number, ImageData>;
+  newDirtySpriteIds: Set<number>;
+  remappedGroups: FrameGroup[];
+} {
+  const newOverrides = new Map(spriteOverrides);
+  const newDirtySpriteIds = new Set(dirtySpriteIds);
+  const idRemap = new Map<number, number>();
+
+  for (const [oldId, imgData] of spritePixels) {
+    if (oldId === 0) continue;
+    if (idRemap.has(oldId)) continue;
+    spriteData.spriteCount++;
+    const newSpriteId = spriteData.spriteCount;
+    idRemap.set(oldId, newSpriteId);
+    newOverrides.set(newSpriteId, imgData);
+    newDirtySpriteIds.add(newSpriteId);
+  }
+
+  const remappedGroups = frameGroups.map((fg, i) => ({
+    ...fg,
+    type: i,
+    sprites: fg.sprites.map(sid => sid === 0 ? 0 : (idRemap.get(sid) ?? sid)),
+    animationLengths: fg.animationLengths.map(d => ({ ...d })),
+  }));
+
+  return { newOverrides, newDirtySpriteIds, remappedGroups };
 }
 
 /**
