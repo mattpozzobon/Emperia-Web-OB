@@ -63,6 +63,29 @@ export function FileDropZone() {
     saveSessionHandles(handles);
   }, []);
 
+  // Helper: copy all loaded source files into a 'backup' subfolder
+  const saveBackup = useCallback(async (
+    dirHandle: FileSystemDirectoryHandle,
+    filesToBackup: { name: string; data: ArrayBuffer }[],
+  ) => {
+    try {
+      const backupDir = await dirHandle.getDirectoryHandle('backup', { create: true });
+      for (const { name, data } of filesToBackup) {
+        try {
+          const fh = await backupDir.getFileHandle(name, { create: true });
+          const writable = await fh.createWritable();
+          await writable.write(data);
+          await writable.close();
+        } catch (err) {
+          console.error(`[OB] Failed to backup ${name}:`, err);
+        }
+      }
+      console.log(`[OB] Backup saved: ${filesToBackup.length} file(s) to backup/`);
+    } catch (err) {
+      console.error('[OB] Failed to create backup directory:', err);
+    }
+  }, []);
+
   const tryAutoLoad = useCallback(() => {
     if (!objRef.current || !sprRef.current) return;
     if (pendingJsonRef.current) {
@@ -151,9 +174,19 @@ export function FileDropZone() {
       setSourceDir(dirHandle, names);
       lastDirRef.current = dirHandle;
       saveLastDirHandle(dirHandle);
+
+      // Save backup of all loaded files BEFORE tryAutoLoad clears the pending refs
+      const backupFiles: { name: string; data: ArrayBuffer }[] = [];
+      if (objRef.current && names.obj) backupFiles.push({ name: names.obj, data: objRef.current });
+      if (sprRef.current && names.spr) backupFiles.push({ name: names.spr, data: sprRef.current });
+      if (pendingJsonRef.current && names.def) backupFiles.push({ name: names.def, data: pendingJsonRef.current });
+      if (pendingSpriteMapRef.current && names.spriteMap) backupFiles.push({ name: names.spriteMap, data: pendingSpriteMapRef.current });
+      if (pendingHairDefsRef.current && (names as any).hairDefs) backupFiles.push({ name: (names as any).hairDefs, data: pendingHairDefsRef.current });
+      if (backupFiles.length > 0) saveBackup(dirHandle, backupFiles);
+
       tryAutoLoad();
     } catch { /* user cancelled */ }
-  }, [tryAutoLoad, setSourceDir]);
+  }, [tryAutoLoad, setSourceDir, saveBackup]);
 
   // Reload Last Session — re-read from persisted file handles
   const handleReloadSession = useCallback(async () => {
@@ -236,7 +269,18 @@ export function FileDropZone() {
     }
 
     loadFiles(objBuf, sprBuf);
-  }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, setSourceHandles, setSourceDir]);
+
+    // Save backup of all loaded files
+    if (session.dir) {
+      const backupFiles: { name: string; data: ArrayBuffer }[] = [];
+      if (objBuf && session.obj) backupFiles.push({ name: session.obj.name, data: objBuf });
+      if (sprBuf && session.spr) backupFiles.push({ name: session.spr.name, data: sprBuf });
+      if (defBuf && session.def) backupFiles.push({ name: session.def.name, data: defBuf });
+      if (mapBuf && session.spriteMap) backupFiles.push({ name: session.spriteMap.name, data: mapBuf });
+      if (hairBuf && (session as any).hairDefs) backupFiles.push({ name: (session as any).hairDefs.name, data: hairBuf });
+      if (backupFiles.length > 0) saveBackup(session.dir, backupFiles);
+    }
+  }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, setSourceHandles, setSourceDir, saveBackup]);
 
   return (
     <div className="h-full flex items-center justify-center bg-emperia-bg p-8">

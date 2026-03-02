@@ -78,41 +78,56 @@ export function PreviewToolbar({
     }
   };
 
-  const handleImportOBD = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
+  const handleImportOBD = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const results: string[] = [];
+    const errors: string[] = [];
+    let isFirst = true;
+
+    for (let fi = 0; fi < files.length; fi++) {
+      const file = files[fi];
       try {
-        const buf = new Uint8Array(reader.result as ArrayBuffer);
+        const arrayBuf = await file.arrayBuffer();
+        const buf = new Uint8Array(arrayBuf);
         const result = decodeOBD(buf);
 
         const state = useOBStore.getState();
         const selectedId = state.selectedThingId;
         const existingThing = selectedId != null ? state.objectData?.things.get(selectedId) : null;
 
-        if (selectedId != null && existingThing && existingThing.category === result.category) {
+        // Only replace on the first file if selected thing matches category
+        if (isFirst && selectedId != null && existingThing && existingThing.category === result.category) {
           const ok = state.replaceThing(selectedId, result.flags, result.frameGroups, result.spritePixels);
           if (ok) {
             const od = useOBStore.getState().objectData;
             const dId = od ? getDisplayId(od, selectedId) : selectedId;
-            alert(`Replaced ${result.category} #${dId} with ${result.spritePixels.size} sprites.`);
+            results.push(`Replaced ${result.category} #${dId} (${file.name})`);
           } else {
-            alert('Replace failed — could not overwrite selected thing.');
+            errors.push(`${file.name}: replace failed`);
           }
         } else {
           const newId = state.importThing(result.category, result.flags, result.frameGroups, result.spritePixels);
           if (newId != null) {
             const od = useOBStore.getState().objectData;
             const dId = od ? getDisplayId(od, newId) : newId;
-            alert(`Imported ${result.category} #${dId} with ${result.spritePixels.size} sprites.`);
+            results.push(`Imported ${result.category} #${dId} (${file.name})`);
+          } else {
+            errors.push(`${file.name}: import failed`);
           }
         }
+        isFirst = false;
       } catch (err) {
-        alert(`Import failed: ${err instanceof Error ? err.message : err}`);
+        errors.push(`${file.name}: ${err instanceof Error ? err.message : err}`);
       }
-    };
-    reader.readAsArrayBuffer(file);
+    }
+
+    const msg = [
+      ...results,
+      ...(errors.length > 0 ? ['', 'Errors:', ...errors] : []),
+    ].join('\n');
+    alert(msg || 'No files processed.');
     e.target.value = '';
   };
 
@@ -156,7 +171,7 @@ export function PreviewToolbar({
       <div className="w-px h-4 bg-emperia-border mx-0.5" />
 
       {/* Import / Export OBD */}
-      <input ref={obdImportRef} type="file" accept=".obd" className="hidden" onChange={handleImportOBD} />
+      <input ref={obdImportRef} type="file" accept=".obd" multiple className="hidden" onChange={handleImportOBD} />
       <button onClick={() => obdImportRef.current?.click()} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Import OBD">
         <Upload className="w-3.5 h-3.5" />
       </button>

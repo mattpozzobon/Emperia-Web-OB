@@ -1,4 +1,4 @@
-import { Package, Shirt, Sparkles, ArrowRight, Search, Plus, Minus, Download } from 'lucide-react';
+import { Package, Shirt, Sparkles, ArrowRight, Search, Plus, Minus, Download, Trash2 } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { exportSelectedSprites } from '../lib/export-sprites';
 import type { ThingCategory } from '../lib/types';
@@ -34,6 +34,7 @@ export function CategoryTabs() {
   const selectedThingId = useOBStore((s) => s.selectedThingId);
   const addThing = useOBStore((s) => s.addThing);
   const removeThing = useOBStore((s) => s.removeThing);
+  const clearThing = useOBStore((s) => s.clearThing);
   const getCategoryRange = useOBStore((s) => s.getCategoryRange);
   const filterGroup = useOBStore((s) => s.filterGroup);
   const setFilterGroup = useOBStore((s) => s.setFilterGroup);
@@ -141,6 +142,20 @@ export function CategoryTabs() {
         <button
           onClick={() => {
             if (!selectedThingId || !objectData) return;
+            const dId = getDisplayId(objectData, selectedThingId);
+            if (confirm(`Clear ${activeCategory} #${dId}? This will strip all sprites and properties but keep the slot.`)) {
+              clearThing(selectedThingId);
+            }
+          }}
+          disabled={!objectData || !selectedThingId}
+          className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-red-400 hover:border-red-400/50 disabled:opacity-30 transition-colors"
+          title={`Clear selected ${activeCategory} (keep slot)`}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+        <button
+          onClick={() => {
+            if (!selectedThingId || !objectData) return;
             const range = getCategoryRange(activeCategory);
             if (!range || selectedThingId !== range.end) return;
             const dId = objectData ? getDisplayId(objectData, selectedThingId) : selectedThingId;
@@ -149,7 +164,7 @@ export function CategoryTabs() {
             }
           }}
           disabled={!objectData || !selectedThingId || (() => { const r = getCategoryRange(activeCategory); return !r || selectedThingId !== r.end; })()}
-          className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-red-400 hover:border-red-400/50 disabled:opacity-30 transition-colors"
+          className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-orange-400 hover:border-orange-400/50 disabled:opacity-30 transition-colors"
           title={`Remove last ${activeCategory}`}
         >
           <Minus className="w-3.5 h-3.5" />

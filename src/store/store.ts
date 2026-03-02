@@ -573,6 +573,62 @@ export const useOBStore = create<OBState>((set, get) => ({
     });
   },
 
+  clearThing: (id) => {
+    const { objectData, editVersion } = get();
+    if (!objectData) return;
+    const thing = objectData.things.get(id);
+    if (!thing) return;
+
+    // Strip the thing down to an empty placeholder — zero sprites, zero flags.
+    // The ID slot stays so nothing shifts.
+    const emptyFlags: ThingFlags = {
+      ground: false, groundBorder: false, onBottom: false, onTop: false,
+      container: false, stackable: false, forceUse: false, multiUse: false,
+      writable: false, writableOnce: false, fluidContainer: false, splash: false,
+      notWalkable: false, notMoveable: false, blockProjectile: false, notPathable: false,
+      pickupable: false, hangable: false, hookSouth: false, hookEast: false,
+      rotateable: false, hasLight: false, dontHide: false, translucent: false,
+      hasDisplacement: false, hasElevation: false, lyingCorpse: false,
+      animateAlways: false, hasMinimapColor: false, fullGround: false, look: false,
+      cloth: false, hasMarket: false, usable: false, wrapable: false,
+      unwrapable: false, topEffect: false, noMoveAnimation: false, chargeable: false,
+    };
+
+    const emptyFrameGroup = {
+      type: 0, width: 1, height: 1, layers: 1,
+      patternX: 1, patternY: 1, patternZ: 1,
+      animationLength: 1, asynchronous: 0, nLoop: 0, start: 0,
+      animationLengths: [{ min: 0, max: 0 }],
+      sprites: [0],
+    };
+
+    thing.flags = emptyFlags;
+    thing.frameGroups = [emptyFrameGroup];
+
+    const newDirtyIds = new Set(get().dirtyIds);
+    newDirtyIds.add(id);
+
+    const stateUpdate: Partial<OBState> = {
+      dirty: true,
+      dirtyIds: newDirtyIds,
+      editVersion: editVersion + 1,
+    };
+
+    // Also clear the server definition properties for items
+    if (thing.category === 'item' && get().definitionsLoaded) {
+      const { itemDefinitions, clientToServerIds } = get();
+      const serverId = clientToServerIds.get(id);
+      if (serverId != null && itemDefinitions.has(serverId)) {
+        const newDefs = new Map(itemDefinitions);
+        newDefs.set(serverId, { serverId, id, flags: 0, group: 0, properties: null });
+        stateUpdate.itemDefinitions = newDefs;
+      }
+    }
+
+    clearSpriteCache();
+    set(stateUpdate);
+  },
+
   importThing: (cat, flags, frameGroups, spritePixels) => {
     const { objectData, spriteData, editVersion, spriteOverrides, dirtySpriteIds } = get();
     if (!objectData || !spriteData) return null;
