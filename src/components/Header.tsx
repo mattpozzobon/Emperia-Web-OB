@@ -3,6 +3,7 @@ import { FolderOpen, Info, Undo2, Redo2, Download, Circle, Loader2, Check, X, Al
 import { useOBStore } from '../store';
 import { INITIAL_COMPILE_STATE, formatMs, formatBytes, runCompile } from '../lib/compile-pipeline';
 import type { CompileState } from '../lib/compile-pipeline';
+import { OutputDirsPanel } from './OutputDirsPanel';
 
 export function Header() {
   const objectData = useOBStore((s) => s.objectData);
@@ -127,6 +128,11 @@ export function Header() {
               </span>
               <span>{objectData.things.size} objects</span>
             </div>
+
+            {/* Output directories */}
+            <OutputDirsPanel />
+
+            <div className="w-px h-5 bg-emperia-border mx-1" />
 
             {/* Undo/Redo */}
             <button

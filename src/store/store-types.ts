@@ -4,6 +4,16 @@
 import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData, ItemToSpriteEntry, ItemToSpriteFile, HairDefinition, HairDefinitionsFile } from '../lib/types';
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 
+/** A user-configured extra output directory that receives copies of compiled files. */
+export interface OutputDir {
+  /** User-provided label (e.g. "Client", "Map Editor", "Server") */
+  label: string;
+  /** Directory handle with readwrite permission */
+  handle: FileSystemDirectoryHandle;
+  /** If set, only copy files whose names are in this list. Empty/undefined = all files. */
+  files?: string[];
+}
+
 export interface UndoEntry {
   thingId: number;
   oldFlags: ThingFlags;
@@ -73,6 +83,9 @@ export interface OBState {
     spriteMap?: FileSystemFileHandle | null;
   };
 
+  /** Extra directories that receive copies of all compiled files */
+  outputDirs: OutputDir[];
+
   // UI state
   centerTab: 'texture' | 'properties' | 'server' | 'equipment' | 'hair';
   activeCategory: ThingCategory;
@@ -116,6 +129,9 @@ export interface OBState {
   loadDefinitions: (json: Record<string, ServerItemData>) => void;
   setSourceDir: (dir: FileSystemDirectoryHandle, names: OBState['sourceNames']) => void;
   setSourceHandles: (handles: Partial<OBState['sourceHandles']>) => void;
+  addOutputDir: (label: string, handle: FileSystemDirectoryHandle, files?: string[]) => void;
+  removeOutputDir: (index: number) => void;
+  setOutputDirs: (dirs: OutputDir[]) => void;
   setCenterTab: (tab: OBState['centerTab']) => void;
   setActiveCategory: (cat: ThingCategory) => void;
   setSelectedThingId: (id: number | null) => void;

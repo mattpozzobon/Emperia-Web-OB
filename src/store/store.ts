@@ -39,6 +39,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   sourceDir: null,
   sourceNames: {},
   sourceHandles: {},
+  outputDirs: [],
 
   centerTab: 'texture',
   activeCategory: 'item',
@@ -129,6 +130,20 @@ export const useOBStore = create<OBState>((set, get) => ({
 
   setSourceHandles: (handles) => {
     set({ sourceHandles: { ...get().sourceHandles, ...handles } });
+  },
+
+  addOutputDir: (label, handle, files) => {
+    set({ outputDirs: [...get().outputDirs, { label, handle, files }] });
+  },
+
+  removeOutputDir: (index) => {
+    const dirs = [...get().outputDirs];
+    dirs.splice(index, 1);
+    set({ outputDirs: dirs });
+  },
+
+  setOutputDirs: (dirs) => {
+    set({ outputDirs: dirs });
   },
 
   // ─── UI state ───────────────────────────────────────────────────────────────

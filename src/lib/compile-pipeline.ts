@@ -35,6 +35,7 @@ export const STEP_LABELS = [
   'Items OTB (.otb)',
   'Hair Definitions',
   'Asset Manifest',
+  'Copy to Output Dirs',
 ] as const;
 
 export const INITIAL_COMPILE_STATE: CompileState = {
@@ -98,8 +99,12 @@ export async function runCompile(
   const {
     objectData: od, spriteData: sd, dirtyIds: currentDirtyIds,
     spriteOverrides, itemDefinitions, sourceDir, sourceNames, sourceHandles,
+    outputDirs,
   } = useOBStore.getState();
   if (!od || !sd) return;
+
+  // Collect compiled buffers for output-dir copying
+  const compiledFiles: { name: string; buf: ArrayBuffer }[] = [];
 
   const startTime = performance.now();
   const steps: CompileStep[] = STEP_LABELS.map((label) => ({ label, status: 'pending' as const }));
@@ -181,6 +186,7 @@ export async function runCompile(
     }
     const objBuf = compileObjectData(od, allIds);
     await saveFile(objBuf, sourceHandles.obj, sourceNames.obj, 'emperia.eobj');
+    compiledFiles.push({ name: sourceNames.obj || 'emperia.eobj', buf: objBuf });
     od.originalBuffer = objBuf;
     return objBuf.byteLength;
   });
@@ -190,6 +196,7 @@ export async function runCompile(
     const sprBufRaw = compileSpriteData(sd, spriteOverrides);
     const sprBuf = await gzipCompress(sprBufRaw);
     await saveFile(sprBuf, sourceHandles.spr, sourceNames.spr, 'emperia.espr');
+    compiledFiles.push({ name: sourceNames.spr || 'emperia.espr', buf: sprBuf });
     sd.originalBuffer = sprBufRaw;
     return sprBuf.byteLength;
   });
@@ -236,6 +243,7 @@ export async function runCompile(
     const defsJson = JSON.stringify(defsObj, null, 4);
     const buf = new TextEncoder().encode(defsJson).buffer;
     await saveFile(buf, sourceHandles.def, sourceNames.def, 'definitions.json');
+    compiledFiles.push({ name: sourceNames.def || 'definitions.json', buf });
     return buf.byteLength;
   });
 
@@ -247,6 +255,7 @@ export async function runCompile(
         const spriteMapJson = exportSpriteMapJson();
         const buf = new TextEncoder().encode(spriteMapJson).buffer;
         await saveFile(buf, sourceHandles.spriteMap, sourceNames.spriteMap, 'item-to-sprite.json');
+        compiledFiles.push({ name: sourceNames.spriteMap || 'item-to-sprite.json', buf });
         return buf.byteLength;
       });
     } else {
@@ -259,6 +268,7 @@ export async function runCompile(
     await runStep(4, async () => {
       const otbBuf = compileItemsOtb(itemDefinitions);
       await saveFile(otbBuf, null, 'items.otb', 'items.otb');
+      compiledFiles.push({ name: 'items.otb', buf: otbBuf });
       return otbBuf.byteLength;
     });
   } else {
@@ -273,6 +283,7 @@ export async function runCompile(
         const hairJson = exportHairDefinitionsJson();
         const buf = new TextEncoder().encode(hairJson).buffer;
         await saveFile(buf, null, 'hair-definitions.json', 'hair-definitions.json');
+        compiledFiles.push({ name: 'hair-definitions.json', buf });
         return buf.byteLength;
       });
     } else {
@@ -301,8 +312,34 @@ export async function runCompile(
     }, null, 2);
     const buf = new TextEncoder().encode(easset).buffer;
     await saveFile(buf, null, 'emperia.easset', 'emperia.easset');
+    compiledFiles.push({ name: 'emperia.easset', buf });
     return buf.byteLength;
   });
+
+  // Step 7: Copy compiled files to extra output directories (filtered per dir)
+  if (outputDirs.length > 0 && compiledFiles.length > 0) {
+    await runStep(7, async () => {
+      let totalBytes = 0;
+      for (const dir of outputDirs) {
+        const filter = dir.files && dir.files.length > 0 ? dir.files : null;
+        for (const { name, buf } of compiledFiles) {
+          if (filter && !filter.includes(name)) continue;
+          try {
+            const fh = await dir.handle.getFileHandle(name, { create: true });
+            const writable = await fh.createWritable();
+            await writable.write(buf);
+            await writable.close();
+            totalBytes += buf.byteLength;
+          } catch (err) {
+            console.error(`[OB] Failed to copy ${name} to "${dir.label}":`, err);
+          }
+        }
+      }
+      return totalBytes;
+    });
+  } else {
+    skipStep(7);
+  }
 
   // Finalize
   const endTime = performance.now();

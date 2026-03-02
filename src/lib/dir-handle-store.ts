@@ -11,11 +11,13 @@
  */
 
 const DB_NAME = 'emperia-ob';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const DIR_STORE = 'dir-handles';
 const FILE_STORE = 'file-handles';
+const OUTPUT_STORE = 'output-dirs';
 const DIR_KEY = 'last-source-dir';
 const SESSION_KEY = 'last-session';
+const OUTPUT_KEY = 'output-dirs';
 
 /** The per-role file handles we persist. */
 export interface SessionHandles {
@@ -24,6 +26,13 @@ export interface SessionHandles {
   spr?: FileSystemFileHandle | null;
   def?: FileSystemFileHandle | null;
   spriteMap?: FileSystemFileHandle | null;
+}
+
+/** Persisted output directory entry. */
+export interface PersistedOutputDir {
+  label: string;
+  handle: FileSystemDirectoryHandle;
+  files?: string[];
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -36,6 +45,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(FILE_STORE)) {
         db.createObjectStore(FILE_STORE);
+      }
+      if (!db.objectStoreNames.contains(OUTPUT_STORE)) {
+        db.createObjectStore(OUTPUT_STORE);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -108,6 +120,40 @@ export async function loadSessionHandles(): Promise<SessionHandles | null> {
   } catch (e) {
     console.error('[OB] Failed to load session handles:', e);
     return null;
+  }
+}
+
+// ─── Output directory handles ────────────────────────────────────────────────
+
+export async function saveOutputDirs(dirs: PersistedOutputDir[]): Promise<void> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(OUTPUT_STORE, 'readwrite');
+    tx.objectStore(OUTPUT_STORE).put(dirs, OUTPUT_KEY);
+    await new Promise<void>((res, rej) => {
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+    db.close();
+  } catch (e) {
+    console.error('[OB] Failed to save output dirs:', e);
+  }
+}
+
+export async function loadOutputDirs(): Promise<PersistedOutputDir[]> {
+  try {
+    const db = await openDB();
+    const tx = db.transaction(OUTPUT_STORE, 'readonly');
+    const req = tx.objectStore(OUTPUT_STORE).get(OUTPUT_KEY);
+    const dirs = await new Promise<PersistedOutputDir[] | null>((res, rej) => {
+      req.onsuccess = () => res(req.result ?? null);
+      req.onerror = () => rej(req.error);
+    });
+    db.close();
+    return dirs ?? [];
+  } catch (e) {
+    console.error('[OB] Failed to load output dirs:', e);
+    return [];
   }
 }
 

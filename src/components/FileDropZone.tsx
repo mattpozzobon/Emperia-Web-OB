@@ -1,11 +1,12 @@
 import { useCallback, useState, useRef, useEffect } from 'react';
-import { Upload, FileWarning, Loader2, FolderOpen, RotateCcw } from 'lucide-react';
+import { FileWarning, Loader2, FolderOpen, RotateCcw } from 'lucide-react';
 import { useOBStore } from '../store';
 import {
   saveLastDirHandle,
   loadLastDirHandle,
   saveSessionHandles,
   loadSessionHandles,
+  loadOutputDirs,
   verifyPermission,
   type SessionHandles,
 } from '../lib/dir-handle-store';
@@ -14,19 +15,14 @@ export function FileDropZone() {
   const loadFiles = useOBStore((s) => s.loadFiles);
   const loading = useOBStore((s) => s.loading);
   const error = useOBStore((s) => s.error);
-  const [dragOver, setDragOver] = useState(false);
   const loadDefinitions = useOBStore((s) => s.loadDefinitions);
   const loadSpriteMap = useOBStore((s) => s.loadSpriteMap);
   const loadHairDefinitions = useOBStore((s) => s.loadHairDefinitions);
   const setSourceDir = useOBStore((s) => s.setSourceDir);
   const setSourceHandles = useOBStore((s) => s.setSourceHandles);
+  const setOutputDirs = useOBStore((s) => s.setOutputDirs);
   const objRef = useRef<ArrayBuffer | null>(null);
   const sprRef = useRef<ArrayBuffer | null>(null);
-  const [objName, setObjName] = useState<string | null>(null);
-  const [sprName, setSprName] = useState<string | null>(null);
-  const [defName, setDefName] = useState<string | null>(null);
-  const [spriteMapName, setSpriteMapName] = useState<string | null>(null);
-  const [hairDefName, setHairDefName] = useState<string | null>(null);
 
   const pendingJsonRef = useRef<ArrayBuffer | null>(null);
   const pendingSpriteMapRef = useRef<ArrayBuffer | null>(null);
@@ -47,6 +43,20 @@ export function FileDropZone() {
       if (s && (s.obj || s.spr)) setHasSavedSession(true);
     });
   }, []);
+
+  // Restore persisted output dirs on mount
+  useEffect(() => {
+    loadOutputDirs().then(async (dirs) => {
+      if (dirs.length === 0) return;
+      const valid = [];
+      for (const d of dirs) {
+        if (await verifyPermission(d.handle, 'readwrite').catch(() => false)) {
+          valid.push(d);
+        }
+      }
+      if (valid.length > 0) setOutputDirs(valid);
+    });
+  }, [setOutputDirs]);
 
   // Helper: persist session handles to IndexedDB after a successful load
   const persistSession = useCallback((handles: SessionHandles) => {
@@ -95,35 +105,6 @@ export function FileDropZone() {
     }
   }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, persistSession, setSourceHandles]);
 
-  const handleFile = useCallback((file: File) => {
-    const ext = file.name.split('.').pop()?.toLowerCase();
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const buf = e.target?.result as ArrayBuffer;
-      if (ext === 'dat' || ext === 'eobj') {
-        objRef.current = buf;
-        setObjName(file.name);
-      } else if (ext === 'spr' || ext === 'espr') {
-        sprRef.current = buf;
-        setSprName(file.name);
-      } else if (ext === 'json') {
-        const lowerName = file.name.toLowerCase();
-        if (lowerName.includes('item-to-sprite') || lowerName.includes('sprite-map') || lowerName.includes('spritemap')) {
-          pendingSpriteMapRef.current = buf;
-          setSpriteMapName(file.name);
-        } else if (lowerName.includes('hair-definition') || lowerName.includes('hair_definition')) {
-          pendingHairDefsRef.current = buf;
-          setHairDefName(file.name);
-        } else {
-          pendingJsonRef.current = buf;
-          setDefName(file.name);
-        }
-      }
-      tryAutoLoad();
-    };
-    reader.readAsArrayBuffer(file);
-  }, [tryAutoLoad]);
-
   // Open Folder — uses File System Access API for direct save-back
   const handleOpenFolder = useCallback(async () => {
     if (typeof (window as any).showDirectoryPicker !== 'function') return;
@@ -143,31 +124,26 @@ export function FileDropZone() {
           handles.obj = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           objRef.current = await file.arrayBuffer();
-          setObjName(name);
         } else if ((ext === 'espr' || ext === 'spr') && !names.spr) {
           names.spr = name;
           handles.spr = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           sprRef.current = await file.arrayBuffer();
-          setSprName(name);
         } else if (ext === 'json' && name.toLowerCase().includes('definition') && !names.def) {
           names.def = name;
           handles.def = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           pendingJsonRef.current = await file.arrayBuffer();
-          setDefName(name);
         } else if (ext === 'json' && (name.toLowerCase().includes('item-to-sprite') || name.toLowerCase().includes('sprite-map')) && !names.spriteMap) {
           names.spriteMap = name;
           handles.spriteMap = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           pendingSpriteMapRef.current = await file.arrayBuffer();
-          setSpriteMapName(name);
         } else if (ext === 'json' && (name.toLowerCase().includes('hair-definition') || name.toLowerCase().includes('hair_definition')) && !(names as any).hairDefs) {
           (names as any).hairDefs = name;
           (handles as any).hairDefs = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           pendingHairDefsRef.current = await file.arrayBuffer();
-          setHairDefName(name);
         }
       }
 
@@ -259,23 +235,8 @@ export function FileDropZone() {
       setSourceDir(session.dir, names);
     }
 
-    setObjName(session.obj?.name ?? null);
-    setSprName(session.spr?.name ?? null);
-    setDefName(session.def?.name ?? null);
-    setSpriteMapName(session.spriteMap?.name ?? null);
-
     loadFiles(objBuf, sprBuf);
   }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, setSourceHandles, setSourceDir]);
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setDragOver(false);
-    Array.from(e.dataTransfer.files).forEach(handleFile);
-  }, [handleFile]);
-
-  const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    Array.from(e.target.files || []).forEach((f) => handleFile(f));
-  }, [handleFile]);
 
   return (
     <div className="h-full flex items-center justify-center bg-emperia-bg p-8">
@@ -287,63 +248,17 @@ export function FileDropZone() {
           <p className="text-emperia-muted text-sm">v1.0.0 — Web Edition</p>
         </div>
 
-        <div
-          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={handleDrop}
-          className={`
-            border-2 border-dashed rounded-xl p-12 text-center cursor-pointer
-            transition-all duration-200
-            ${dragOver
-              ? 'border-emperia-accent bg-emperia-accent/10'
-              : 'border-emperia-border hover:border-emperia-muted bg-emperia-surface'
-            }
-          `}
-          onClick={() => document.getElementById('file-input')?.click()}
-        >
-          <input
-            id="file-input"
-            type="file"
-            multiple
-            accept=".dat,.spr,.eobj,.espr,.json"
-            className="hidden"
-            onChange={handleFileInput}
-          />
-
-          {loading ? (
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="w-12 h-12 text-emperia-accent animate-spin" />
-              <p className="text-emperia-text">Loading files…</p>
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3">
-              <Upload className="w-12 h-12 text-emperia-muted" />
-              <p className="text-emperia-text font-medium">
-                Drop your files here
-              </p>
-              <p className="text-emperia-muted text-sm">
-                Drag &amp; drop <code className="text-emperia-accent">.eobj</code> + <code className="text-emperia-accent">.espr</code> files
-                <br />
-                or legacy <code className="text-emperia-accent">.dat</code> + <code className="text-emperia-accent">.spr</code>
-                <br />
-                <span className="text-emperia-muted/60">+ optional <code className="text-emperia-accent">definitions.json</code> &amp; <code className="text-emperia-accent">item-to-sprite.json</code></span>
-              </p>
-            </div>
-          )}
-        </div>
-
-        {/* Open Folder + Reload Last Session */}
-        {typeof (window as any).showDirectoryPicker === 'function' && (
-          <div className="mt-4 flex flex-col items-center gap-2">
-            <div className="flex items-center gap-3 text-emperia-muted/40 text-xs w-full">
-              <div className="flex-1 h-px bg-emperia-border/40" />
-              <span>or</span>
-              <div className="flex-1 h-px bg-emperia-border/40" />
-            </div>
+        {loading ? (
+          <div className="flex flex-col items-center gap-3 py-12">
+            <Loader2 className="w-12 h-12 text-emperia-accent animate-spin" />
+            <p className="text-emperia-text">Loading files…</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-4">
             <div className="flex items-center gap-3">
               <button
                 onClick={handleOpenFolder}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emperia-accent/10 border border-emperia-accent/30 text-emperia-accent hover:bg-emperia-accent/20 transition-colors text-sm font-medium"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emperia-accent/10 border border-emperia-accent/30 text-emperia-accent hover:bg-emperia-accent/20 transition-colors text-sm font-medium"
               >
                 <FolderOpen className="w-4 h-4" />
                 Open Folder
@@ -351,7 +266,7 @@ export function FileDropZone() {
               {hasSavedSession && (
                 <button
                   onClick={handleReloadSession}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors text-sm font-medium"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-green-500/10 border border-green-500/30 text-green-400 hover:bg-green-500/20 transition-colors text-sm font-medium"
                 >
                   <RotateCcw className="w-4 h-4" />
                   Reload Last Session
@@ -360,37 +275,12 @@ export function FileDropZone() {
             </div>
             <p className="text-emperia-muted/50 text-[10px] text-center">
               Auto-detects files &amp; saves directly back on compile
-              {hasSavedSession && <span className="text-green-400/50"> · Previous session available</span>}
             </p>
             {reloadError && (
               <p className="text-red-400 text-[10px] text-center">{reloadError}</p>
             )}
           </div>
         )}
-
-        {/* Status indicators */}
-        <div className="mt-4 flex flex-wrap gap-4 justify-center text-xs">
-          <div className={`flex items-center gap-1.5 ${objName ? 'text-green-400' : 'text-emperia-muted'}`}>
-            <div className={`w-2 h-2 rounded-full ${objName ? 'bg-green-400' : 'bg-emperia-border'}`} />
-            {objName || 'Objects (.eobj / .dat)'}
-          </div>
-          <div className={`flex items-center gap-1.5 ${sprName ? 'text-green-400' : 'text-emperia-muted'}`}>
-            <div className={`w-2 h-2 rounded-full ${sprName ? 'bg-green-400' : 'bg-emperia-border'}`} />
-            {sprName || 'Sprites (.espr / .spr)'}
-          </div>
-          <div className={`flex items-center gap-1.5 ${defName ? 'text-green-400' : 'text-emperia-muted/50'}`}>
-            <div className={`w-2 h-2 rounded-full ${defName ? 'bg-green-400' : 'bg-emperia-border/50'}`} />
-            {defName || 'Definitions (.json) — optional'}
-          </div>
-          <div className={`flex items-center gap-1.5 ${spriteMapName ? 'text-green-400' : 'text-emperia-muted/50'}`}>
-            <div className={`w-2 h-2 rounded-full ${spriteMapName ? 'bg-green-400' : 'bg-emperia-border/50'}`} />
-            {spriteMapName || 'Sprite Map (.json) — optional'}
-          </div>
-          <div className={`flex items-center gap-1.5 ${hairDefName ? 'text-green-400' : 'text-emperia-muted/50'}`}>
-            <div className={`w-2 h-2 rounded-full ${hairDefName ? 'bg-green-400' : 'bg-emperia-border/50'}`} />
-            {hairDefName || 'Hair Definitions (.json) — optional'}
-          </div>
-        </div>
 
         {error && (
           <div className="mt-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 flex items-start gap-2">
