@@ -52,9 +52,9 @@ export function ThingSpriteGrid() {
         canvas.width = 32;
         canvas.height = 32;
 
-        // How many 32px tiles in the source image
-        const tilesX = Math.max(1, Math.floor(img.width / 32));
-        const tilesY = Math.max(1, Math.floor(img.height / 32));
+        // How many 32px tiles in the source image (ceil so partial edge tiles are included)
+        const tilesX = Math.max(1, Math.ceil(img.width / 32));
+        const tilesY = Math.max(1, Math.ceil(img.height / 32));
 
         // How many NxN groups fit in the image
         const groupsX = N > 1 ? Math.max(1, Math.floor(tilesX / N)) : tilesX;

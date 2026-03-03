@@ -238,6 +238,7 @@ export async function runCompile(
       if (def.id != null) entry.id = def.id;
       entry.flags = def.flags;
       entry.group = def.group;
+      if (def.topOrder && def.topOrder > 0) entry.topOrder = def.topOrder;
       entry.properties = cleanProps;
       defsObj[String(serverId)] = entry;
     }

@@ -24,6 +24,7 @@ const NODE_TERM = 0xFF;
 // OTB attribute types
 const ITEM_ATTR_SERVERID = 0x10;
 const ITEM_ATTR_CLIENTID = 0x11;
+const ITEM_ATTR_TOPORDER = 0x14;
 
 // OTB version header attribute
 const ROOT_ATTR_VERSION = 0x01;
@@ -53,11 +54,14 @@ function escapeBytes(raw: Uint8Array): Uint8Array {
 
 /**
  * Build the raw (unescaped) data for a single item node.
- * Layout: group(u8) + flags(u32) + SERVERID attr + CLIENTID attr
+ * Layout: group(u8) + flags(u32) + SERVERID attr + CLIENTID attr [+ TOPORDER attr]
  */
-function buildItemNodeData(serverID: number, clientID: number, group: number, flags: number): Uint8Array {
-  // 5 (header) + 5 (sid attr) + 5 (cid attr) = 15 bytes
-  const buf = new Uint8Array(15);
+function buildItemNodeData(serverID: number, clientID: number, group: number, flags: number, topOrder: number = 0): Uint8Array {
+  // 5 (header) + 5 (sid attr) + 5 (cid attr) = 15 bytes base
+  // + 4 bytes for TOPORDER attr if topOrder > 0: type(u8) + datalen(u16) + value(u8)
+  const hasTopOrder = topOrder > 0;
+  const size = hasTopOrder ? 19 : 15;
+  const buf = new Uint8Array(size);
   const view = new DataView(buf.buffer);
 
   // Group + flags
@@ -73,6 +77,13 @@ function buildItemNodeData(serverID: number, clientID: number, group: number, fl
   buf[10] = ITEM_ATTR_CLIENTID;
   view.setUint16(11, 2, true);
   view.setUint16(13, clientID, true);
+
+  // ITEM_ATTR_TOPORDER: type(u8) + datalen(u16) + topOrder(u8)
+  if (hasTopOrder) {
+    buf[15] = ITEM_ATTR_TOPORDER;
+    view.setUint16(16, 1, true);
+    buf[18] = topOrder & 0xFF;
+  }
 
   return buf;
 }
@@ -142,7 +153,7 @@ export function compileItemsOtb(
   // Phase 1: Emit every definition entry
   for (const def of sortedDefs) {
     const clientID = def.id ?? def.serverId;
-    const raw = buildItemNodeData(def.serverId, clientID, def.group, def.flags);
+    const raw = buildItemNodeData(def.serverId, clientID, def.group, def.flags, def.topOrder ?? 0);
     parts.push(new Uint8Array([NODE_INIT]));
     parts.push(escapeBytes(raw));
     parts.push(new Uint8Array([NODE_TERM]));

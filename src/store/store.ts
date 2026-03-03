@@ -6,7 +6,7 @@ import type { ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData }
 import { parseObjectData } from '../lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from '../lib/sprite-decoder';
 import { maybeDecompress } from '../lib/emperia-format';
-import { syncOtbFromVisual, deriveGroup } from '../lib/types';
+import { syncOtbFromVisual, deriveGroup, deriveTopOrder } from '../lib/types';
 import type { OBState } from './store-types';
 import { shiftThingsDown, allocateThingId, remapSpriteIds } from './thing-helpers';
 import { createHairSlice } from './hair-slice';
@@ -112,6 +112,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         id: clientId,
         flags: value.flags ?? 0,
         group: value.group ?? 0,
+        ...(value.topOrder ? { topOrder: value.topOrder } : {}),
         properties: value.properties ? { ...value.properties } : null,
       });
       // Build clientId → serverId reverse lookup; prefer entry where serverId==clientId
@@ -277,11 +278,13 @@ export const useOBStore = create<OBState>((set, get) => ({
       } else {
         delete syncedProps.friction;
       }
+      const newTopOrder = deriveTopOrder(newFlags);
       const updated: ServerItemData = {
         serverId,
         id: existing?.id ?? id,
         flags: newOtb,
         group: newGroup,
+        ...(newTopOrder ? { topOrder: newTopOrder } : {}),
         properties: Object.keys(syncedProps).length > 0 ? syncedProps as any : null,
       };
       newDefs.set(serverId, updated);
@@ -318,11 +321,13 @@ export const useOBStore = create<OBState>((set, get) => ({
         const sid = clientToServerIds.get(entry.thingId) ?? entry.thingId;
         const existing = itemDefinitions.get(sid);
         const newDefs = new Map(itemDefinitions);
+        const undoTopOrder = deriveTopOrder(entry.oldFlags);
         newDefs.set(sid, {
           serverId: sid,
           id: existing?.id ?? entry.thingId,
           flags: syncOtbFromVisual(existing?.flags ?? 0, entry.oldFlags),
           group: deriveGroup(entry.oldFlags),
+          ...(undoTopOrder ? { topOrder: undoTopOrder } : {}),
           properties: existing?.properties ? { ...existing.properties } : null,
         });
         set({
@@ -355,11 +360,13 @@ export const useOBStore = create<OBState>((set, get) => ({
         const sid = clientToServerIds.get(entry.thingId) ?? entry.thingId;
         const existing = itemDefinitions.get(sid);
         const newDefs = new Map(itemDefinitions);
+        const redoTopOrder = deriveTopOrder(entry.newFlags);
         newDefs.set(sid, {
           serverId: sid,
           id: existing?.id ?? entry.thingId,
           flags: syncOtbFromVisual(existing?.flags ?? 0, entry.newFlags),
           group: deriveGroup(entry.newFlags),
+          ...(redoTopOrder ? { topOrder: redoTopOrder } : {}),
           properties: existing?.properties ? { ...existing.properties } : null,
         });
         set({

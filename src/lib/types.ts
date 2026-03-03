@@ -158,7 +158,7 @@ const VISUAL_MAPPED_BITS =
   (1 << 5) |   // FLAG_PICKUPABLE       ← pickupable
   (1 << 6) |   // FLAG_MOVEABLE         ← !notMoveable
   (1 << 7) |   // FLAG_STACKABLE        ← stackable
-  (1 << 13) |  // FLAG_ALWAYSONTOP      ← onTop
+  (1 << 13) |  // FLAG_ALWAYSONTOP      ← groundBorder | onBottom | onTop
   (1 << 14) |  // FLAG_READABLE         ← writable | writableOnce
   (1 << 15) |  // FLAG_ROTATABLE        ← rotateable
   (1 << 16) |  // FLAG_HANGABLE         ← hangable
@@ -183,7 +183,7 @@ function visualToOtbBits(f: ThingFlags): number {
   if (f.pickupable)       bits |= (1 << 5);
   if (!f.notMoveable && !f.ground && !f.groundBorder) bits |= (1 << 6);
   if (f.stackable)        bits |= (1 << 7);
-  if (f.onTop)            bits |= (1 << 13);
+  if (f.groundBorder || f.onBottom || f.onTop) bits |= (1 << 13);
   if (f.writable || f.writableOnce) bits |= (1 << 14);
   if (f.rotateable)       bits |= (1 << 15);
   if (f.hangable)         bits |= (1 << 16);
@@ -227,6 +227,18 @@ export function mergeFloorChangeFlags(bits: number, floorchange?: string): numbe
     case 'west':  bits |= (1 << 12); break;  // FLAG_FLOORCHANGEWEST
   }
   return bits;
+}
+
+/**
+ * Derive OTB topOrder from visual ThingFlags.
+ * groundBorder → 1, onBottom → 2, onTop → 3, else 0.
+ * This matches the map editor's ITEM_ATTR_TOPORDER convention.
+ */
+export function deriveTopOrder(f: ThingFlags): number {
+  if (f.groundBorder) return 1;
+  if (f.onBottom) return 2;
+  if (f.onTop) return 3;
+  return 0;
 }
 
 /**
@@ -393,6 +405,7 @@ export interface ServerItemData {
   id?: number;
   flags: number;
   group: number;
+  topOrder?: number;
   properties: ItemProperties | null;
 }
 
