@@ -161,7 +161,14 @@ export function ThingGrid() {
                 `}
                 style={{ width: CELL_SIZE, height: CELL_SIZE }}
                 title={tipText}
-                onMouseEnter={(e) => tooltip.show(firstSprite, tipText, e)}
+                onMouseEnter={(e) => {
+                  const fg = thing.frameGroups[0];
+                  if (fg && (fg.width > 1 || fg.height > 1)) {
+                    tooltip.showThing(thing.id, fg, tipText, e);
+                  } else {
+                    tooltip.show(firstSprite, tipText, e);
+                  }
+                }}
                 onMouseMove={tooltip.move}
                 onMouseLeave={tooltip.hide}
               >

@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { getSpriteDataUrl } from '../lib/sprite-decoder';
-import type { SpriteData } from '../lib/types';
+import { getSpriteDataUrl, compositeThingDataUrl } from '../lib/sprite-decoder';
+import type { SpriteData, FrameGroup } from '../lib/types';
 
-const PREVIEW_SIZE = 128;
+const MAX_PREVIEW = 128; // max width or height of preview area in px
 const OFFSET_X = 16;
 const OFFSET_Y = 16;
 
@@ -12,11 +12,18 @@ interface SpriteTooltipState {
   label: string;
   x: number;
   y: number;
+  /** native pixel width of the composited image */
+  nativeW: number;
+  /** native pixel height of the composited image */
+  nativeH: number;
 }
 
 /**
  * Hook that provides onMouseEnter/Move/Leave handlers and a portal element
  * showing an enlarged sprite preview next to the cursor.
+ *
+ * - show()      — single 32×32 sprite (atlas cells)
+ * - showThing() — full composite using FrameGroup width×height
  */
 export function useSpriteTooltip(spriteData: SpriteData | null, spriteOverrides: Map<number, ImageData>) {
   const [tip, setTip] = useState<SpriteTooltipState | null>(null);
@@ -28,7 +35,22 @@ export function useSpriteTooltip(spriteData: SpriteData | null, spriteOverrides:
     const url = getSpriteDataUrl(spriteData, spriteId, spriteOverrides);
     if (!url) return;
     activeRef.current = { url, label };
-    setTip({ url, label, x: e.clientX + OFFSET_X, y: e.clientY + OFFSET_Y });
+    setTip({ url, label, x: e.clientX + OFFSET_X, y: e.clientY + OFFSET_Y, nativeW: 32, nativeH: 32 });
+  }, [spriteData, spriteOverrides]);
+
+  const showThing = useCallback((
+    thingId: number,
+    fg: FrameGroup,
+    label: string,
+    e: React.MouseEvent,
+  ) => {
+    if (!spriteData) return;
+    const w = fg.width || 1;
+    const h = fg.height || 1;
+    const url = compositeThingDataUrl(spriteData, thingId, w, h, fg.sprites, spriteOverrides);
+    if (!url) return;
+    activeRef.current = { url, label };
+    setTip({ url, label, x: e.clientX + OFFSET_X, y: e.clientY + OFFSET_Y, nativeW: w * 32, nativeH: h * 32 });
   }, [spriteData, spriteOverrides]);
 
   const move = useCallback((e: React.MouseEvent) => {
@@ -54,12 +76,17 @@ export function useSpriteTooltip(spriteData: SpriteData | null, spriteOverrides:
     ? createPortal(<SpriteTooltipOverlay {...tip} />, document.body)
     : null;
 
-  return { show, move, hide, portal };
+  return { show, showThing, move, hide, portal };
 }
 
-function SpriteTooltipOverlay({ url, label, x, y }: SpriteTooltipState) {
+function SpriteTooltipOverlay({ url, label, x, y, nativeW, nativeH }: SpriteTooltipState) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
+
+  // Scale to fit within MAX_PREVIEW while preserving aspect ratio
+  const scale = Math.min(MAX_PREVIEW / nativeW, MAX_PREVIEW / nativeH, 4); // cap at 4× zoom
+  const displayW = Math.round(nativeW * scale);
+  const displayH = Math.round(nativeH * scale);
 
   // Clamp to viewport
   useEffect(() => {
@@ -74,7 +101,6 @@ function SpriteTooltipOverlay({ url, label, x, y }: SpriteTooltipState) {
     if (ny + rect.height > vh - 8) ny = y - rect.height - OFFSET_Y * 2;
     if (nx < 4) nx = 4;
     if (ny < 4) ny = 4;
-    setPos({ nx, ny } as any);
     setPos({ x: nx, y: ny });
   }, [x, y]);
 
@@ -87,14 +113,14 @@ function SpriteTooltipOverlay({ url, label, x, y }: SpriteTooltipState) {
       <div className="bg-emperia-panel border border-emperia-border rounded-lg shadow-xl p-1.5 flex flex-col items-center gap-1">
         <div
           className="checkerboard rounded"
-          style={{ width: PREVIEW_SIZE, height: PREVIEW_SIZE, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: displayW + 8, height: displayH + 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
         >
           <img
             src={url}
             alt=""
             style={{
-              width: PREVIEW_SIZE - 8,
-              height: PREVIEW_SIZE - 8,
+              width: displayW,
+              height: displayH,
               imageRendering: 'pixelated',
             }}
             draggable={false}

@@ -116,6 +116,57 @@ export function getSpriteDataUrl(
 
 export function clearSpriteCache(): void {
   spriteCache.clear();
+  compositeCache.clear();
+}
+
+/**
+ * Composite all sprites of a Thing's first frame group into a single data URL.
+ * Handles multi-tile items (e.g. 2×2 = 64px) by stitching 32×32 tiles together.
+ *
+ * Tibia sprite ordering: for width W, height H the flat sprite array stores
+ * tiles right-to-left, then bottom-to-top:
+ *   index = x + y * W   where x=0 is rightmost col, y=0 is bottom row
+ * So on canvas:  canvasX = (W - 1 - x) * 32,  canvasY = (H - 1 - y) * 32
+ */
+const compositeCache = new Map<string, string | null>();
+
+export function compositeThingDataUrl(
+  spriteData: SpriteData,
+  thingId: number,
+  width: number,
+  height: number,
+  sprites: number[],
+  overrides?: Map<number, ImageData>,
+): string | null {
+  const key = `${thingId}:${sprites.slice(0, width * height).join(',')}`;
+  const cached = compositeCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const pw = width * 32;
+  const ph = height * 32;
+  const c = document.createElement('canvas');
+  c.width = pw;
+  c.height = ph;
+  const cx = c.getContext('2d')!;
+
+  let hasAny = false;
+  const tileCount = width * height;
+  for (let i = 0; i < tileCount; i++) {
+    const sid = sprites[i];
+    if (!sid || sid <= 0) continue;
+    const imgData = overrides?.get(sid) ?? decodeSprite(spriteData, sid);
+    if (!imgData) continue;
+    hasAny = true;
+    const x = i % width;
+    const y = Math.floor(i / width);
+    const canvasX = (width - 1 - x) * 32;
+    const canvasY = (height - 1 - y) * 32;
+    cx.putImageData(imgData, canvasX, canvasY);
+  }
+
+  const url = hasAny ? c.toDataURL() : null;
+  compositeCache.set(key, url);
+  return url;
 }
 
 export function clearSpriteCacheId(id: number): void {
