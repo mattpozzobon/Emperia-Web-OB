@@ -120,7 +120,7 @@ export function createCompactAtlasAction(set: Set_, get: Get_) {
 
       // ── Phase A: Deduplicate identical sprites ────────────────────────
 
-      // Collect all sprite IDs referenced by any thing
+      // Collect all sprite IDs referenced by any thing, sprite group, or override
       const referencedIds = new Set<number>();
       for (const thing of objectData.things.values()) {
         for (const fg of thing.frameGroups) {
@@ -128,6 +128,15 @@ export function createCompactAtlasAction(set: Set_, get: Get_) {
             if (sid > 0) referencedIds.add(sid);
           }
         }
+      }
+      const { spriteGroups } = get();
+      for (const sg of spriteGroups) {
+        for (const sid of sg.spriteIds) {
+          if (sid > 0) referencedIds.add(sid);
+        }
+      }
+      for (const sid of spriteOverrides.keys()) {
+        if (sid > 0) referencedIds.add(sid);
       }
 
       // Hash every referenced sprite and build canonical mapping.
@@ -154,7 +163,7 @@ export function createCompactAtlasAction(set: Set_, get: Get_) {
         }
       }
 
-      // Apply dedup remap to all thing references (before GC pass)
+      // Apply dedup remap to all thing references and sprite groups (before GC pass)
       if (dedupRemap.size > 0) {
         for (const thing of objectData.things.values()) {
           let changed = false;
@@ -169,6 +178,12 @@ export function createCompactAtlasAction(set: Set_, get: Get_) {
           }
           if (changed) thing.rawBytes = undefined;
         }
+        for (const sg of spriteGroups) {
+          for (let i = 0; i < sg.spriteIds.length; i++) {
+            const canonical = dedupRemap.get(sg.spriteIds[i]);
+            if (canonical != null) sg.spriteIds[i] = canonical;
+          }
+        }
       }
 
       // ── Phase B: Garbage-collect unreferenced sprites ─────────────────
@@ -181,6 +196,18 @@ export function createCompactAtlasAction(set: Set_, get: Get_) {
             if (sid > 0) keepIds.add(sid);
           }
         }
+      }
+
+      // Keep sprites that are in sprite groups (imported but not yet assigned to things)
+      for (const sg of spriteGroups) {
+        for (const sid of sg.spriteIds) {
+          if (sid > 0) keepIds.add(sid);
+        }
+      }
+
+      // Keep sprites that have overrides (user-added or user-edited sprites)
+      for (const sid of spriteOverrides.keys()) {
+        if (sid > 0) keepIds.add(sid);
       }
 
       const removed = oldCount - keepIds.size;
@@ -230,6 +257,15 @@ export function createCompactAtlasAction(set: Set_, get: Get_) {
         if (newId != null) newOverrides.set(newId, imgData);
       }
 
+      // Remap sprite group IDs
+      const newSpriteGroups = spriteGroups.map((sg) => ({
+        ...sg,
+        spriteIds: sg.spriteIds.map((sid) => {
+          if (sid <= 0) return 0;
+          return remap.get(sid) ?? 0;
+        }),
+      }));
+
       // Remap dirtySpriteIds and mark all kept sprites dirty for re-encode
       const newDirtySpriteIds = new Set<number>();
       for (const oldId of dirtySpriteIds) {
@@ -258,6 +294,7 @@ export function createCompactAtlasAction(set: Set_, get: Get_) {
         dirtyIds: mergedDirtyIds,
         spriteOverrides: newOverrides,
         dirtySpriteIds: newDirtySpriteIds,
+        spriteGroups: newSpriteGroups,
         editVersion: editVersion + 1,
       });
 

@@ -24,7 +24,7 @@ const NODE_TERM = 0xFF;
 // OTB attribute types
 const ITEM_ATTR_SERVERID = 0x10;
 const ITEM_ATTR_CLIENTID = 0x11;
-const ITEM_ATTR_TOPORDER = 0x14;
+const ITEM_ATTR_TOPORDER = 0x26;
 
 // OTB version header attribute
 const ROOT_ATTR_VERSION = 0x01;

@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, ClipboardPaste } from 'lucide-react';
 import { useOBStore } from '../store';
 import type { ThingFlags } from '../lib/types';
+import { ColorPalettePopover } from './ColorPalettePopover';
 
 // Numeric sub-properties shown inline when their parent flag is active
 interface NumericProp {
@@ -9,6 +10,7 @@ interface NumericProp {
   label: string;
   min?: number;
   max?: number;
+  colorType?: 'light' | 'minimap';
 }
 
 // A single flag entry, optionally with inline numeric sub-properties
@@ -89,8 +91,8 @@ const FLAG_GROUPS: { title: string; flags: FlagEntry[]; wide?: boolean }[] = [
     wide: true,
     flags: [
       { key: 'hasLight', label: 'Light', numericProps: [
-        { key: 'lightLevel', label: 'Level', min: 0, max: 65535 },
-        { key: 'lightColor', label: 'Color', min: 0, max: 65535 },
+        { key: 'lightLevel', label: 'Level', min: 0, max: 255 },
+        { key: 'lightColor', label: 'Color', min: 0, max: 215, colorType: 'light' },
       ]},
       { key: 'hasDisplacement', label: 'Displacement', numericProps: [
         { key: 'displacementX', label: 'X', min: -512, max: 512 },
@@ -100,7 +102,7 @@ const FLAG_GROUPS: { title: string; flags: FlagEntry[]; wide?: boolean }[] = [
         { key: 'elevation', label: 'Height', min: 0, max: 65535 },
       ]},
       { key: 'hasMinimapColor', label: 'Minimap Color', numericProps: [
-        { key: 'minimapColor', label: 'Color', min: 0, max: 65535 },
+        { key: 'minimapColor', label: 'Color', min: 0, max: 215, colorType: 'minimap' },
       ]},
       { key: 'translucent', label: 'Translucent' },
       { key: 'dontHide', label: "Don't Hide" },
@@ -302,20 +304,30 @@ function FlagGroupSection({
                   <div className="ml-7 mb-1 flex flex-wrap gap-x-3 gap-y-0.5">
                     {numericProps.map((np) => (
                       <div key={np.key} className="flex items-center gap-1.5">
-                        <span className="text-emperia-muted text-[10px]">{np.label}</span>
-                        <input
-                          type="number"
-                          value={thingFlags[np.key] as number ?? 0}
-                          min={np.min}
-                          max={np.max}
-                          onChange={(e) => {
-                            const v = parseInt(e.target.value, 10);
-                            if (!isNaN(v)) onNumericChange(np.key, Math.max(np.min ?? 0, Math.min(np.max ?? 65535, v)));
-                          }}
-                          className="w-16 px-1 py-0.5 rounded bg-emperia-surface border border-emperia-border
-                                     text-emperia-text font-mono text-right text-[10px] outline-none
-                                     focus:border-emperia-accent transition-colors"
-                        />
+                        {np.colorType ? (
+                          <ColorPalettePopover
+                            type={np.colorType}
+                            value={(thingFlags[np.key] as number) ?? 0}
+                            onChange={(v) => onNumericChange(np.key, v)}
+                          />
+                        ) : (
+                          <>
+                            <span className="text-emperia-muted text-[10px]">{np.label}</span>
+                            <input
+                              type="number"
+                              value={thingFlags[np.key] as number ?? 0}
+                              min={np.min}
+                              max={np.max}
+                              onChange={(e) => {
+                                const v = parseInt(e.target.value, 10);
+                                if (!isNaN(v)) onNumericChange(np.key, Math.max(np.min ?? 0, Math.min(np.max ?? 65535, v)));
+                              }}
+                              className="w-16 px-1 py-0.5 rounded bg-emperia-surface border border-emperia-border
+                                         text-emperia-text font-mono text-right text-[10px] outline-none
+                                         focus:border-emperia-accent transition-colors"
+                            />
+                          </>
+                        )}
                       </div>
                     ))}
                   </div>

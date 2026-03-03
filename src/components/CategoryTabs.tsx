@@ -95,7 +95,7 @@ export function CategoryTabs() {
         ))}
       </div>
 
-      {/* Search bar + group filter + add/remove */}
+      {/* Row 1: Search */}
       <div className="px-2 py-1.5 border-b border-emperia-border flex items-center gap-1">
         <div className="flex items-center gap-1.5 bg-emperia-surface rounded px-2 py-1 flex-1">
           <Search className="w-3.5 h-3.5 text-emperia-muted shrink-0" />
@@ -110,6 +110,9 @@ export function CategoryTabs() {
             <span className="text-[10px] text-emperia-accent font-medium shrink-0">{selCount} sel</span>
           )}
         </div>
+      </div>
+      {/* Row 2: Actions */}
+      <div className="px-2 py-1 border-b border-emperia-border flex items-center gap-1">
         {definitionsLoaded && activeCategory === 'item' && (
           <select
             value={filterGroup}
