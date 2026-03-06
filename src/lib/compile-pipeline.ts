@@ -36,7 +36,6 @@ export const STEP_LABELS = [
   'Items OTB (.otb)',
   'Items XML (.xml)',
   'Hair Definitions',
-  'Asset Manifest',
   'Copy to Output Dirs',
 ] as const;
 
@@ -306,34 +305,9 @@ export async function runCompile(
     }
   }
 
-  // Step 7: Write emperia.easset manifest
-  await runStep(7, async () => {
-    const easset = JSON.stringify({
-      version: 1,
-      features: {
-        spriteDataSize: 4096,
-        transparency: true,
-        spriteSize: 32,
-        frameDurations: true,
-        extended: true,
-        frameGroups: true,
-      },
-      contentVersion: od.version,
-      format: 'emperia-asset-manifest',
-      files: {
-        sprites: 'emperia.espr',
-        objects: 'emperia.eobj',
-      },
-    }, null, 2);
-    const buf = new TextEncoder().encode(easset).buffer;
-    await saveFile(buf, null, 'emperia.easset', 'emperia.easset');
-    compiledFiles.push({ name: 'emperia.easset', buf });
-    return buf.byteLength;
-  });
-
-  // Step 8: Copy compiled files to extra output directories (filtered per dir)
+  // Step 7: Copy compiled files to extra output directories (filtered per dir)
   if (outputDirs.length > 0 && compiledFiles.length > 0) {
-    await runStep(8, async () => {
+    await runStep(7, async () => {
       let totalBytes = 0;
       for (const dir of outputDirs) {
         const filter = dir.files && dir.files.length > 0 ? dir.files : null;
@@ -353,7 +327,7 @@ export async function runCompile(
       return totalBytes;
     });
   } else {
-    skipStep(8);
+    skipStep(7);
   }
 
   // Finalize

@@ -9,8 +9,8 @@ const PRESETS = [
   {
     id: 'client-assets',
     label: 'Client Assets',
-    description: 'emperia.eobj, .espr, .easset',
-    files: ['emperia.eobj', 'emperia.espr', 'emperia.easset'],
+    description: 'emperia.eobj, .espr',
+    files: ['emperia.eobj', 'emperia.espr'],
   },
   {
     id: 'server-items',
