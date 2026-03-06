@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useOBStore } from '../store';
 import { OTB_FLAG_NAMES } from '../lib/types';
 import type { ItemProperties } from '../lib/types';
@@ -161,6 +161,22 @@ const GROUP_OPTIONS = [
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
+const SECTIONS: { key: string; title: string; fields: FieldDef[] }[] = [
+  { key: 'identity', title: 'Identity', fields: IDENTITY_FIELDS },
+  { key: 'equipment', title: 'Equipment', fields: EQUIPMENT_FIELDS },
+  { key: 'combat', title: 'Combat Stats', fields: COMBAT_FIELDS },
+  { key: 'weight', title: 'Weight / Speed', fields: WEIGHT_FIELDS },
+  { key: 'requirements', title: 'Requirements', fields: REQUIREMENT_FIELDS },
+  { key: 'container', title: 'Container', fields: CONTAINER_FIELDS },
+  { key: 'decay', title: 'Decay / Transform', fields: DECAY_FIELDS },
+  { key: 'special', title: 'Special', fields: SPECIAL_FIELDS },
+  { key: 'regen', title: 'Regeneration', fields: REGEN_FIELDS },
+  { key: 'skills', title: 'Skill Bonuses', fields: SKILL_FIELDS },
+  { key: 'absorb', title: 'Absorb %', fields: ABSORB_FIELDS },
+  { key: 'statBonus', title: 'Stat Bonuses', fields: STAT_BONUS_FIELDS },
+  { key: 'combatBonus', title: 'Combat Bonuses', fields: COMBAT_BONUS_FIELDS },
+];
+
 export function ServerPropertiesEditor() {
   const selectedId = useOBStore((s) => s.selectedThingId);
   const objectData = useOBStore((s) => s.objectData);
@@ -189,6 +205,37 @@ export function ServerPropertiesEditor() {
     updateItemDefinition(selectedId, { properties: Object.keys(currentProps).length > 0 ? currentProps : null });
   }, [selectedId, itemDefinitions, updateItemDefinition]);
 
+  // Auto-expand sections that have values, collapse empty ones
+  const defaultExpanded = useMemo(() => {
+    const set = new Set<string>();
+    for (const sec of SECTIONS) {
+      if (sec.fields.some((f) => props[f.key] !== undefined && props[f.key] !== '')) {
+        set.add(sec.key);
+      }
+    }
+    // Always expand identity
+    set.add('identity');
+    return set;
+  }, [props]);
+
+  const [expanded, setExpanded] = useState<Set<string>>(defaultExpanded);
+
+  // Sync defaults when item changes
+  const [lastId, setLastId] = useState(selectedId);
+  if (selectedId !== lastId) {
+    setLastId(selectedId);
+    setExpanded(defaultExpanded);
+  }
+
+  const toggle = useCallback((key: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
   if (activeCategory !== 'item') {
     return (
       <div className="flex items-center justify-center h-full text-emperia-muted text-sm p-4">
@@ -208,12 +255,11 @@ export function ServerPropertiesEditor() {
   // Show imported/stored flags (what actually gets exported)
   const storedFlags = def?.flags ?? 0;
   const storedGroup = def?.group ?? 0;
-  const storedServerId = def?.serverId;
   const activeOtbNames = OTB_FLAG_NAMES.filter((_, i) => (storedFlags & (1 << i)) !== 0)
     .map((n) => n.replace('FLAG_', ''));
 
   return (
-    <div className="p-3 text-xs space-y-3 overflow-y-auto">
+    <div className="p-3 text-xs space-y-2 overflow-y-auto">
       {/* Stored flags & group from definitions.json */}
       <Section title="OTB Flags & Group">
         <div className="space-y-1">
@@ -248,19 +294,17 @@ export function ServerPropertiesEditor() {
         </div>
       </Section>
 
-      <FieldSection title="Identity" fields={IDENTITY_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Equipment" fields={EQUIPMENT_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Combat Stats" fields={COMBAT_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Weight / Speed" fields={WEIGHT_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Requirements" fields={REQUIREMENT_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Container" fields={CONTAINER_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Decay / Transform" fields={DECAY_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Special" fields={SPECIAL_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Regeneration" fields={REGEN_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Skill Bonuses" fields={SKILL_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Absorb %" fields={ABSORB_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Stat Bonuses" fields={STAT_BONUS_FIELDS} props={props} setProperty={setProperty} />
-      <FieldSection title="Combat Bonuses" fields={COMBAT_BONUS_FIELDS} props={props} setProperty={setProperty} />
+      {SECTIONS.map((sec) => (
+        <FieldSection
+          key={sec.key}
+          title={sec.title}
+          fields={sec.fields}
+          props={props}
+          setProperty={setProperty}
+          expanded={expanded.has(sec.key)}
+          onToggle={() => toggle(sec.key)}
+        />
+      ))}
     </div>
   );
 }
@@ -281,39 +325,40 @@ function FieldSection({
   fields,
   props,
   setProperty,
+  expanded,
+  onToggle,
 }: {
   title: string;
   fields: FieldDef[];
   props: ItemProperties;
   setProperty: (key: string, value: string | number | boolean | undefined) => void;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
-  // Only show section if any field has a value, or always show first few important sections
-  const hasValues = fields.some((f) => props[f.key] !== undefined && props[f.key] !== '');
-  const alwaysShow = title === 'Identity';
+  const valueCount = fields.filter((f) => props[f.key] !== undefined && props[f.key] !== '').length;
 
-  if (!hasValues && !alwaysShow) {
-    return (
-      <details>
-        <summary className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider cursor-pointer hover:text-emperia-text select-none">
-          {title}
-        </summary>
-        <div className="mt-1 space-y-1">
+  return (
+    <div className="border border-emperia-border rounded overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-1.5 px-2 py-1.5 bg-emperia-bg hover:bg-emperia-hover transition-colors select-none"
+      >
+        <span className={`text-[9px] text-emperia-muted transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
+        <span className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider">{title}</span>
+        {valueCount > 0 && (
+          <span className="ml-auto text-[9px] font-medium text-emperia-accent bg-emperia-accent/10 rounded-full px-1.5 py-px">
+            {valueCount}
+          </span>
+        )}
+      </button>
+      {expanded && (
+        <div className="px-2 pb-2 pt-1 space-y-1 border-t border-emperia-border">
           {fields.map((f) => (
             <FieldRow key={f.key} field={f} value={props[f.key]} onChange={(v) => setProperty(f.key, v)} />
           ))}
         </div>
-      </details>
-    );
-  }
-
-  return (
-    <Section title={title}>
-      <div className="space-y-1">
-        {fields.map((f) => (
-          <FieldRow key={f.key} field={f} value={props[f.key]} onChange={(v) => setProperty(f.key, v)} />
-        ))}
-      </div>
-    </Section>
+      )}
+    </div>
   );
 }
 

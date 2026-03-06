@@ -224,7 +224,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       flags: data.flags ?? existing?.flags ?? 0,
       group: data.group ?? existing?.group ?? 0,
       properties: data.properties !== undefined
-        ? (data.properties ? { ...(existing?.properties ?? {}), ...data.properties } : null)
+        ? (data.properties ? { ...data.properties } : null)
         : (existing?.properties ? { ...existing.properties } : null),
     };
     const newDefs = new Map(itemDefinitions);
