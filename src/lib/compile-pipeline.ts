@@ -203,7 +203,7 @@ export async function runCompile(
     return sprBuf.byteLength;
   });
 
-  // Step 2: Compile definitions.json
+  // Step 2: Compile items.json
   await runStep(2, async () => {
     const sortedServerIds = Array.from(itemDefinitions.keys()).sort((a, b) => a - b);
     const defsObj: Record<string, unknown> = {};
@@ -245,8 +245,8 @@ export async function runCompile(
 
     const defsJson = JSON.stringify(defsObj, null, 4);
     const buf = new TextEncoder().encode(defsJson).buffer;
-    await saveFile(buf, sourceHandles.def, sourceNames.def, 'definitions.json');
-    compiledFiles.push({ name: sourceNames.def || 'definitions.json', buf });
+    await saveFile(buf, sourceHandles.def, sourceNames.def, 'items.json');
+    compiledFiles.push({ name: sourceNames.def || 'items.json', buf });
     return buf.byteLength;
   });
 

@@ -152,7 +152,7 @@ export function FileDropZone() {
           handles.spr = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           sprRef.current = await file.arrayBuffer();
-        } else if (ext === 'json' && name.toLowerCase().includes('definition') && !names.def) {
+        } else if (ext === 'json' && (name.toLowerCase() === 'items.json' || name.toLowerCase().includes('definition')) && !name.toLowerCase().includes('hair') && !names.def) {
           names.def = name;
           handles.def = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();

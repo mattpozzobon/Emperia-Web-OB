@@ -278,7 +278,7 @@ export type EquipSlotFilter =
   | 'backpack'
   | 'belt';
 
-/** Server-side item properties (string-keyed, same as definitions.json "properties"). */
+/** Server-side item properties (string-keyed, same as items.json "properties"). */
 export interface ItemProperties {
   // Identity
   name?: string;
@@ -406,8 +406,8 @@ export interface ExclusiveSlotDef {
   allowedItemIds?: number[];
 }
 
-/** Full server-side item definition (one entry in definitions.json).
- *  - `serverId` = the JSON key in definitions.json (server/OTB ID)
+/** Full server-side item definition (one entry in items.json).
+ *  - `serverId` = the JSON key in items.json (server/OTB ID)
  *  - `id` = the inner "id" field (client/.eobj ID) — used to map to the Web OB's things
  */
 export interface ServerItemData {

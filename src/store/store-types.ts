@@ -53,7 +53,7 @@ export interface OBState {
   spriteOverrides: Map<number, ImageData>;
   dirtySpriteIds: Set<number>;
 
-  // Server item definitions (from definitions.json)
+  // Server item definitions (from items.json)
   /** Map of serverId (JSON key) → server-side item data */
   itemDefinitions: Map<number, ServerItemData>;
   /** Map of clientId → serverId for UI lookups (multiple serverIds can map to same clientId) */

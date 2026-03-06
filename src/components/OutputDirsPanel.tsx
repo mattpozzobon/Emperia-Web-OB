@@ -15,8 +15,8 @@ const PRESETS = [
   {
     id: 'server-items',
     label: 'Server Items',
-    description: 'definitions.json → data/1098/items/',
-    files: ['definitions.json'],
+    description: 'items.json → data/1098/items/',
+    files: ['items.json'],
   },
   {
     id: 'server-hair',

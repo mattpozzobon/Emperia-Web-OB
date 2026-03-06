@@ -290,7 +290,7 @@ export function ServerPropertiesEditor() {
 
   return (
     <div className="p-3 text-xs space-y-2 overflow-y-auto">
-      {/* Stored flags & group from definitions.json */}
+      {/* Stored flags & group from items.json */}
       <Section title="OTB Flags & Group">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
