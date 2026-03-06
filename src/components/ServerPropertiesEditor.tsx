@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useOBStore } from '../store';
 import { OTB_FLAG_NAMES } from '../lib/types';
-import type { ItemProperties } from '../lib/types';
+import type { ItemProperties, ExclusiveSlotDef } from '../lib/types';
 
 // ─── Field definitions for the UI ───────────────────────────────────────────
 
@@ -12,6 +12,17 @@ interface FieldDef {
   options?: string[];
   placeholder?: string;
 }
+
+// Unified slot types: equipment slots + tool/item categories (used for both slotType and exclusive slot restrictions)
+const SLOT_TYPES = [
+  // Equipment slots
+  'head', 'body', 'legs', 'feet',
+  'left-hand', 'right-hand', 'hand', 'two-handed',
+  'ring', 'necklace', 'backpack', 'belt', 'ammo', 'quiver',
+  // Tool / item categories
+  'rope', 'shovel', 'pick', 'knife', 'fishingRod',
+  'potion', 'food', 'rune', 'key',
+] as const;
 
 const IDENTITY_FIELDS: FieldDef[] = [
   { key: 'name', label: 'Name', type: 'string' },
@@ -28,10 +39,7 @@ const EQUIPMENT_FIELDS: FieldDef[] = [
   { key: 'weaponType', label: 'Weapon Type', type: 'select', options: [
     '', 'sword', 'axe', 'club', 'distance', 'shield', 'wand', 'orb', 'magical',
   ]},
-  { key: 'slotType', label: 'Slot Type', type: 'select', options: [
-    '', 'left-hand', 'right-hand', 'hand', 'two-handed', 'head', 'body', 'legs', 'feet',
-    'ring', 'necklace', 'backpack', 'belt', 'ammo', 'quiver',
-  ]},
+  { key: 'slotType', label: 'Slot Type', type: 'select', options: ['', ...SLOT_TYPES] },
   { key: 'ammoType', label: 'Ammo Type', type: 'string' },
   { key: 'shootType', label: 'Shoot Type', type: 'string' },
   { key: 'damageElement', label: 'Damage Element', type: 'select', options: [
@@ -205,6 +213,24 @@ export function ServerPropertiesEditor() {
     updateItemDefinition(selectedId, { properties: Object.keys(currentProps).length > 0 ? currentProps : null });
   }, [selectedId, itemDefinitions, updateItemDefinition]);
 
+  const setExclusiveSlots = useCallback((slots: ExclusiveSlotDef[] | undefined) => {
+    if (selectedId == null) return;
+    const sid = clientToServerIds.get(selectedId);
+    const current = sid != null ? itemDefinitions.get(sid) : undefined;
+    const currentProps = current?.properties ? { ...current.properties } : {};
+    if (!slots || slots.length === 0) {
+      delete currentProps.exclusiveSlots;
+    } else {
+      // Strip any stale keys (e.g. legacy "name") — only keep known fields
+      currentProps.exclusiveSlots = slots.map(({ slotIndex, allowedItemTypes, allowedItemIds }) => {
+        const clean: ExclusiveSlotDef = { slotIndex, allowedItemTypes };
+        if (allowedItemIds && allowedItemIds.length > 0) clean.allowedItemIds = allowedItemIds;
+        return clean;
+      });
+    }
+    updateItemDefinition(selectedId, { properties: Object.keys(currentProps).length > 0 ? currentProps : null });
+  }, [selectedId, itemDefinitions, updateItemDefinition]);
+
   // Auto-expand sections that have values, collapse empty ones
   const defaultExpanded = useMemo(() => {
     const set = new Set<string>();
@@ -212,6 +238,10 @@ export function ServerPropertiesEditor() {
       if (sec.fields.some((f) => props[f.key] !== undefined && props[f.key] !== '')) {
         set.add(sec.key);
       }
+    }
+    // Also expand container if exclusiveSlots has entries
+    if (Array.isArray(props.exclusiveSlots) && props.exclusiveSlots.length > 0) {
+      set.add('container');
     }
     // Always expand identity
     set.add('identity');
@@ -295,15 +325,22 @@ export function ServerPropertiesEditor() {
       </Section>
 
       {SECTIONS.map((sec) => (
-        <FieldSection
-          key={sec.key}
-          title={sec.title}
-          fields={sec.fields}
-          props={props}
-          setProperty={setProperty}
-          expanded={expanded.has(sec.key)}
-          onToggle={() => toggle(sec.key)}
-        />
+        <div key={sec.key}>
+          <FieldSection
+            title={sec.title}
+            fields={sec.fields}
+            props={props}
+            setProperty={setProperty}
+            expanded={expanded.has(sec.key)}
+            onToggle={() => toggle(sec.key)}
+          />
+          {sec.key === 'container' && expanded.has('container') && (
+            <ExclusiveSlotsEditor
+              slots={(props.exclusiveSlots as ExclusiveSlotDef[] | undefined) ?? []}
+              onChange={setExclusiveSlots}
+            />
+          )}
+        </div>
       ))}
     </div>
   );
@@ -354,7 +391,116 @@ function FieldSection({
       {expanded && (
         <div className="px-2 pb-2 pt-1 space-y-1 border-t border-emperia-border">
           {fields.map((f) => (
-            <FieldRow key={f.key} field={f} value={props[f.key]} onChange={(v) => setProperty(f.key, v)} />
+            <FieldRow key={f.key} field={f} value={props[f.key] as string | number | boolean | undefined} onChange={(v) => setProperty(f.key, v)} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExclusiveSlotsEditor({
+  slots,
+  onChange,
+}: {
+  slots: ExclusiveSlotDef[];
+  onChange: (slots: ExclusiveSlotDef[] | undefined) => void;
+}) {
+  const addSlot = () => {
+    const nextIndex = slots.length > 0 ? Math.max(...slots.map((s) => s.slotIndex)) + 1 : 0;
+    onChange([...slots, { slotIndex: nextIndex, allowedItemTypes: [] }]);
+  };
+
+  const removeSlot = (i: number) => {
+    const next = slots.filter((_, idx) => idx !== i);
+    onChange(next.length > 0 ? next : undefined);
+  };
+
+  const updateSlot = (i: number, patch: Partial<ExclusiveSlotDef>) => {
+    const next = slots.map((s, idx) => (idx === i ? { ...s, ...patch } : s));
+    onChange(next);
+  };
+
+  return (
+    <div className="mt-1 border border-emperia-border rounded overflow-hidden">
+      <div className="flex items-center justify-between px-2 py-1 bg-emperia-bg">
+        <span className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider">Exclusive Slots</span>
+        <button
+          onClick={addSlot}
+          className="text-[9px] text-emperia-accent hover:text-emperia-text transition-colors px-1.5 py-0.5 rounded border border-emperia-border hover:bg-emperia-hover"
+        >
+          + Add Slot
+        </button>
+      </div>
+      {slots.length > 0 && (
+        <div className="px-2 pb-2 pt-1 space-y-2 border-t border-emperia-border">
+          {slots.map((slot, i) => (
+            <div key={i} className="border border-emperia-border/50 rounded p-1.5 space-y-1 bg-emperia-bg/30">
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-emperia-accent font-bold shrink-0">#{slot.slotIndex}</span>
+                <span className="flex-1" />
+                <button
+                  onClick={() => removeSlot(i)}
+                  className="text-[9px] text-red-400 hover:text-red-300 px-1 shrink-0"
+                  title="Remove slot"
+                >
+                  ×
+                </button>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[9px] text-emperia-muted shrink-0 w-12">Index</span>
+                <input
+                  type="number"
+                  value={slot.slotIndex}
+                  onChange={(e) => {
+                    const n = parseInt(e.target.value, 10);
+                    if (!isNaN(n) && n >= 0) updateSlot(i, { slotIndex: n });
+                  }}
+                  className="w-12 bg-emperia-bg border border-emperia-border rounded px-1.5 py-0.5 text-emperia-text text-[10px]"
+                />
+              </div>
+              <div className="flex items-start gap-1">
+                <span className="text-[9px] text-emperia-muted shrink-0 w-12 pt-0.5">Types</span>
+                <div className="flex-1 flex flex-wrap gap-1">
+                  {SLOT_TYPES.map((st) => {
+                    const active = (slot.allowedItemTypes ?? []).includes(st);
+                    return (
+                      <button
+                        key={st}
+                        onClick={() => {
+                          const current = slot.allowedItemTypes ?? [];
+                          const next = active ? current.filter((t) => t !== st) : [...current, st];
+                          updateSlot(i, { allowedItemTypes: next });
+                        }}
+                        className={`text-[9px] px-1.5 py-0.5 rounded border transition-colors ${
+                          active
+                            ? 'bg-emperia-accent/20 border-emperia-accent text-emperia-accent'
+                            : 'bg-emperia-bg border-emperia-border text-emperia-muted hover:text-emperia-text hover:border-emperia-text/30'
+                        }`}
+                      >
+                        {st}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex items-start gap-1">
+                <span className="text-[9px] text-emperia-muted shrink-0 w-12 pt-0.5">IDs</span>
+                <input
+                  type="text"
+                  value={(slot.allowedItemIds ?? []).join(', ')}
+                  placeholder="Allowed client IDs (comma-separated)"
+                  onChange={(e) => {
+                    const ids = e.target.value
+                      .split(',')
+                      .map((t) => parseInt(t.trim(), 10))
+                      .filter((n) => !isNaN(n) && n > 0);
+                    updateSlot(i, { allowedItemIds: ids.length > 0 ? ids : undefined });
+                  }}
+                  className="flex-1 bg-emperia-bg border border-emperia-border rounded px-1.5 py-0.5 text-emperia-text text-[10px] w-0"
+                />
+              </div>
+            </div>
           ))}
         </div>
       )}

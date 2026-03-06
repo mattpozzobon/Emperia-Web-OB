@@ -392,8 +392,18 @@ export interface ItemProperties {
   bonusStaminaRegen?: number;
   bonusStatusResist?: number;
 
+  // Exclusive slots (for containers)
+  exclusiveSlots?: ExclusiveSlotDef[];
+
   /** Catch-all for unknown properties from the JSON */
-  [key: string]: string | number | boolean | undefined;
+  [key: string]: string | number | boolean | ExclusiveSlotDef[] | undefined;
+}
+
+/** One exclusive-slot entry inside a container's properties. */
+export interface ExclusiveSlotDef {
+  slotIndex: number;
+  allowedItemTypes: string[];
+  allowedItemIds?: number[];
 }
 
 /** Full server-side item definition (one entry in definitions.json).
