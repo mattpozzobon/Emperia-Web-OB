@@ -108,7 +108,7 @@ export default function App() {
         </div>
 
         {/* Right: Sprite atlas browser */}
-        <div className="w-72 border-l border-emperia-border bg-emperia-bg overflow-hidden flex flex-col">
+        <div className="w-72 border-l border-emperia-border bg-emperia-bg flex flex-col">
           <ThingSpriteGrid />
         </div>
       </div>

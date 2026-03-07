@@ -99,8 +99,10 @@ export interface OBState {
   editVersion: number;
   /** Set by preview click to tell atlas to scroll to this sprite */
   focusSpriteId: number | null;
-  /** Import tile grouping: 1=no grouping, 2=2×2 objects, 4=4×4 objects — pads atlas rows between groups for visual clarity */
-  importTileSize: 1 | 2 | 4;
+  /** Import tile grouping width (columns): 1=no grouping — pads atlas rows between groups for visual clarity */
+  importTileWidth: number;
+  /** Import tile grouping height (rows): 1=no grouping */
+  importTileHeight: number;
   /** Imported sprite groups available for drag-and-drop onto the canvas */
   spriteGroups: SpriteGroup[];
   /** Auto-incrementing counter for sprite group IDs */

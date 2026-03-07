@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, ImageUp, Download, Upload, Crop, Eye, Copy, ClipboardPaste, Pin, PinOff } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
@@ -242,6 +242,12 @@ export function PreviewToolbar({
   );
 }
 
+const COPY_PARTS = [
+  { key: 'flags' as const, label: 'Flags' },
+  { key: 'sprites' as const, label: 'Sprites' },
+  { key: 'server' as const, label: 'Server Properties' },
+];
+
 function CopyPasteMenu({
   thing,
   copyMenuOpen,
@@ -253,6 +259,36 @@ function CopyPasteMenu({
   setCopyMenuOpen: (o: boolean) => void;
   copyMenuRef: React.RefObject<HTMLDivElement | null>;
 }) {
+  const [copyFlags, setCopyFlags] = useState(true);
+  const [copySprites, setCopySprites] = useState(true);
+  const [copyServer, setCopyServer] = useState(true);
+
+  const anyChecked = copyFlags || copySprites || copyServer;
+
+  const handleCopy = () => {
+    if (!anyChecked) return;
+    const { clientToServerIds, itemDefinitions } = useOBStore.getState();
+    const serverId = clientToServerIds.get(thing.id);
+    const serverDef = serverId != null ? itemDefinitions.get(serverId) ?? null : null;
+    const parts: string[] = [];
+    const copied: NonNullable<typeof useOBStore extends { getState: () => infer S } ? S extends { copiedThing: infer C } ? C : never : never> = {};
+    if (copyFlags) {
+      copied.flags = { ...thing.flags };
+      parts.push('Flags');
+    }
+    if (copySprites) {
+      copied.frameGroups = thing.frameGroups.map(fg => ({ ...fg, sprites: [...fg.sprites], animationLengths: fg.animationLengths.map(a => ({ ...a })) }));
+      parts.push('Sprites');
+    }
+    if (copyServer) {
+      copied.serverDef = serverDef ? { ...serverDef, properties: serverDef.properties ? { ...serverDef.properties } : null } : null;
+      parts.push('Server');
+    }
+    copied.label = parts.join(' + ');
+    useOBStore.setState({ copiedThing: copied });
+    setCopyMenuOpen(false);
+  };
+
   return (
     <>
       <div className="relative" ref={copyMenuRef as React.LegacyRef<HTMLDivElement>}>
@@ -265,38 +301,39 @@ function CopyPasteMenu({
         </button>
         {copyMenuOpen && (
           <div
-            className="absolute bottom-full mb-1 left-0 bg-emperia-surface border border-emperia-border rounded shadow-lg py-1 z-50 min-w-[160px]"
-            onClick={() => setCopyMenuOpen(false)}
+            className="absolute bottom-full mb-1 left-0 bg-emperia-surface border border-emperia-border rounded shadow-lg py-1.5 z-50 min-w-[170px]"
           >
-            {[
-              { label: 'Everything', key: 'all' },
-              { label: 'Flags Only', key: 'flags' },
-              { label: 'Server Properties', key: 'server' },
-              { label: 'Sprites Only', key: 'sprites' },
-            ].map(({ label, key }) => (
+            {COPY_PARTS.map(({ key, label }) => {
+              const checked = key === 'flags' ? copyFlags : key === 'sprites' ? copySprites : copyServer;
+              const toggle = key === 'flags' ? setCopyFlags : key === 'sprites' ? setCopySprites : setCopyServer;
+              return (
+                <label
+                  key={key}
+                  className="flex items-center gap-2 px-3 py-1 text-[11px] text-emperia-text hover:bg-emperia-hover transition-colors cursor-pointer select-none"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggle(!checked)}
+                    className="accent-emperia-accent w-3 h-3"
+                  />
+                  {label}
+                </label>
+              );
+            })}
+            <div className="px-3 pt-1.5 mt-1 border-t border-emperia-border">
               <button
-                key={key}
-                className="w-full text-left px-3 py-1.5 text-[11px] text-emperia-text hover:bg-emperia-hover transition-colors"
-                onClick={() => {
-                  const { clientToServerIds, itemDefinitions } = useOBStore.getState();
-                  const serverId = clientToServerIds.get(thing.id);
-                  const serverDef = serverId != null ? itemDefinitions.get(serverId) ?? null : null;
-                  const copied: NonNullable<typeof useOBStore extends { getState: () => infer S } ? S extends { copiedThing: infer C } ? C : never : never> = { label };
-                  if (key === 'all' || key === 'flags') {
-                    copied.flags = { ...thing.flags };
-                  }
-                  if (key === 'all' || key === 'sprites') {
-                    copied.frameGroups = thing.frameGroups.map(fg => ({ ...fg, sprites: [...fg.sprites], animationLengths: fg.animationLengths.map(a => ({ ...a })) }));
-                  }
-                  if (key === 'all' || key === 'server') {
-                    copied.serverDef = serverDef ? { ...serverDef, properties: serverDef.properties ? { ...serverDef.properties } : null } : null;
-                  }
-                  useOBStore.setState({ copiedThing: copied });
-                }}
+                onClick={handleCopy}
+                disabled={!anyChecked}
+                className={`w-full px-2 py-1 text-[11px] font-medium rounded transition-colors ${
+                  anyChecked
+                    ? 'bg-emperia-accent/20 text-emperia-accent hover:bg-emperia-accent/30'
+                    : 'bg-emperia-border/20 text-emperia-muted/40 cursor-not-allowed'
+                }`}
               >
-                {label}
+                Copy
               </button>
-            ))}
+            </div>
           </div>
         )}
       </div>

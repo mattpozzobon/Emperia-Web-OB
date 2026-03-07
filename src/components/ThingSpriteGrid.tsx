@@ -6,11 +6,13 @@ import { AtlasCell } from './AtlasCell';
 import { SpriteGroupTray } from './SpriteGroupTray';
 import { useSpriteTooltip } from './SpriteTooltip';
 
-const TILE_SIZE_OPTIONS = [
-  { value: 1 as const, label: '1×1', desc: 'no padding' },
-  { value: 2 as const, label: '2×2', desc: '4 tiles/group' },
-  { value: 4 as const, label: '4×4', desc: '16 tiles/group' },
+const TILE_SIZE_PRESETS = [
+  { w: 1, h: 1, label: '1×1', desc: 'no padding' },
+  { w: 2, h: 2, label: '2×2', desc: '4 tiles/group' },
+  { w: 4, h: 4, label: '4×4', desc: '16 tiles/group' },
 ];
+
+const MAX_GROUP_DIM = 8;
 
 const CELL = 40;
 const ATLAS_COLS = 6;
@@ -21,7 +23,11 @@ export function ThingSpriteGrid() {
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
   const focusSpriteId = useOBStore((s) => s.focusSpriteId);
-  const importTileSize = useOBStore((s) => s.importTileSize);
+  const importTileWidth = useOBStore((s) => s.importTileWidth);
+  const importTileHeight = useOBStore((s) => s.importTileHeight);
+  const [showCustomSize, setShowCustomSize] = useState(false);
+  const [customW, setCustomW] = useState(2);
+  const [customH, setCustomH] = useState(2);
 
   const selectedSlots = useOBStore((s) => s.selectedSlots);
 
@@ -39,11 +45,13 @@ export function ThingSpriteGrid() {
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
 
   // Import PNG(s) as new atlas sprites (always sliced into 32×32 tiles)
-  // When importTileSize > 1, inserts blank padding sprites after each NxN group
+  // When grouped (W>1 or H>1), inserts blank padding sprites after each W×H group
   // so groups align to fresh atlas rows for visual clarity.
   const handleImportPNG = useCallback((files: FileList) => {
     const addSprite = useOBStore.getState().addSprite;
-    const N = importTileSize; // group size: 1=no grouping, 2=2×2 objects, 4=4×4 objects
+    const W = importTileWidth;  // group width in tiles
+    const H = importTileHeight; // group height in tiles
+    const grouped = W > 1 || H > 1;
     Array.from(files).forEach((file) => {
       const img = new Image();
       img.onload = () => {
@@ -56,9 +64,9 @@ export function ThingSpriteGrid() {
         const tilesX = Math.max(1, Math.ceil(img.width / 32));
         const tilesY = Math.max(1, Math.ceil(img.height / 32));
 
-        // How many NxN groups fit in the image
-        const groupsX = N > 1 ? Math.max(1, Math.floor(tilesX / N)) : tilesX;
-        const groupsY = N > 1 ? Math.max(1, Math.floor(tilesY / N)) : tilesY;
+        // How many W×H groups fit in the image
+        const groupsX = grouped ? Math.max(1, Math.floor(tilesX / W)) : tilesX;
+        const groupsY = grouped ? Math.max(1, Math.floor(tilesY / H)) : tilesY;
 
         const added: number[] = [];
 
@@ -72,7 +80,7 @@ export function ThingSpriteGrid() {
           for (let b = 0; b < blanks; b++) { addSprite(blankData); totalAdded++; }
         };
 
-        if (N <= 1) {
+        if (!grouped) {
           // No grouping — just slice every 32×32 tile sequentially
           for (let ty = 0; ty < tilesY; ty++) {
             for (let tx = 0; tx < tilesX; tx++) {
@@ -89,7 +97,7 @@ export function ThingSpriteGrid() {
             }
           }
         } else {
-          // Grouped import: slice NxN groups and create sprite group entries.
+          // Grouped import: slice W×H groups and create sprite group entries.
           const addSpriteGroup = useOBStore.getState().addSpriteGroup;
           const baseName = file.name.replace(/\.[^.]+$/, '');
 
@@ -99,12 +107,12 @@ export function ThingSpriteGrid() {
           let groupIdx = 0;
           for (let gy = 0; gy < groupsY; gy++) {
             for (let gx = 0; gx < groupsX; gx++) {
-              // Slice this NxN group in row-major order
+              // Slice this W×H group in row-major order
               const groupSpriteIds: number[] = [];
-              for (let ly = 0; ly < N; ly++) {
-                for (let lx = 0; lx < N; lx++) {
-                  const tx = gx * N + lx;
-                  const ty = gy * N + ly;
+              for (let ly = 0; ly < H; ly++) {
+                for (let lx = 0; lx < W; lx++) {
+                  const tx = gx * W + lx;
+                  const ty = gy * H + ly;
                   if (tx >= tilesX || ty >= tilesY) {
                     // Out-of-bounds tile — add as blank
                     const id = addSprite(new ImageData(32, 32));
@@ -126,11 +134,11 @@ export function ThingSpriteGrid() {
               }
 
               // Create a sprite group entry for drag-and-drop
-              if (groupSpriteIds.length === N * N) {
+              if (groupSpriteIds.length === W * H) {
                 const label = groupsX * groupsY > 1
                   ? `${baseName} #${groupIdx + 1}`
                   : baseName;
-                addSpriteGroup(label, N, N, groupSpriteIds);
+                addSpriteGroup(label, W, H, groupSpriteIds);
               }
               groupIdx++;
             }
@@ -150,7 +158,7 @@ export function ThingSpriteGrid() {
       };
       img.src = URL.createObjectURL(file);
     });
-  }, [spriteData, importTileSize]);
+  }, [spriteData, importTileWidth, importTileHeight]);
 
   // Delete a single sprite (right-click context or delete button)
   const handleDeleteSprite = useCallback((spriteId: number) => {
@@ -356,25 +364,24 @@ export function ThingSpriteGrid() {
   return (<>
     <div className="flex flex-col h-full">
       {/* Full sprite atlas */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Row 1: Search */}
-        <div className="px-2 py-1.5 border-b border-emperia-border flex items-center gap-1">
-          <div className="flex items-center gap-1.5 bg-emperia-surface rounded px-2 py-1 flex-1">
-            <Search className="w-3.5 h-3.5 text-emperia-muted shrink-0" />
-            <input
-              type="text"
-              value={atlasSearch}
-              onChange={(e) => setAtlasSearch(e.target.value)}
-              placeholder="Go to sprite ID..."
-              className="bg-transparent text-xs text-emperia-text placeholder-emperia-muted/50 outline-none w-full"
-            />
-            {spriteData && (
-              <span className="text-[10px] text-emperia-muted shrink-0">{spriteData.spriteCount}</span>
-            )}
-          </div>
+      {/* Row 1: Search */}
+      <div className="px-2 py-1.5 border-b border-emperia-border flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1.5 bg-emperia-surface rounded px-2 py-1 flex-1">
+          <Search className="w-3.5 h-3.5 text-emperia-muted shrink-0" />
+          <input
+            type="text"
+            value={atlasSearch}
+            onChange={(e) => setAtlasSearch(e.target.value)}
+            placeholder="Go to sprite ID..."
+            className="bg-transparent text-xs text-emperia-text placeholder-emperia-muted/50 outline-none w-full"
+          />
+          {spriteData && (
+            <span className="text-[10px] text-emperia-muted shrink-0">{spriteData.spriteCount}</span>
+          )}
         </div>
-        {/* Row 2: Actions */}
-        <div className="px-2 py-1 border-b border-emperia-border flex items-center gap-1">
+      </div>
+      {/* Row 2: Actions — relative z-10 so dropdown renders above the overflow-hidden atlas below */}
+      <div className="relative z-10 px-2 py-1 border-b border-emperia-border flex items-center gap-1 shrink-0">
           <input
             ref={fileInputRef}
             type="file"
@@ -386,32 +393,69 @@ export function ThingSpriteGrid() {
           <button
             onClick={() => fileInputRef.current?.click()}
             className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-green-400 hover:border-green-400/50 transition-colors"
-            title={`Add new sprites from PNG (32×32 tiles${importTileSize > 1 ? `, grouped ${importTileSize}×${importTileSize} with row padding` : ''})`}
+            title={`Add new sprites from PNG (32×32 tiles${importTileWidth > 1 || importTileHeight > 1 ? `, grouped ${importTileWidth}×${importTileHeight} with row padding` : ''})`}
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
           <div className="relative group">
             <button
               className="flex items-center gap-0.5 px-1.5 py-1 rounded text-[10px] font-medium bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text hover:border-emperia-accent/50 transition-colors"
-              title="Import grouping — pads atlas rows between NxN tile groups for visual clarity"
+              title="Import grouping — pads atlas rows between W×H tile groups for visual clarity"
             >
               <Grid2x2 className="w-3 h-3" />
-              {TILE_SIZE_OPTIONS.find(o => o.value === importTileSize)?.label}
+              {importTileWidth}×{importTileHeight}
             </button>
-            <div className="absolute right-0 top-full mt-0.5 z-50 hidden group-hover:block bg-emperia-surface border border-emperia-border rounded shadow-lg py-0.5 min-w-[90px]">
-              {TILE_SIZE_OPTIONS.map(opt => (
+            <div className="absolute right-0 top-full mt-0.5 z-50 hidden group-hover:block bg-emperia-surface border border-emperia-border rounded shadow-lg py-0.5 min-w-[110px]">
+              {TILE_SIZE_PRESETS.map(p => (
                 <button
-                  key={opt.value}
-                  onClick={() => useOBStore.setState({ importTileSize: opt.value })}
+                  key={`${p.w}x${p.h}`}
+                  onClick={() => { useOBStore.setState({ importTileWidth: p.w, importTileHeight: p.h }); setShowCustomSize(false); }}
                   className={`w-full text-left px-2 py-0.5 text-[10px] transition-colors ${
-                    importTileSize === opt.value
+                    importTileWidth === p.w && importTileHeight === p.h && !showCustomSize
                       ? 'text-emperia-accent bg-emperia-accent/10'
                       : 'text-emperia-text hover:bg-emperia-hover'
                   }`}
                 >
-                  {opt.label} <span className="text-emperia-muted">({opt.desc})</span>
+                  {p.label} <span className="text-emperia-muted">({p.desc})</span>
                 </button>
               ))}
+              <button
+                onClick={() => setShowCustomSize(true)}
+                className={`w-full text-left px-2 py-0.5 text-[10px] transition-colors ${
+                  showCustomSize ? 'text-emperia-accent bg-emperia-accent/10' : 'text-emperia-text hover:bg-emperia-hover'
+                }`}
+              >
+                Custom…
+              </button>
+              {showCustomSize && (
+                <div className="px-2 py-1.5 flex items-center gap-1 border-t border-emperia-border" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="number"
+                    min={1}
+                    max={MAX_GROUP_DIM}
+                    value={customW}
+                    onChange={(e) => setCustomW(Math.max(1, Math.min(MAX_GROUP_DIM, parseInt(e.target.value) || 1)))}
+                    className="w-8 px-0.5 py-0.5 text-[10px] text-center bg-emperia-bg border border-emperia-border rounded text-emperia-text"
+                    title="Width (columns)"
+                  />
+                  <span className="text-[10px] text-emperia-muted">×</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={MAX_GROUP_DIM}
+                    value={customH}
+                    onChange={(e) => setCustomH(Math.max(1, Math.min(MAX_GROUP_DIM, parseInt(e.target.value) || 1)))}
+                    className="w-8 px-0.5 py-0.5 text-[10px] text-center bg-emperia-bg border border-emperia-border rounded text-emperia-text"
+                    title="Height (rows)"
+                  />
+                  <button
+                    onClick={() => { useOBStore.setState({ importTileWidth: customW, importTileHeight: customH }); }}
+                    className="px-1.5 py-0.5 text-[9px] font-medium rounded bg-emperia-accent/20 text-emperia-accent hover:bg-emperia-accent/30 transition-colors"
+                  >
+                    Set
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <div className="flex-1" />
@@ -436,7 +480,7 @@ export function ThingSpriteGrid() {
             <Minimize2 className="w-3.5 h-3.5" />
           </button>
         </div>
-
+      <div className="flex-1 flex flex-col overflow-hidden">
         {/* Selection toolbar */}
         {selectedAtlasIds.size > 0 && (
           <div className="px-2 py-1 border-b border-emperia-border bg-emperia-accent/5 flex items-center gap-2">
