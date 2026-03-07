@@ -392,6 +392,10 @@ export interface ItemProperties {
   bonusStaminaRegen?: number;
   bonusStatusResist?: number;
 
+  // Tool uses
+  maxUses?: number;
+  uses?: number;
+
   // Exclusive slots (for containers)
   exclusiveSlots?: ExclusiveSlotDef[];
 

@@ -152,6 +152,11 @@ const COMBAT_BONUS_FIELDS: FieldDef[] = [
   { key: 'bonusStatusResist', label: 'Status Resist', type: 'number' },
 ];
 
+const TOOL_USES_FIELDS: FieldDef[] = [
+  { key: 'maxUses', label: 'Max Uses', type: 'number' },
+  { key: 'uses', label: 'Uses', type: 'number' },
+];
+
 const GROUP_OPTIONS = [
   { value: 0, label: '0 — Normal' },
   { value: 1, label: '1 — Ground' },
@@ -183,6 +188,7 @@ const SECTIONS: { key: string; title: string; fields: FieldDef[] }[] = [
   { key: 'absorb', title: 'Absorb %', fields: ABSORB_FIELDS },
   { key: 'statBonus', title: 'Stat Bonuses', fields: STAT_BONUS_FIELDS },
   { key: 'combatBonus', title: 'Combat Bonuses', fields: COMBAT_BONUS_FIELDS },
+  { key: 'toolUses', title: 'Tool Uses', fields: TOOL_USES_FIELDS },
 ];
 
 export function ServerPropertiesEditor() {
