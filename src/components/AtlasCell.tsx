@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react';
+import { Trash2, RefreshCw } from 'lucide-react';
 import { getSpriteDataUrl } from '../lib/sprite-decoder';
 import type { SpriteData } from '../lib/types';
 
@@ -15,6 +15,7 @@ interface AtlasCellProps {
   onContextMenu: (e: React.MouseEvent) => void;
   onDragStart: (e: React.DragEvent) => void;
   onDelete: () => void;
+  onReplace: () => void;
   onMouseEnter?: (e: React.MouseEvent) => void;
   onMouseMove?: (e: React.MouseEvent) => void;
   onMouseLeave?: () => void;
@@ -23,7 +24,7 @@ interface AtlasCellProps {
 export function AtlasCell({
   spriteId, spriteData, spriteOverrides,
   isHighlighted, isAtlasSelected, hasSelectedSlot,
-  onClick, onContextMenu, onDragStart, onDelete,
+  onClick, onContextMenu, onDragStart, onDelete, onReplace,
   onMouseEnter, onMouseMove, onMouseLeave,
 }: AtlasCellProps) {
   const url = getSpriteDataUrl(spriteData, spriteId, spriteOverrides);
@@ -59,13 +60,22 @@ export function AtlasCell({
         {spriteId}
       </span>
       {!isAtlasSelected && (
-        <button
-          className="absolute top-0 right-0 p-0.5 rounded-bl bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          title={`Delete sprite #${spriteId}`}
-        >
-          <Trash2 className="w-2.5 h-2.5" />
-        </button>
+        <div className="absolute top-0 right-0 flex opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            className="p-0.5 bg-blue-500/80 text-white rounded-bl"
+            onClick={(e) => { e.stopPropagation(); onReplace(); }}
+            title={`Replace sprite #${spriteId}`}
+          >
+            <RefreshCw className="w-2.5 h-2.5" />
+          </button>
+          <button
+            className="p-0.5 bg-red-500/80 text-white"
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            title={`Delete sprite #${spriteId}`}
+          >
+            <Trash2 className="w-2.5 h-2.5" />
+          </button>
+        </div>
       )}
     </div>
   );

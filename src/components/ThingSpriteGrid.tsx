@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, Plus, Trash2, X, Minimize2, Grid2x2 } from 'lucide-react';
+import { Search, Plus, Trash2, X, Minimize2, Grid2x2, RefreshCw } from 'lucide-react';
 import { useOBStore } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
 import { AtlasCell } from './AtlasCell';
@@ -41,6 +41,8 @@ export function ThingSpriteGrid() {
   const [lastClickedAtlasId, setLastClickedAtlasId] = useState<number | null>(null);
   const atlasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const replaceSpriteIdRef = useRef<number>(0);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
 
@@ -165,6 +167,32 @@ export function ThingSpriteGrid() {
     if (spriteId <= 0) return;
     if (!confirm(`Delete sprite #${spriteId}? It will be replaced with a blank sprite.`)) return;
     useOBStore.getState().deleteSprite(spriteId);
+  }, []);
+
+  // Replace a single sprite with a new PNG (picks first 32×32 tile from the image)
+  const handleReplaceSprite = useCallback((spriteId: number) => {
+    if (spriteId <= 0) return;
+    replaceSpriteIdRef.current = spriteId;
+    replaceInputRef.current?.click();
+  }, []);
+
+  const handleReplaceFile = useCallback((files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const targetId = replaceSpriteIdRef.current;
+    if (targetId <= 0) return;
+    const file = files[0];
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 32;
+      canvas.height = 32;
+      const ctx = canvas.getContext('2d')!;
+      ctx.clearRect(0, 0, 32, 32);
+      ctx.drawImage(img, 0, 0, 32, 32, 0, 0, 32, 32);
+      const imgData = ctx.getImageData(0, 0, 32, 32);
+      useOBStore.getState().replaceSprite(targetId, imgData);
+    };
+    img.src = URL.createObjectURL(file);
   }, []);
 
   // Reset slot selection when thing changes
@@ -390,6 +418,13 @@ export function ThingSpriteGrid() {
             className="hidden"
             onChange={(e) => { if (e.target.files) handleImportPNG(e.target.files); e.target.value = ''; }}
           />
+          <input
+            ref={replaceInputRef}
+            type="file"
+            accept="image/png,image/gif,image/bmp"
+            className="hidden"
+            onChange={(e) => { handleReplaceFile(e.target.files); e.target.value = ''; }}
+          />
           <button
             onClick={() => fileInputRef.current?.click()}
             className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-green-400 hover:border-green-400/50 transition-colors"
@@ -487,6 +522,16 @@ export function ThingSpriteGrid() {
             <span className="text-[10px] text-emperia-accent font-medium">
               {selectedAtlasIds.size} selected
             </span>
+            {selectedAtlasIds.size === 1 && (
+              <button
+                onClick={() => handleReplaceSprite(Array.from(selectedAtlasIds)[0])}
+                className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors"
+                title="Replace selected sprite with a new image"
+              >
+                <RefreshCw className="w-3 h-3" />
+                Replace
+              </button>
+            )}
             <button
               onClick={handleDeleteSelected}
               className="flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
@@ -542,6 +587,7 @@ export function ThingSpriteGrid() {
                   }}
                   onDragStart={(e) => handleAtlasDragStart(e, spriteId)}
                   onDelete={() => handleDeleteSprite(spriteId)}
+                  onReplace={() => handleReplaceSprite(spriteId)}
                   onMouseEnter={(e) => tooltip.show(spriteId, `#${spriteId}`, e)}
                   onMouseMove={tooltip.move}
                   onMouseLeave={tooltip.hide}
