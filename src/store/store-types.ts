@@ -2,6 +2,7 @@
  * Shared types for the OB Zustand store.
  */
 import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData, ItemToSpriteEntry, ItemToSpriteFile, HairDefinition, HairDefinitionsFile } from '../lib/types';
+import type { OutfitDefinition } from './outfit-slice';
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 
 /** A user-configured extra output directory that receives copies of compiled files. */
@@ -71,6 +72,12 @@ export interface OBState {
   /** Currently selected hair ID in the Hair tab */
   selectedHairId: number | null;
 
+  // Outfit definitions (outfit builder)
+  outfitDefinitions: OutfitDefinition[];
+  outfitDefsLoaded: boolean;
+  /** Currently selected outfit index in the Outfit Builder tab */
+  selectedOutfitIndex: number | null;
+
   // File System Access API: handles for saving back to source files
   sourceDir: FileSystemDirectoryHandle | null;
   /** Original file names keyed by role */
@@ -87,7 +94,7 @@ export interface OBState {
   outputDirs: OutputDir[];
 
   // UI state
-  centerTab: 'texture' | 'properties' | 'server' | 'equipment' | 'hair';
+  centerTab: 'texture' | 'properties' | 'server' | 'equipment' | 'hair' | 'outfits';
   activeCategory: ThingCategory;
   selectedThingId: number | null;
   /** Multi-select set (Ctrl+click / Shift+click in ThingGrid) */
@@ -184,6 +191,15 @@ export interface OBState {
   duplicateHairDefinition: (hairId: number) => void;
   setSelectedHairId: (id: number | null) => void;
   exportHairDefinitionsJson: () => string;
+
+  // Outfit definition actions
+  loadOutfitDefinitions: (json: Record<string, OutfitDefinition>) => void;
+  addOutfitDefinition: (outfit: OutfitDefinition) => void;
+  updateOutfitDefinition: (index: number, data: Partial<OutfitDefinition>) => void;
+  removeOutfitDefinition: (index: number) => void;
+  duplicateOutfitDefinition: (index: number) => void;
+  setSelectedOutfitIndex: (index: number | null) => void;
+  exportOutfitDefinitionsJson: () => string;
 
   // Derived
   getCategoryRange: (cat: ThingCategory) => { start: number; end: number } | null;

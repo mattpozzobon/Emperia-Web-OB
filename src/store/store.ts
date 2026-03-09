@@ -13,6 +13,7 @@ import { createHairSlice } from './hair-slice';
 import { createSpriteMapSlice } from './sprite-map-slice';
 import { createCompactAtlasAction } from './compact-atlas';
 import { createSpriteGroupSlice } from './sprite-group-slice';
+import { createOutfitSlice } from './outfit-slice';
 
 export const useOBStore = create<OBState>((set, get) => ({
   objectData: null,
@@ -36,6 +37,9 @@ export const useOBStore = create<OBState>((set, get) => ({
   hairDefinitions: [],
   hairDefsLoaded: false,
   selectedHairId: null,
+  outfitDefinitions: [],
+  outfitDefsLoaded: false,
+  selectedOutfitIndex: null,
   sourceDir: null,
   sourceNames: {},
   sourceHandles: {},
@@ -790,6 +794,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   ...createHairSlice(set, get),
   ...createCompactAtlasAction(set, get),
   ...createSpriteGroupSlice(set, get),
+  ...createOutfitSlice(set, get),
 
   // ─── Utility ────────────────────────────────────────────────────────────────
 
