@@ -446,6 +446,8 @@ function EntryRow({
   const [showPicker, setShowPicker] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(entry.name);
+  const [editingItemId, setEditingItemId] = useState(false);
+  const [itemIdValue, setItemIdValue] = useState(entry.id.toString());
 
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const clientToServerIds = useOBStore((s) => s.clientToServerIds);
@@ -495,9 +497,34 @@ function EntryRow({
       </div>
 
       {/* Item ID */}
-      <span className="text-[10px] text-amber-400 font-mono w-12 text-right shrink-0" title="Client Item ID">
-        {entry.id}
-      </span>
+      {editingItemId ? (
+        <input
+          type="number"
+          value={itemIdValue}
+          onChange={(e) => setItemIdValue(e.target.value)}
+          onBlur={() => {
+            setEditingItemId(false);
+            const parsed = parseInt(itemIdValue, 10);
+            if (!isNaN(parsed) && parsed !== entry.id) {
+              onUpdate(index, { ...entry, id: parsed });
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Escape') { setEditingItemId(false); setItemIdValue(entry.id.toString()); }
+          }}
+          className="w-16 bg-emperia-bg border border-emperia-border rounded px-1.5 py-0.5 text-[10px] text-amber-400 font-mono text-right shrink-0"
+          autoFocus
+        />
+      ) : (
+        <button
+          onClick={() => { setEditingItemId(true); setItemIdValue(entry.id.toString()); }}
+          className="text-[10px] text-amber-400 font-mono w-12 text-right shrink-0 hover:underline cursor-pointer"
+          title="Click to change Item ID"
+        >
+          {entry.id}
+        </button>
+      )}
 
       {/* Sprite ID + change button */}
       <div className="flex items-center gap-1 shrink-0">

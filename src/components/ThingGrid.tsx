@@ -21,6 +21,15 @@ export function ThingGrid() {
   const filterGroup = useOBStore((s) => s.filterGroup);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+  const spriteMapEntries = useOBStore((s) => s.spriteMapEntries);
+
+  // Build a set of outfit display IDs that appear in the equipment sprite map
+  const equipOutfitIds = useMemo(() => {
+    if (activeCategory !== 'outfit' || !spriteMapEntries.length) return new Set<number>();
+    const ids = new Set<number>();
+    for (const e of spriteMapEntries) ids.add(e.sprite_id);
+    return ids;
+  }, [activeCategory, spriteMapEntries]);
 
   const tooltip = useSpriteTooltip(spriteData, spriteOverrides);
 
@@ -129,6 +138,7 @@ export function ThingGrid() {
             const tipText = itemName ? `#${displayId} — ${itemName}` : `#${displayId}`;
 
             const isMultiSelected = selectedIds.has(thing.id);
+            const isInEquipMap = activeCategory === 'outfit' && equipOutfitIds.has(displayId);
 
             return (
               <button
@@ -156,7 +166,9 @@ export function ThingGrid() {
                     ? 'bg-emperia-accent/20 border-emperia-accent'
                     : isMultiSelected
                       ? 'bg-emperia-accent/10 border-emperia-accent/50'
-                      : 'border-transparent hover:bg-emperia-hover'
+                      : isInEquipMap
+                        ? 'border-emerald-500/60 bg-emerald-500/5 hover:bg-emerald-500/10'
+                        : 'border-transparent hover:bg-emperia-hover'
                   }
                 `}
                 style={{ width: CELL_SIZE, height: CELL_SIZE }}
