@@ -7,11 +7,12 @@
  */
 import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Plus, Trash2, Copy, Download, Upload, Palette, ChevronDown, X } from 'lucide-react';
+import { Search, Plus, Trash2, Copy, Download, Upload, Palette, X } from 'lucide-react';
 import { useOBStore } from '../store';
 import { decodeSprite } from '../lib/sprite-decoder';
 import { applyOutfitMask, PALETTE_SIZE, paletteToCSS } from '../lib/outfit-colors';
 import type { ObjectData, SpriteData, FrameGroup, ItemToSpriteEntry, EquipSlotFilter } from '../lib/types';
+import { HairRace, HairGender } from '../lib/types';
 import {
   createEmptyOutfit,
   SLOT_NAMES,
@@ -28,7 +29,6 @@ interface SkinPreset {
   readonly label: string;
   readonly baseOutfitIds: readonly number[];
   readonly defaultOutfitId: number;
-  readonly hairs: readonly number[];
 }
 
 interface RacePreset {
@@ -38,24 +38,29 @@ interface RacePreset {
   readonly female: SkinPreset;
 }
 
+/** Maps RACE_PRESETS array index → HairRace bitmask flag. */
+const RACE_INDEX_TO_BITMASK: readonly number[] = [HairRace.Human, HairRace.Demon, HairRace.Orc];
+/** Maps sex string → HairGender bitmask flag. */
+const SEX_TO_GENDER: Record<'male' | 'female', number> = { male: HairGender.Male, female: HairGender.Female };
+
 const RACE_PRESETS: readonly RacePreset[] = [
   {
     label: 'Human',
     hasHair: true,
-    male: { label: 'Male', baseOutfitIds: [134, 135, 136, 137], defaultOutfitId: 134, hairs: [0, 902, 903, 904, 905, 845, 846, 847, 848, 849] },
-    female: { label: 'Female', baseOutfitIds: [129, 130, 131, 132], defaultOutfitId: 129, hairs: [850, 851, 852, 840, 841, 842, 843, 844] },
+    male: { label: 'Male', baseOutfitIds: [134, 135, 136, 137], defaultOutfitId: 134 },
+    female: { label: 'Female', baseOutfitIds: [129, 130, 131, 132], defaultOutfitId: 129 },
   },
   {
     label: 'Demon',
     hasHair: false,
-    male: { label: 'Male', baseOutfitIds: [139, 140, 141, 142], defaultOutfitId: 139, hairs: [159, 160, 161, 162, 163, 164] },
-    female: { label: 'Female', baseOutfitIds: [144, 145, 146, 147], defaultOutfitId: 144, hairs: [159, 160, 161, 162, 163, 164] },
+    male: { label: 'Male', baseOutfitIds: [139, 140, 141, 142], defaultOutfitId: 139 },
+    female: { label: 'Female', baseOutfitIds: [144, 145, 146, 147], defaultOutfitId: 144 },
   },
   {
     label: 'Orc',
     hasHair: true,
-    male: { label: 'Male', baseOutfitIds: [152, 153, 154], defaultOutfitId: 152, hairs: [0, 902, 903, 904, 905, 845, 846, 847, 848, 849] },
-    female: { label: 'Female', baseOutfitIds: [156, 157, 158], defaultOutfitId: 156, hairs: [850, 851, 852, 840, 841, 842, 843, 844] },
+    male: { label: 'Male', baseOutfitIds: [152, 153, 154], defaultOutfitId: 152 },
+    female: { label: 'Female', baseOutfitIds: [156, 157, 158], defaultOutfitId: 156 },
   },
 ];
 
@@ -259,6 +264,7 @@ function PresetBar({ outfit, onUpdate }: { outfit: OutfitDefinition; onUpdate: (
   const objectData = useOBStore((s) => s.objectData);
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
+  const hairDefinitions = useOBStore((s) => s.hairDefinitions);
 
   // Detect current race/sex from outfit.id
   const detected = useMemo(() => {
@@ -274,6 +280,12 @@ function PresetBar({ outfit, onUpdate }: { outfit: OutfitDefinition; onUpdate: (
   const activeSex = detected?.sex ?? 'male';
   const preset = RACE_PRESETS[activeRace][activeSex];
 
+  const filteredHairs = useMemo(() => {
+    const raceBit = RACE_INDEX_TO_BITMASK[activeRace] ?? 0;
+    const genderBit = SEX_TO_GENDER[activeSex];
+    return hairDefinitions.filter((h) => (h.races & raceBit) !== 0 && (h.genders & genderBit) !== 0);
+  }, [hairDefinitions, activeRace, activeSex]);
+
   const selectRaceSex = (raceIdx: number, sex: 'male' | 'female') => {
     const p = RACE_PRESETS[raceIdx][sex];
     onUpdate({ id: p.defaultOutfitId });
@@ -283,9 +295,9 @@ function PresetBar({ outfit, onUpdate }: { outfit: OutfitDefinition; onUpdate: (
     onUpdate({ id: skinId });
   };
 
-  const selectHair = (hairId: number) => {
+  const selectHair = (outfitId: number) => {
     const newSprites = [...outfit.sprites];
-    newSprites[0] = { ...newSprites[0], id: hairId };
+    newSprites[0] = { ...newSprites[0], id: outfitId };
     onUpdate({ sprites: newSprites });
   };
 
@@ -334,25 +346,31 @@ function PresetBar({ outfit, onUpdate }: { outfit: OutfitDefinition; onUpdate: (
       <div className="flex items-center gap-1">
         <span className="text-[9px] text-emperia-muted w-8 shrink-0">Hair</span>
         <div className="flex gap-0.5 flex-wrap">
-          {preset.hairs.map((hairId) => {
-            const isCurrent = outfit.sprites[0]?.id === hairId;
+          {/* None option */}
+          <button onClick={() => selectHair(0)}
+            className={`rounded border transition-all ${(outfit.sprites[0]?.id ?? 0) === 0 ? 'border-emperia-accent ring-1 ring-emperia-accent' : 'border-emperia-border/50 hover:border-emperia-accent/40'}`}
+            title="No hair">
+            <div className="checkerboard rounded overflow-hidden flex items-center justify-center text-[7px] text-emperia-muted/40" style={{ width: 24, height: 24 }}>—</div>
+          </button>
+          {filteredHairs.map((hair) => {
+            const isCurrent = outfit.sprites[0]?.id === hair.outfitId;
             if (!objectData || !spriteData) return null;
-            // Show just the hair on the base
             const tmpOutfit: OutfitDefinition = {
               ...outfit,
-              sprites: outfit.sprites.map((s, i) => i === 0 ? { ...s, id: hairId } : { id: 0 }),
+              sprites: outfit.sprites.map((s, i) => i === 0 ? { ...s, id: hair.outfitId } : { id: 0 }),
             };
             const url = renderComposite(objectData, spriteData, spriteOverrides, tmpOutfit, 2);
             return (
-              <button key={hairId} onClick={() => selectHair(hairId)}
+              <button key={hair.hairId} onClick={() => selectHair(hair.outfitId)}
                 className={`rounded border transition-all ${isCurrent ? 'border-emperia-accent ring-1 ring-emperia-accent' : 'border-emperia-border/50 hover:border-emperia-accent/40'}`}
-                title={`Hair #${hairId}`}>
+                title={`${hair.name} (#${hair.outfitId})`}>
                 <div className="checkerboard rounded overflow-hidden" style={{ width: 24, height: 24 }}>
                   {url && <img src={url} className="pixelated w-full h-full" style={{ imageRendering: 'pixelated' }} draggable={false} />}
                 </div>
               </button>
             );
           })}
+          {filteredHairs.length === 0 && <span className="text-[8px] text-emperia-muted/50 italic">No hairs loaded</span>}
         </div>
         <span className="text-[9px] text-emperia-muted font-mono ml-1">#{outfit.sprites[0]?.id ?? 0}</span>
       </div>
@@ -480,6 +498,17 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
     </div>, document.body);
 }
 
+// ─── Rarity tiers (matches server ITEM_RARITY + getRarityColor) ──────────────
+
+const RARITY_OPTIONS: readonly { value: number; label: string; color: string }[] = [
+  { value: 0, label: 'Common',    color: '#b0bec5' },
+  { value: 1, label: 'Uncommon',  color: '#4caf50' },
+  { value: 2, label: 'Rare',      color: '#2196f3' },
+  { value: 3, label: 'Epic',      color: '#9c27b0' },
+  { value: 4, label: 'Legendary', color: '#ff9800' },
+  { value: 5, label: 'Mythic',    color: '#f44336' },
+];
+
 // ─── Compact Slot Row ────────────────────────────────────────────────────────
 
 function SlotRow({ slotIndex, slot, onUpdate, hasMask }: {
@@ -517,6 +546,23 @@ function SlotRow({ slotIndex, slot, onUpdate, hasMask }: {
         </div>
       )}
       {slot.id > 0 && (
+        <div className="flex items-center gap-0.5 ml-0.5">
+          <select value={slot.rarity ?? 0}
+            onChange={(e) => { const v = parseInt(e.target.value, 10); onUpdate({ ...slot, rarity: v || undefined }); }}
+            className="bg-emperia-bg border border-emperia-border rounded px-0.5 py-px text-[9px] font-medium cursor-pointer"
+            style={{ color: RARITY_OPTIONS[slot.rarity ?? 0]?.color ?? '#b0bec5' }}
+            title="Rarity">
+            {RARITY_OPTIONS.map((r) => (
+              <option key={r.value} value={r.value} style={{ color: r.color }}>{r.label}</option>
+            ))}
+          </select>
+          <span className="text-[8px] text-emperia-muted" title="Level">Lv</span>
+          <input type="number" value={slot.level ?? 0} min={0}
+            onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v) && v >= 0) onUpdate({ ...slot, level: v || undefined }); }}
+            className="w-8 bg-emperia-bg border border-emperia-border rounded px-0.5 py-px text-[9px] text-emperia-text font-mono text-right" title="Level" />
+        </div>
+      )}
+      {slot.id > 0 && (
         <button onClick={() => onUpdate({ id: 0 })} className="p-0.5 text-red-400/30 hover:text-red-400 ml-auto shrink-0" title="Clear">
           <X className="w-2.5 h-2.5" />
         </button>
@@ -542,7 +588,6 @@ function OutfitDetail({ outfit, index }: { outfit: OutfitDefinition; index: numb
   const update = useOBStore((s) => s.updateOutfitDefinition);
   const remove = useOBStore((s) => s.removeOutfitDefinition);
   const dupe = useOBStore((s) => s.duplicateOutfitDefinition);
-  const [showJson, setShowJson] = useState(false);
 
   const doUpdate = useCallback((d: Partial<OutfitDefinition>) => update(index, d), [index, update]);
 
@@ -587,9 +632,6 @@ function OutfitDetail({ outfit, index }: { outfit: OutfitDefinition; index: numb
           <div className="ml-auto flex items-center gap-0.5">
             <button onClick={() => dupe(index)} className="p-1 rounded text-emperia-muted hover:text-emperia-accent" title="Duplicate"><Copy className="w-3 h-3" /></button>
             <button onClick={() => { if (confirm('Delete?')) remove(index); }} className="p-1 rounded text-red-400/40 hover:text-red-400" title="Delete"><Trash2 className="w-3 h-3" /></button>
-            <button onClick={() => setShowJson(!showJson)} className={`p-1 rounded transition-colors ${showJson ? 'text-emperia-accent' : 'text-emperia-muted hover:text-emperia-accent'}`} title="Toggle JSON">
-              <ChevronDown className={`w-3 h-3 transition-transform ${showJson ? 'rotate-180' : ''}`} />
-            </button>
           </div>
         </div>
 
@@ -616,15 +658,19 @@ function OutfitDetail({ outfit, index }: { outfit: OutfitDefinition; index: numb
         </div>
 
         {/* JSON */}
-        {showJson && (
-          <pre className="bg-emperia-bg border border-emperia-border rounded p-1.5 text-[8px] text-emperia-text font-mono overflow-x-auto max-h-32 overflow-y-auto select-all">
-            {JSON.stringify({
-              id: outfit.id, renderHelmet: outfit.renderHelmet,
-              sprites: outfit.sprites.map((s) => s.colors ? { id: s.id, colors: { ...s.colors } } : { id: s.id }),
-              attachments: { ...outfit.attachments },
-            }, null, 2)}
-          </pre>
-        )}
+        <pre className="bg-emperia-bg border border-emperia-border rounded p-1.5 text-[8px] text-emperia-text font-mono overflow-x-auto max-h-48 overflow-y-auto select-all">
+          {JSON.stringify({
+            id: outfit.id, renderHelmet: outfit.renderHelmet,
+            sprites: outfit.sprites.map((s) => {
+              const out: Record<string, unknown> = { id: s.id };
+              if (s.colors) out.colors = { ...s.colors };
+              if (s.rarity != null) out.rarity = s.rarity;
+              if (s.level != null) out.level = s.level;
+              return out;
+            }),
+            attachments: { ...outfit.attachments },
+          }, null, 2)}
+        </pre>
       </div>
     </div>
   );
@@ -668,7 +714,7 @@ export function OutfitEditor() {
             id: json.id ?? 0, renderHelmet: json.renderHelmet ?? false,
             sprites: Array.from({ length: SLOT_COUNT }, (_, i) => {
               const s = json.sprites?.[i];
-              return s ? { id: s.id ?? 0, ...(s.colors ? { colors: { ...s.colors } } : {}) } : { id: 0 };
+              return s ? { id: s.id ?? 0, ...(s.colors ? { colors: { ...s.colors } } : {}), ...(s.rarity != null ? { rarity: s.rarity } : {}), ...(s.level != null ? { level: s.level } : {}) } : { id: 0 };
             }),
             attachments: { healthPotion: 0, manaPotion: 0, energyPotion: 0, bag: 0, ...(json.attachments ?? {}) },
           });
@@ -684,7 +730,13 @@ export function OutfitEditor() {
     if (!selected) return;
     const json = JSON.stringify({
       id: selected.id, renderHelmet: selected.renderHelmet,
-      sprites: selected.sprites.map((s) => s.colors ? { id: s.id, colors: { ...s.colors } } : { id: s.id }),
+      sprites: selected.sprites.map((s) => {
+        const out: Record<string, unknown> = { id: s.id };
+        if (s.colors) out.colors = { ...s.colors };
+        if (s.rarity != null) out.rarity = s.rarity;
+        if (s.level != null) out.level = s.level;
+        return out;
+      }),
       attachments: { ...selected.attachments },
     }, null, 2);
     const a = document.createElement('a');

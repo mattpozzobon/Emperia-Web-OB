@@ -13,6 +13,8 @@ export interface OutfitSpriteColors {
 export interface OutfitSpriteSlot {
   id: number;
   colors?: OutfitSpriteColors;
+  rarity?: number;
+  level?: number;
 }
 
 export interface OutfitAttachments {
@@ -61,6 +63,8 @@ export function createOutfitSlice(set: Set_, get: Get_) {
             sprites.push({
               id: raw.id,
               ...(raw.colors ? { colors: { ...raw.colors } } : {}),
+              ...(raw.rarity != null ? { rarity: raw.rarity } : {}),
+              ...(raw.level != null ? { level: raw.level } : {}),
             });
           } else {
             sprites.push({ id: 0 });
@@ -126,7 +130,7 @@ export function createOutfitSlice(set: Set_, get: Get_) {
       const clone: OutfitDefinition = {
         ...source,
         id: source.id + 1,
-        sprites: source.sprites.map((s) => ({ ...s, ...(s.colors ? { colors: { ...s.colors } } : {}) })),
+        sprites: source.sprites.map((s) => ({ ...s, ...(s.colors ? { colors: { ...s.colors } } : {}), ...(s.rarity != null ? { rarity: s.rarity } : {}), ...(s.level != null ? { level: s.level } : {}) })),
         attachments: { ...source.attachments },
       };
       const defs = [...get().outfitDefinitions, clone];
@@ -151,8 +155,11 @@ export function createOutfitSlice(set: Set_, get: Get_) {
           id: d.id,
           renderHelmet: d.renderHelmet,
           sprites: d.sprites.map((s) => {
-            if (s.colors) return { id: s.id, colors: { ...s.colors } };
-            return { id: s.id };
+            const out: Record<string, unknown> = { id: s.id };
+            if (s.colors) out.colors = { ...s.colors };
+            if (s.rarity != null) out.rarity = s.rarity;
+            if (s.level != null) out.level = s.level;
+            return out;
           }),
           attachments: { ...d.attachments },
         };
