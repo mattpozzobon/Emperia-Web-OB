@@ -392,17 +392,26 @@ const SLOT_TO_EQUIP_FILTER: (EquipSlotFilter | null)[] = [
   'belt',       // 8 = Belt
 ];
 
-/** Derive the slot category from an entry name (mirrored from EquipmentSpriteMap). */
-function inferEquipSlot(entry: ItemToSpriteEntry): EquipSlotFilter | null {
+/** Derive the slot category from server slotType (authoritative) or entry name (fallback). */
+function inferEquipSlot(entry: ItemToSpriteEntry, slotType?: string): EquipSlotFilter | null {
+  // Server slotType is authoritative when available
+  if (slotType === 'head') return 'head';
+  if (slotType === 'body') return 'body';
+  if (slotType === 'legs') return 'legs';
+  if (slotType === 'feet') return 'feet';
+  if (slotType === 'backpack') return 'backpack';
+
+  // Fall back to name-based inference
   const n = entry.name.toLowerCase();
   if (n.includes('left-hand') || n.includes('lefthand') || n.includes('left hand')) return 'left-hand';
   if (n.includes('right-hand') || n.includes('righthand') || n.includes('right hand')) return 'right-hand';
-  if (n.includes('helmet') || n.includes('hat') || n.includes('crown')) return 'head';
+  // Check specific body-part keywords before ambiguous ones like 'crown'
   if (n.includes('armor') || n.includes('armour')) return 'body';
   if (n.includes(' legs') || n.includes(' leg')) return 'legs';
   if (n.includes('boots') || n.includes('boot') || n.includes('shoes')) return 'feet';
   if (n.includes('backpack') || n.includes('cape')) return 'backpack';
   if (n.includes('belt')) return 'belt';
+  if (n.includes('helmet') || n.includes('hat') || n.includes('crown helmet')) return 'head';
   if (n.includes('shield') || n.includes('orb')) return 'right-hand';
   if (n.includes('bow') || n.includes('crossbow') || n.includes('sword') || n.includes('axe') || n.includes('club') || n.includes('wand')) return 'left-hand';
   return null;
@@ -417,8 +426,16 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
   const objectData = useOBStore((s) => s.objectData);
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
+  const itemDefinitions = useOBStore((s) => s.itemDefinitions);
+  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
   const popRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
+
+  const getSlotType = useCallback((itemId: number): string | undefined => {
+    const sid = clientToServerIds.get(itemId);
+    const def = sid != null ? itemDefinitions.get(sid) : undefined;
+    return def?.properties?.slotType;
+  }, [clientToServerIds, itemDefinitions]);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (popRef.current && !popRef.current.contains(e.target as Node)) onClose(); };
@@ -429,12 +446,12 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return spriteMapEntries.filter((e) => {
-      const s = inferEquipSlot(e);
+      const s = inferEquipSlot(e, getSlotType(e.id));
       if (s !== slotFilter) return false;
       if (q && !e.name.toLowerCase().includes(q) && !e.sprite_id.toString().includes(q)) return false;
       return true;
     });
-  }, [spriteMapEntries, slotFilter, search]);
+  }, [spriteMapEntries, slotFilter, search, getSlotType]);
 
   return createPortal(
     <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/40">

@@ -26,17 +26,26 @@ const SLOT_FILTERS: { value: EquipSlotFilter; label: string }[] = [
   { value: 'belt', label: 'Belt' },
 ];
 
-/** Derive the slot category from an entry name. */
+/** Derive the slot category from server slotType (authoritative) or entry name (fallback). */
 function inferSlot(entry: ItemToSpriteEntry, slotType?: string): EquipSlotFilter | null {
+  // Server slotType is authoritative when available
+  if (slotType === 'head') return 'head';
+  if (slotType === 'body') return 'body';
+  if (slotType === 'legs') return 'legs';
+  if (slotType === 'feet') return 'feet';
+  if (slotType === 'backpack') return 'backpack';
+
+  // Fall back to name-based inference
   const n = entry.name.toLowerCase();
   if (n.includes('left-hand') || n.includes('lefthand') || n.includes('left hand')) return 'left-hand';
   if (n.includes('right-hand') || n.includes('righthand') || n.includes('right hand')) return 'right-hand';
-  if (slotType === 'head' || n.includes('helmet') || n.includes('hat') || n.includes('crown helmet')) return 'head';
-  if (slotType === 'body' || n.includes('armor') || n.includes('armour')) return 'body';
-  if (slotType === 'legs' || n.includes(' legs') || n.includes(' leg')) return 'legs';
-  if (slotType === 'feet' || n.includes('boots') || n.includes('boot') || n.includes('shoes')) return 'feet';
-  if (slotType === 'backpack' || n.includes('backpack') || n.includes('cape')) return 'backpack';
+  // Check specific body-part keywords before ambiguous ones like 'crown'
+  if (n.includes('armor') || n.includes('armour')) return 'body';
+  if (n.includes(' legs') || n.includes(' leg')) return 'legs';
+  if (n.includes('boots') || n.includes('boot') || n.includes('shoes')) return 'feet';
+  if (n.includes('backpack') || n.includes('cape')) return 'backpack';
   if (n.includes('belt')) return 'belt';
+  if (n.includes('helmet') || n.includes('hat') || n.includes('crown helmet')) return 'head';
   if (n.includes('shield') || n.includes('orb')) return 'right-hand';
   if (n.includes('bow') || n.includes('crossbow') || n.includes('sword') || n.includes('axe') || n.includes('club') || n.includes('wand')) return 'left-hand';
   return null;
