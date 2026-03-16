@@ -77,8 +77,16 @@ export function compileItemsXml(
     const attrs: { key: string; value: string }[] = [];
     if (props) {
       for (const key of XML_ATTRIBUTE_KEYS) {
-        const val = props[key];
+        let val = props[key];
         if (val === undefined || val === null || val === '') continue;
+
+        // RME needs the total container volume (base + exclusive slots).
+        // The server stores containerSize as the base (regular-slot) count and
+        // appends exclusive slots on top at runtime, so we sum them here.
+        if (key === 'containerSize' && props.exclusiveSlots) {
+          val = (Number(val) || 0) + props.exclusiveSlots.length;
+        }
+
         attrs.push({ key, value: String(val) });
       }
     }

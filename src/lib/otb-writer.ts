@@ -22,9 +22,10 @@ const NODE_INIT = 0xFE;
 const NODE_TERM = 0xFF;
 
 // OTB attribute types
-const ITEM_ATTR_SERVERID = 0x10;
-const ITEM_ATTR_CLIENTID = 0x11;
-const ITEM_ATTR_TOPORDER = 0x26;
+const ITEM_ATTR_SERVERID  = 0x10;
+const ITEM_ATTR_CLIENTID  = 0x11;
+const ITEM_ATTR_MAXITEMS  = 0x16; // container volume (u16)
+const ITEM_ATTR_TOPORDER  = 0x26;
 
 // OTB version header attribute
 const ROOT_ATTR_VERSION = 0x01;
@@ -54,35 +55,56 @@ function escapeBytes(raw: Uint8Array): Uint8Array {
 
 /**
  * Build the raw (unescaped) data for a single item node.
- * Layout: group(u8) + flags(u32) + SERVERID attr + CLIENTID attr [+ TOPORDER attr]
+ * Layout: group(u8) + flags(u32) + SERVERID attr + CLIENTID attr
+ *         [+ MAXITEMS attr] [+ TOPORDER attr]
  */
-function buildItemNodeData(serverID: number, clientID: number, group: number, flags: number, topOrder: number = 0): Uint8Array {
+function buildItemNodeData(
+  serverID: number,
+  clientID: number,
+  group: number,
+  flags: number,
+  topOrder: number = 0,
+  volume: number = 0,
+): Uint8Array {
   // 5 (header) + 5 (sid attr) + 5 (cid attr) = 15 bytes base
-  // + 4 bytes for TOPORDER attr if topOrder > 0: type(u8) + datalen(u16) + value(u8)
+  const hasVolume   = volume > 0;
   const hasTopOrder = topOrder > 0;
-  const size = hasTopOrder ? 19 : 15;
+  // MAXITEMS: type(u8) + datalen(u16) + value(u16) = 5
+  // TOPORDER: type(u8) + datalen(u16) + value(u8)  = 4
+  let size = 15;
+  if (hasVolume)   size += 5;
+  if (hasTopOrder) size += 4;
+
   const buf = new Uint8Array(size);
   const view = new DataView(buf.buffer);
+  let off = 0;
 
   // Group + flags
-  buf[0] = group & 0xFF;
-  view.setUint32(1, flags, true);
+  buf[off] = group & 0xFF; off += 1;
+  view.setUint32(off, flags, true); off += 4;
 
   // ITEM_ATTR_SERVERID: type(u8) + datalen(u16) + serverID(u16)
-  buf[5] = ITEM_ATTR_SERVERID;
-  view.setUint16(6, 2, true);
-  view.setUint16(8, serverID, true);
+  buf[off] = ITEM_ATTR_SERVERID; off += 1;
+  view.setUint16(off, 2, true); off += 2;
+  view.setUint16(off, serverID, true); off += 2;
 
   // ITEM_ATTR_CLIENTID: type(u8) + datalen(u16) + clientID(u16)
-  buf[10] = ITEM_ATTR_CLIENTID;
-  view.setUint16(11, 2, true);
-  view.setUint16(13, clientID, true);
+  buf[off] = ITEM_ATTR_CLIENTID; off += 1;
+  view.setUint16(off, 2, true); off += 2;
+  view.setUint16(off, clientID, true); off += 2;
+
+  // ITEM_ATTR_MAXITEMS: type(u8) + datalen(u16) + volume(u16)
+  if (hasVolume) {
+    buf[off] = ITEM_ATTR_MAXITEMS; off += 1;
+    view.setUint16(off, 2, true); off += 2;
+    view.setUint16(off, volume, true); off += 2;
+  }
 
   // ITEM_ATTR_TOPORDER: type(u8) + datalen(u16) + topOrder(u8)
   if (hasTopOrder) {
-    buf[15] = ITEM_ATTR_TOPORDER;
-    view.setUint16(16, 1, true);
-    buf[18] = topOrder & 0xFF;
+    buf[off] = ITEM_ATTR_TOPORDER; off += 1;
+    view.setUint16(off, 1, true); off += 2;
+    buf[off] = topOrder & 0xFF;
   }
 
   return buf;
@@ -153,7 +175,11 @@ export function compileItemsOtb(
   // Phase 1: Emit every definition entry
   for (const def of sortedDefs) {
     const clientID = def.id ?? def.serverId;
-    const raw = buildItemNodeData(def.serverId, clientID, def.group, def.flags, def.topOrder ?? 0);
+    // Compute total container volume: base containerSize + exclusive slots
+    const baseSize = def.properties?.containerSize ?? 0;
+    const exSlots  = def.properties?.exclusiveSlots?.length ?? 0;
+    const volume   = baseSize + exSlots;
+    const raw = buildItemNodeData(def.serverId, clientID, def.group, def.flags, def.topOrder ?? 0, volume);
     parts.push(new Uint8Array([NODE_INIT]));
     parts.push(escapeBytes(raw));
     parts.push(new Uint8Array([NODE_TERM]));
