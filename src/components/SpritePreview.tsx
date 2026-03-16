@@ -490,17 +490,31 @@ export function SpritePreview() {
             const px = previewMode ? (activeDirection < group.patternX ? activeDirection : 0) : cellCol;
             const py = previewMode ? (activePatternY < group.patternY ? activePatternY : 0) : cellRow;
 
-            // Place each tile from the group into the correct slot.
+            // Place each tile from the group into the correct pattern slots.
             // Group spriteIds are row-major (top-left to bottom-right).
+            // Each sprite maps to a pattern cell offset from the drop target.
             // OTB tile coords are flipped: tx=width-1 is left, ty=height-1 is top.
             let placed = false;
-            for (let row = 0; row < sg.rows && row < group.height; row++) {
-              for (let col = 0; col < sg.cols && col < group.width; col++) {
+            for (let row = 0; row < sg.rows; row++) {
+              for (let col = 0; col < sg.cols; col++) {
                 const sid = sg.spriteIds[row * sg.cols + col];
                 if (sid <= 0) continue;
-                const tx = group.width - 1 - col;
-                const ty = group.height - 1 - row;
-                const idx = getSpriteIndex(group, currentFrame, px, py, activeZ, activeLayer, tx, ty);
+
+                // Determine how many whole pattern cells vs sub-tile offsets this col/row spans
+                const absTileCol = col;
+                const absTileRow = row;
+                const cellOffsetX = Math.floor(absTileCol / group.width);
+                const cellOffsetY = Math.floor(absTileRow / group.height);
+                const tileInCellCol = absTileCol % group.width;
+                const tileInCellRow = absTileRow % group.height;
+
+                const targetPx = px + cellOffsetX;
+                const targetPy = py + cellOffsetY;
+                if (targetPx >= group.patternX || targetPy >= group.patternY) continue;
+
+                const tx = group.width - 1 - tileInCellCol;
+                const ty = group.height - 1 - tileInCellRow;
+                const idx = getSpriteIndex(group, currentFrame, targetPx, targetPy, activeZ, activeLayer, tx, ty);
                 if (idx >= 0 && idx < group.sprites.length) {
                   group.sprites[idx] = sid;
                   placed = true;

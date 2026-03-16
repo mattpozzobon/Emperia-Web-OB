@@ -91,13 +91,23 @@ function placeGroupOnFrame(
   py: number,
 ): boolean {
   let placed = false;
-  for (let row = 0; row < sg.rows && row < fg.height; row++) {
-    for (let col = 0; col < sg.cols && col < fg.width; col++) {
+  for (let row = 0; row < sg.rows; row++) {
+    for (let col = 0; col < sg.cols; col++) {
       const sid = sg.spriteIds[row * sg.cols + col];
       if (sid <= 0) continue;
-      const tx = fg.width - 1 - col;
-      const ty = fg.height - 1 - row;
-      const idx = getSpriteIndex(fg, frame, px, py, 0, 0, tx, ty);
+
+      const cellOffsetX = Math.floor(col / fg.width);
+      const cellOffsetY = Math.floor(row / fg.height);
+      const tileInCellCol = col % fg.width;
+      const tileInCellRow = row % fg.height;
+
+      const targetPx = px + cellOffsetX;
+      const targetPy = py + cellOffsetY;
+      if (targetPx >= fg.patternX || targetPy >= fg.patternY) continue;
+
+      const tx = fg.width - 1 - tileInCellCol;
+      const ty = fg.height - 1 - tileInCellRow;
+      const idx = getSpriteIndex(fg, frame, targetPx, targetPy, 0, 0, tx, ty);
       if (idx >= 0 && idx < fg.sprites.length) {
         fg.sprites[idx] = sid;
         placed = true;
