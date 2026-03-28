@@ -213,7 +213,8 @@ export async function runCompile(
       if (def.properties) {
         cleanProps = {};
         for (const [k, v] of Object.entries(def.properties)) {
-          if (v !== undefined && v !== null && v !== '') {
+          // Skip empty values and default "a" article
+          if (v !== undefined && v !== null && v !== '' && !(k === 'article' && v === 'a')) {
             cleanProps[k] = v;
           }
         }
@@ -231,6 +232,21 @@ export async function runCompile(
           delete cleanProps.friction;
           if (Object.keys(cleanProps).length === 0) cleanProps = null;
         }
+      }
+
+      // Inject light properties from DAT flags into items.json
+      if (thing?.category === 'item' && thing.flags.hasLight) {
+        const level = thing.flags.lightLevel ?? 0;
+        const color = thing.flags.lightColor ?? 0;
+        if (level > 0) {
+          cleanProps = cleanProps ?? {};
+          cleanProps.lightLevel = level;
+          cleanProps.lightColor = color;
+        }
+      } else if (cleanProps) {
+        delete cleanProps.lightLevel;
+        delete cleanProps.lightColor;
+        if (Object.keys(cleanProps).length === 0) cleanProps = null;
       }
 
       const entry: Record<string, unknown> = {};
