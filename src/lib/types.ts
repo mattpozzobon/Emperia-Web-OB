@@ -9,6 +9,7 @@ export interface FrameGroup {
   type: number;
   width: number;
   height: number;
+  exactSizeHint?: number;
   layers: number;
   patternX: number;
   patternY: number;

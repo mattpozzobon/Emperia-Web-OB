@@ -3,6 +3,7 @@
  * Extracted from Header.tsx to keep the component focused on UI.
  */
 import { useOBStore } from '../store';
+import { parseObjectData } from './object-parser';
 import { compileObjectData } from './object-writer';
 import { compileSpriteData } from './sprite-writer';
 import { gzipCompress } from './emperia-format';
@@ -181,14 +182,18 @@ export async function runCompile(
 
   // Step 0: Compile .eobj
   await runStep(0, async () => {
-    const allIds = new Set<number>();
-    for (let id = 100; id <= od.itemCount + od.outfitCount + od.effectCount + od.distanceCount; id++) {
-      allIds.add(id);
-    }
-    const objBuf = compileObjectData(od, allIds);
+    // Preserve untouched raw thing bytes when possible. The parser/writer pair is
+    // not perfectly lossless for every object byte, so full reserialization can
+    // introduce compatibility regressions in downstream editors.
+    const objBuf = compileObjectData(od, currentDirtyIds);
     await saveFile(objBuf, sourceHandles.obj, sourceNames.obj, 'emperia.eobj');
     compiledFiles.push({ name: sourceNames.obj || 'emperia.eobj', buf: objBuf });
     od.originalBuffer = objBuf;
+    const reparsed = parseObjectData(objBuf);
+    for (const [id, parsedThing] of reparsed.things) {
+      const currentThing = od.things.get(id);
+      if (currentThing) currentThing.rawBytes = parsedThing.rawBytes;
+    }
     return objBuf.byteLength;
   });
 

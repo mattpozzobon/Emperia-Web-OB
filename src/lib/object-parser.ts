@@ -214,9 +214,10 @@ function readFrameGroup(packet: PacketReader, version: number, hasGroupType: boo
   const type = hasGroupType ? packet.readUInt8() : 0;
   const width = packet.readUInt8();
   const height = packet.readUInt8();
+  let exactSizeHint: number | undefined;
 
   if (width > 1 || height > 1) {
-    packet.readUInt8(); // exact size hint — skip
+    exactSizeHint = packet.readUInt8();
   }
 
   const layers = packet.readUInt8();
@@ -244,7 +245,7 @@ function readFrameGroup(packet: PacketReader, version: number, hasGroupType: boo
   }
 
   return {
-    type, width, height, layers,
+    type, width, height, ...(exactSizeHint != null ? { exactSizeHint } : {}), layers,
     patternX, patternY, patternZ,
     animationLength, asynchronous, nLoop, start,
     animationLengths, sprites,

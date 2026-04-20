@@ -162,7 +162,7 @@ function writeFrameGroup(w: PacketWriter, fg: FrameGroup, version: number, write
   w.writeUInt8(fg.height);
 
   if (fg.width > 1 || fg.height > 1) {
-    w.writeUInt8(Math.max(fg.width, fg.height)); // exact size hint
+    w.writeUInt8(fg.exactSizeHint ?? Math.max(fg.width, fg.height));
   }
 
   w.writeUInt8(fg.layers);
