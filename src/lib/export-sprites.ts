@@ -1,9 +1,11 @@
 /**
- * Export selected items' sprites as individual PNG images bundled in a ZIP.
+ * Export selected things as individual PNG or OBD files bundled in a ZIP when needed.
  * Uses a minimal ZIP builder (no dependencies) for store-only (uncompressed) entries.
  */
 import { decodeSprite } from './sprite-decoder';
+import { encodeOBD } from './obd';
 import type { SpriteData, ObjectData, ThingType, ServerItemData } from './types';
+import { getDisplayId } from '../store/derived';
 
 // ── Minimal ZIP builder ────────────────────────────────────────────────────
 
@@ -129,6 +131,8 @@ export interface ExportContext {
   clientToServerIds: Map<number, number>;
 }
 
+export type BatchExportFormat = 'png' | 'obd';
+
 /**
  * Export each selected thing's first-frame sprite as an individual PNG.
  * If multiple items, bundles into a ZIP. Single item downloads directly.
@@ -181,6 +185,49 @@ export async function exportSelectedSprites(
   } else {
     const zip = buildZip(entries);
     downloadBlob(zip, 'sprites_export.zip', 'application/zip');
+  }
+}
+
+/**
+ * Export each selected thing as an individual OBD file.
+ * If multiple things are selected, bundles them into a ZIP.
+ */
+export async function exportSelectedOBD(
+  thingIds: number[],
+  ctx: ExportContext,
+): Promise<void> {
+  if (thingIds.length === 0) return;
+
+  const entries: ZipEntry[] = [];
+
+  for (const id of thingIds) {
+    const thing = ctx.objectData.things.get(id);
+    if (!thing) continue;
+
+    const displayId = getDisplayId(ctx.objectData, id);
+    const serverId = ctx.clientToServerIds.get(id);
+    const def = serverId != null ? ctx.itemDefinitions.get(serverId) : undefined;
+    const name = def?.properties?.name;
+    const prefix = name
+      ? `${thing.category}_${displayId}_${sanitize(name)}`
+      : `${thing.category}_${displayId}`;
+
+    const obd = encodeOBD({
+      thing,
+      clientVersion: 1098,
+      spriteData: ctx.spriteData,
+      spriteOverrides: ctx.spriteOverrides,
+    });
+    entries.push({ name: `${prefix}.obd`, data: obd });
+  }
+
+  if (entries.length === 0) return;
+
+  if (entries.length === 1) {
+    downloadBlob(entries[0].data, entries[0].name, 'application/octet-stream');
+  } else {
+    const zip = buildZip(entries);
+    downloadBlob(zip, 'things_export_obd.zip', 'application/zip');
   }
 }
 

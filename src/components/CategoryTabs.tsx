@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { Package, Shirt, Sparkles, ArrowRight, Search, Plus, Minus, Download, Trash2 } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
-import { exportSelectedSprites } from '../lib/export-sprites';
+import { exportSelectedSprites, exportSelectedOBD, type BatchExportFormat } from '../lib/export-sprites';
 import type { ThingCategory } from '../lib/types';
 
 const GROUP_LABELS: Record<number, string> = {
@@ -26,6 +27,7 @@ const CATEGORIES: { key: ThingCategory; label: string; icon: typeof Package }[] 
 ];
 
 export function CategoryTabs() {
+  const [exportFormat, setExportFormat] = useState<BatchExportFormat>('png');
   const activeCategory = useOBStore((s) => s.activeCategory);
   const setActiveCategory = useOBStore((s) => s.setActiveCategory);
   const objectData = useOBStore((s) => s.objectData);
@@ -54,13 +56,18 @@ export function CategoryTabs() {
       ? Array.from(selectedThingIds)
       : selectedThingId != null ? [selectedThingId] : [];
     if (ids.length === 0) return;
-    await exportSelectedSprites(ids, {
+    const exportCtx = {
       objectData,
       spriteData,
       spriteOverrides,
       itemDefinitions,
       clientToServerIds,
-    });
+    };
+    if (exportFormat === 'obd') {
+      await exportSelectedOBD(ids, exportCtx);
+      return;
+    }
+    await exportSelectedSprites(ids, exportCtx);
   };
 
   const getCategoryCount = (cat: ThingCategory) => {
@@ -126,11 +133,20 @@ export function CategoryTabs() {
             ))}
           </select>
         )}
+        <select
+          value={exportFormat}
+          onChange={(e) => setExportFormat(e.target.value as BatchExportFormat)}
+          className="text-[10px] bg-emperia-surface border border-emperia-border rounded px-1 py-1 text-emperia-text outline-none cursor-pointer max-w-[70px]"
+          title="Choose export format"
+        >
+          <option value="png">PNG</option>
+          <option value="obd">OBD</option>
+        </select>
         <button
           onClick={handleExport}
           disabled={!objectData || !spriteData || (selCount === 0 && selectedThingId == null)}
           className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-blue-400 hover:border-blue-400/50 disabled:opacity-30 transition-colors"
-          title={selCount > 0 ? `Export ${selCount} selected sprites` : 'Export selected sprite'}
+          title={selCount > 0 ? `Export ${selCount} selected ${exportFormat.toUpperCase()} files` : `Export selected ${exportFormat.toUpperCase()}`}
         >
           <Download className="w-3.5 h-3.5" />
         </button>
