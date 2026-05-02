@@ -16,14 +16,21 @@ function GroupRow({ group, index, placed }: { group: SpriteGroup; index: number;
   if (!spriteData) return null;
 
   const handleDragStart = (e: React.DragEvent) => {
+    useOBStore.setState({ draggingSpriteGroupId: group.id });
     e.dataTransfer.setData('application/x-sprite-group', JSON.stringify(group));
+    e.dataTransfer.setData('text/plain', `sprite-group:${group.id}`);
     e.dataTransfer.effectAllowed = 'copy';
+  };
+
+  const handleDragEnd = () => {
+    useOBStore.setState({ draggingSpriteGroupId: null });
   };
 
   return (
     <div
       draggable
       onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       className={`group flex items-center gap-1.5 px-1.5 py-1 rounded border transition-colors cursor-grab active:cursor-grabbing
         ${placed
           ? 'border-green-500/40 bg-green-500/10'

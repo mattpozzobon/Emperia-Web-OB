@@ -57,6 +57,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   importTileHeight: 1,
   spriteGroups: [],
   nextSpriteGroupId: 1,
+  draggingSpriteGroupId: null,
   selectedSlots: [],
   copiedThing: null,
 

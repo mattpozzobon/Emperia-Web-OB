@@ -9,6 +9,7 @@ import { PreviewToolbar } from './PreviewToolbar';
 import { ControlsPanel } from './ControlsPanel';
 import { FrameScrubber } from './FrameScrubber';
 import { LayerScrubber } from './LayerScrubber';
+import type { SpriteGroup } from '../store/store-types';
 
 
 export function SpritePreview() {
@@ -16,6 +17,8 @@ export function SpritePreview() {
   const objectData = useOBStore((s) => s.objectData);
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
+  const spriteGroups = useOBStore((s) => s.spriteGroups);
+  const draggingSpriteGroupId = useOBStore((s) => s.draggingSpriteGroupId);
   const replaceSprite = useOBStore((s) => s.replaceSprite);
   const addSprite = useOBStore((s) => s.addSprite);
   const editVersion = useOBStore((s) => s.editVersion);
@@ -472,10 +475,24 @@ export function SpritePreview() {
 
     // Handle sprite group drag-and-drop (multi-tile)
     const groupStr = e.dataTransfer.getData('application/x-sprite-group');
-    if (groupStr && thing && group) {
+    const plainDrag = e.dataTransfer.getData('text/plain');
+    let droppedGroup: Pick<SpriteGroup, 'cols' | 'rows' | 'spriteIds'> | null = null;
+    if (groupStr) {
       try {
-        const sg = JSON.parse(groupStr) as { cols: number; rows: number; spriteIds: number[] };
-        if (sg.spriteIds?.length === sg.cols * sg.rows) {
+        droppedGroup = JSON.parse(groupStr) as Pick<SpriteGroup, 'cols' | 'rows' | 'spriteIds'>;
+      } catch { /* ignore parse errors */ }
+    }
+    if (!droppedGroup && plainDrag.startsWith('sprite-group:')) {
+      const groupId = parseInt(plainDrag.slice('sprite-group:'.length), 10);
+      droppedGroup = spriteGroups.find((g) => g.id === groupId) ?? null;
+    }
+    if (!droppedGroup && draggingSpriteGroupId != null) {
+      droppedGroup = spriteGroups.find((g) => g.id === draggingSpriteGroupId) ?? null;
+    }
+    if (droppedGroup && thing && group) {
+      useOBStore.setState({ draggingSpriteGroupId: null });
+      const sg = droppedGroup;
+      if (sg.spriteIds?.length === sg.cols * sg.rows) {
           // Determine which pattern cell was dropped on
           const rect = canvasRef.current?.getBoundingClientRect();
           if (rect) {
@@ -484,55 +501,72 @@ export function SpritePreview() {
             const tileCol = Math.floor(canvasPixelX / 32);
             const tileRow = Math.floor(canvasPixelY / 32);
 
-            // Pattern cell the drop landed in
-            const cellCol = Math.floor(tileCol / group.width);
-            const cellRow = Math.floor(tileRow / group.height);
-            const px = previewMode ? (activeDirection < group.patternX ? activeDirection : 0) : cellCol;
-            const py = previewMode ? (activePatternY < group.patternY ? activePatternY : 0) : cellRow;
+            const totalCols = renderedPxCount * group.width;
+            const totalRows = renderedPyCount * group.height;
+            if (tileCol < 0 || tileCol >= totalCols || tileRow < 0 || tileRow >= totalRows) return;
+            const startTileCol = sg.cols === group.width
+              ? Math.floor(tileCol / group.width) * group.width
+              : Math.min(tileCol, Math.max(0, totalCols - sg.cols));
+            const startTileRow = sg.rows === group.height
+              ? Math.floor(tileRow / group.height) * group.height
+              : Math.min(tileRow, Math.max(0, totalRows - sg.rows));
 
-            // Place each tile from the group into the correct pattern slots.
+            // Replace each target slot from the tile under the cursor. Existing
+            // slots keep their sprite IDs; empty slots get a newly allocated sprite.
             // Group spriteIds are row-major (top-left to bottom-right).
-            // Each sprite maps to a pattern cell offset from the drop target.
             // OTB tile coords are flipped: tx=width-1 is left, ty=height-1 is top.
             let placed = false;
+            let rewiredObjectSprites = false;
             for (let row = 0; row < sg.rows; row++) {
               for (let col = 0; col < sg.cols; col++) {
                 const sid = sg.spriteIds[row * sg.cols + col];
                 if (sid <= 0) continue;
+                if (!spriteData) continue;
 
-                // Determine how many whole pattern cells vs sub-tile offsets this col/row spans
-                const absTileCol = col;
-                const absTileRow = row;
-                const cellOffsetX = Math.floor(absTileCol / group.width);
-                const cellOffsetY = Math.floor(absTileRow / group.height);
-                const tileInCellCol = absTileCol % group.width;
-                const tileInCellRow = absTileRow % group.height;
+                const rawData = spriteOverrides.get(sid) ?? decodeSprite(spriteData, sid);
+                if (!rawData) continue;
+                const imgData = new ImageData(new Uint8ClampedArray(rawData.data), 32, 32);
 
-                const targetPx = px + cellOffsetX;
-                const targetPy = py + cellOffsetY;
+                const targetTileCol = startTileCol + col;
+                const targetTileRow = startTileRow + row;
+                if (targetTileCol < 0 || targetTileCol >= totalCols || targetTileRow < 0 || targetTileRow >= totalRows) continue;
+
+                const renderedCellCol = Math.floor(targetTileCol / group.width);
+                const renderedCellRow = Math.floor(targetTileRow / group.height);
+                const targetPx = previewMode ? (activeDirection < group.patternX ? activeDirection : 0) : renderedCellCol;
+                const targetPy = previewMode ? (activePatternY < group.patternY ? activePatternY : 0) : renderedCellRow;
                 if (targetPx >= group.patternX || targetPy >= group.patternY) continue;
 
-                const tx = group.width - 1 - tileInCellCol;
-                const ty = group.height - 1 - tileInCellRow;
+                const tx = group.width - 1 - (targetTileCol % group.width);
+                const ty = group.height - 1 - (targetTileRow % group.height);
                 const idx = getSpriteIndex(group, currentFrame, targetPx, targetPy, activeZ, activeLayer, tx, ty);
                 if (idx >= 0 && idx < group.sprites.length) {
-                  group.sprites[idx] = sid;
-                  placed = true;
+                  const targetSpriteId = group.sprites[idx];
+                  if (targetSpriteId > 0) {
+                    replaceSprite(targetSpriteId, imgData);
+                    placed = true;
+                  } else {
+                    const newId = addSprite(imgData);
+                    if (newId != null) {
+                      group.sprites[idx] = newId;
+                      placed = true;
+                      rewiredObjectSprites = true;
+                    }
+                  }
                 }
               }
             }
             if (placed) {
-              thing.rawBytes = undefined;
+              if (rewiredObjectSprites) thing.rawBytes = undefined;
               clearSpriteCache();
               const store = useOBStore.getState();
               const newDirtyIds = new Set(store.dirtyIds);
-              newDirtyIds.add(thing.id);
+              if (rewiredObjectSprites) newDirtyIds.add(thing.id);
               useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1 });
             }
           }
           return;
-        }
-      } catch { /* ignore parse errors */ }
+      }
     }
 
     // Handle atlas sprite drag-and-drop (single)
@@ -558,7 +592,7 @@ export function SpritePreview() {
     if (e.dataTransfer.files.length > 0) {
       handleImageFiles(e.dataTransfer.files, e.clientX, e.clientY);
     }
-  }, [handleImageFiles, thing, group, getSlotIndexAtPosition, zoom, previewMode, activeDirection, activePatternY, activeZ, activeLayer, currentFrame]);
+  }, [handleImageFiles, thing, group, spriteData, spriteOverrides, spriteGroups, draggingSpriteGroupId, replaceSprite, addSprite, getSlotIndexAtPosition, zoom, renderedPxCount, renderedPyCount, previewMode, activeDirection, activePatternY, activeZ, activeLayer, currentFrame]);
 
   const handleCanvasClick = useCallback((e: React.MouseEvent) => {
     const slotIdx = getSlotIndexAtPosition(e.clientX, e.clientY);
@@ -689,6 +723,7 @@ export function SpritePreview() {
               onDragEnter={handleDragEnter}
               onDragOver={(e) => {
                 e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
                 if (canvasRef.current && group) {
                   const rect = canvasRef.current.getBoundingClientRect();
                   const col = Math.floor((e.clientX - rect.left) / (32 * zoom));
@@ -826,6 +861,7 @@ export function SpritePreview() {
           onDragEnter={handleDragEnter}
           onDragOver={(e) => {
             e.preventDefault();
+            e.dataTransfer.dropEffect = 'copy';
             if (canvasRef.current && group) {
               const rect = canvasRef.current.getBoundingClientRect();
               const col = Math.floor((e.clientX - rect.left) / (32 * zoom));
@@ -991,4 +1027,3 @@ export function SpritePreview() {
     </div>
   );
 }
-

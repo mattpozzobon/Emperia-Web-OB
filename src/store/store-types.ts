@@ -114,6 +114,8 @@ export interface OBState {
   spriteGroups: SpriteGroup[];
   /** Auto-incrementing counter for sprite group IDs */
   nextSpriteGroupId: number;
+  /** Sprite group currently being dragged onto the preview, if any */
+  draggingSpriteGroupId: number | null;
   /** Selected object sprite slots — shared between ObjectSlots and atlas for multi-select assignment */
   selectedSlots: { group: number; index: number }[];
   /** Clipboard for copy/paste of thing properties — each field is optional so partial copies work */
