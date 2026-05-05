@@ -32,6 +32,7 @@ export interface CompileState {
 export const STEP_LABELS = [
   'Objects (.eobj)',
   'Sprites (.espr)',
+  'Version Manifest',
   'Definitions (.json)',
   'Sprite Map (.json)',
   'Items OTB (.otb)',
@@ -59,6 +60,20 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function buildAssetVersion(): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, '0');
+
+  return `1.0.${[
+    String(now.getUTCFullYear()).slice(-2),
+    pad(now.getUTCMonth() + 1),
+    pad(now.getUTCDate()),
+    pad(now.getUTCHours()),
+    pad(now.getUTCMinutes()),
+    pad(now.getUTCSeconds()),
+  ].join('')}`;
 }
 
 // ─── Download queue ───────────────────────────────────────────────────────────
@@ -207,8 +222,18 @@ export async function runCompile(
     return sprBuf.byteLength;
   });
 
-  // Step 2: Compile items.json
+  // Step 2: Compile version.json
+  const assetVersion = buildAssetVersion();
   await runStep(2, async () => {
+    const versionJson = JSON.stringify({ version: assetVersion }, null, 2);
+    const buf = new TextEncoder().encode(versionJson).buffer;
+    await saveFile(buf, null, 'version.json', 'version.json');
+    compiledFiles.push({ name: 'version.json', buf });
+    return buf.byteLength;
+  });
+
+  // Step 3: Compile items.json
+  await runStep(3, async () => {
     const sortedServerIds = Array.from(itemDefinitions.keys()).sort((a, b) => a - b);
     const defsObj: Record<string, unknown> = {};
 
@@ -270,11 +295,11 @@ export async function runCompile(
     return buf.byteLength;
   });
 
-  // Step 3: Compile item-to-sprite.json
+  // Step 4: Compile item-to-sprite.json
   {
     const { spriteMapLoaded, exportSpriteMapJson } = useOBStore.getState();
     if (spriteMapLoaded) {
-      await runStep(3, async () => {
+      await runStep(4, async () => {
         const spriteMapJson = exportSpriteMapJson();
         const buf = new TextEncoder().encode(spriteMapJson).buffer;
         await saveFile(buf, sourceHandles.spriteMap, sourceNames.spriteMap, 'item-to-sprite.json');
@@ -282,39 +307,39 @@ export async function runCompile(
         return buf.byteLength;
       });
     } else {
-      skipStep(3);
+      skipStep(4);
     }
   }
 
-  // Step 4: Compile items.otb
+  // Step 5: Compile items.otb
   if (itemDefinitions.size > 0) {
-    await runStep(4, async () => {
+    await runStep(5, async () => {
       const otbBuf = compileItemsOtb(itemDefinitions, od);
       await saveFile(otbBuf, null, 'items.otb', 'items.otb');
       compiledFiles.push({ name: 'items.otb', buf: otbBuf });
       return otbBuf.byteLength;
     });
   } else {
-    skipStep(4);
+    skipStep(5);
   }
 
-  // Step 5: Compile items.xml
+  // Step 6: Compile items.xml
   if (itemDefinitions.size > 0) {
-    await runStep(5, async () => {
+    await runStep(6, async () => {
       const xmlBuf = compileItemsXml(itemDefinitions, od);
       await saveFile(xmlBuf, null, 'items.xml', 'items.xml');
       compiledFiles.push({ name: 'items.xml', buf: xmlBuf });
       return xmlBuf.byteLength;
     });
   } else {
-    skipStep(5);
+    skipStep(6);
   }
 
-  // Step 6: Compile hair-definitions.json
+  // Step 7: Compile hair-definitions.json
   {
     const { hairDefsLoaded, exportHairDefinitionsJson } = useOBStore.getState();
     if (hairDefsLoaded) {
-      await runStep(6, async () => {
+      await runStep(7, async () => {
         const hairJson = exportHairDefinitionsJson();
         const buf = new TextEncoder().encode(hairJson).buffer;
         await saveFile(buf, null, 'hair-definitions.json', 'hair-definitions.json');
@@ -322,13 +347,13 @@ export async function runCompile(
         return buf.byteLength;
       });
     } else {
-      skipStep(6);
+      skipStep(7);
     }
   }
 
-  // Step 7: Copy compiled files to extra output directories (filtered per dir)
+  // Step 8: Copy compiled files to extra output directories (filtered per dir)
   if (outputDirs.length > 0 && compiledFiles.length > 0) {
-    await runStep(7, async () => {
+    await runStep(8, async () => {
       let totalBytes = 0;
       for (const dir of outputDirs) {
         const filter = dir.files && dir.files.length > 0 ? dir.files : null;
@@ -348,7 +373,7 @@ export async function runCompile(
       return totalBytes;
     });
   } else {
-    skipStep(7);
+    skipStep(8);
   }
 
   // Finalize
