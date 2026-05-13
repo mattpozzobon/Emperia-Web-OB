@@ -511,21 +511,15 @@ export function SpritePreview() {
               ? Math.floor(tileRow / group.height) * group.height
               : Math.min(tileRow, Math.max(0, totalRows - sg.rows));
 
-            // Replace each target slot from the tile under the cursor. Existing
-            // slots keep their sprite IDs; empty slots get a newly allocated sprite.
+            // Wire each target slot to the dragged group sprite ID. This keeps
+            // the tray usage indicator in sync with what the object actually uses.
             // Group spriteIds are row-major (top-left to bottom-right).
             // OTB tile coords are flipped: tx=width-1 is left, ty=height-1 is top.
             let placed = false;
-            let rewiredObjectSprites = false;
             for (let row = 0; row < sg.rows; row++) {
               for (let col = 0; col < sg.cols; col++) {
                 const sid = sg.spriteIds[row * sg.cols + col];
                 if (sid <= 0) continue;
-                if (!spriteData) continue;
-
-                const rawData = spriteOverrides.get(sid) ?? decodeSprite(spriteData, sid);
-                if (!rawData) continue;
-                const imgData = new ImageData(new Uint8ClampedArray(rawData.data), 32, 32);
 
                 const targetTileCol = startTileCol + col;
                 const targetTileRow = startTileRow + row;
@@ -541,27 +535,17 @@ export function SpritePreview() {
                 const ty = group.height - 1 - (targetTileRow % group.height);
                 const idx = getSpriteIndex(group, currentFrame, targetPx, targetPy, activeZ, activeLayer, tx, ty);
                 if (idx >= 0 && idx < group.sprites.length) {
-                  const targetSpriteId = group.sprites[idx];
-                  if (targetSpriteId > 0) {
-                    replaceSprite(targetSpriteId, imgData);
-                    placed = true;
-                  } else {
-                    const newId = addSprite(imgData);
-                    if (newId != null) {
-                      group.sprites[idx] = newId;
-                      placed = true;
-                      rewiredObjectSprites = true;
-                    }
-                  }
+                  group.sprites[idx] = sid;
+                  placed = true;
                 }
               }
             }
             if (placed) {
-              if (rewiredObjectSprites) thing.rawBytes = undefined;
+              thing.rawBytes = undefined;
               clearSpriteCache();
               const store = useOBStore.getState();
               const newDirtyIds = new Set(store.dirtyIds);
-              if (rewiredObjectSprites) newDirtyIds.add(thing.id);
+              newDirtyIds.add(thing.id);
               useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1 });
             }
           }

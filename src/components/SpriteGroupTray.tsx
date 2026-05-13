@@ -1,5 +1,5 @@
-import { useCallback, useMemo } from 'react';
-import { X, ArrowDownToLine } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { X, ArrowDownToLine, GripHorizontal } from 'lucide-react';
 import { useOBStore } from '../store';
 import { getSpriteDataUrl, clearSpriteCache } from '../lib/sprite-decoder';
 import { getSpriteIndex } from './ui-primitives';
@@ -7,6 +7,9 @@ import type { SpriteGroup } from '../store/store-types';
 import type { FrameGroup } from '../lib/types';
 
 const TILE = 32;
+const MIN_TRAY_HEIGHT = 120;
+const DEFAULT_TRAY_HEIGHT = 260;
+const MAX_TRAY_HEIGHT_RATIO = 0.75;
 
 function GroupRow({ group, index, placed }: { group: SpriteGroup; index: number; placed: boolean }) {
   const spriteData = useOBStore((s) => s.spriteData);
@@ -130,6 +133,8 @@ export function SpriteGroupTray() {
   const selectedId = useOBStore((s) => s.selectedThingId);
   const objectData = useOBStore((s) => s.objectData);
   const editVersion = useOBStore((s) => s.editVersion);
+  const [trayHeight, setTrayHeight] = useState(DEFAULT_TRAY_HEIGHT);
+  const resizeStartRef = useRef<{ y: number; height: number } | null>(null);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
 
@@ -202,12 +207,48 @@ export function SpriteGroupTray() {
     }
   }, [thing, spriteGroups, placedSet]);
 
+  useEffect(() => {
+    const handlePointerMove = (e: PointerEvent) => {
+      const start = resizeStartRef.current;
+      if (!start) return;
+      const maxHeight = Math.max(MIN_TRAY_HEIGHT, Math.floor(window.innerHeight * MAX_TRAY_HEIGHT_RATIO));
+      const nextHeight = start.height + (start.y - e.clientY);
+      setTrayHeight(Math.min(maxHeight, Math.max(MIN_TRAY_HEIGHT, nextHeight)));
+    };
+    const handlePointerUp = () => {
+      resizeStartRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, []);
+
   if (spriteGroups.length === 0) return null;
 
   const unplacedCount = spriteGroups.length - placedSet.size;
 
   return (
-    <div className="border-t border-emperia-border shrink-0">
+    <div className="border-t border-emperia-border shrink-0 flex flex-col" style={{ height: trayHeight }}>
+      <div
+        className="h-2 -mt-px flex items-center justify-center cursor-ns-resize text-emperia-muted/40 hover:text-emperia-accent hover:bg-emperia-hover/60 transition-colors"
+        onPointerDown={(e) => {
+          resizeStartRef.current = { y: e.clientY, height: trayHeight };
+          document.body.style.cursor = 'ns-resize';
+          document.body.style.userSelect = 'none';
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        title="Drag to resize sprite groups"
+      >
+        <GripHorizontal className="w-4 h-4" />
+      </div>
       <div className="px-2 py-1 flex items-center justify-between">
         <span className="text-[10px] font-medium text-emperia-text uppercase tracking-wider">
           Sprite Groups
@@ -235,7 +276,7 @@ export function SpriteGroupTray() {
           </button>
         </div>
       </div>
-      <div className="px-1.5 pb-1.5 overflow-y-auto max-h-64 flex flex-col gap-1">
+      <div className="px-1.5 pb-1.5 overflow-y-auto min-h-0 flex-1 flex flex-col gap-1">
         {spriteGroups.map((group, i) => (
           <GroupRow key={group.id} group={group} index={i + 1} placed={placedSet.has(group.id)} />
         ))}
