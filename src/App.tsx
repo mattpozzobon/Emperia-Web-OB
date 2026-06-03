@@ -8,17 +8,15 @@ import { PropertyInspector } from './components/PropertyInspector';
 import { ThingSpriteGrid } from './components/ThingSpriteGrid';
 import { ObjectSlots } from './components/ObjectSlots';
 import { LayerPanel } from './components/LayerPanel';
-import { ServerPropertiesEditor } from './components/ServerPropertiesEditor';
 import { EquipmentSpriteMap } from './components/EquipmentSpriteMap';
 import { HairEditor } from './components/HairEditor';
 import { OutfitEditor } from './components/OutfitEditor';
 
-type CenterTab = 'texture' | 'properties' | 'server' | 'equipment' | 'hair' | 'outfits';
+type CenterTab = 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits';
 
 const TAB_LABELS: Record<CenterTab, string> = {
   texture: 'Texture',
   properties: 'Properties',
-  server: 'Server',
   equipment: 'Equipment',
   hair: 'Hair',
   outfits: 'Outfits',
@@ -75,7 +73,7 @@ export default function App() {
         {/* Center: Texture / Properties / Attributes */}
         <div className="flex-1 flex flex-col bg-emperia-bg overflow-hidden">
           <div className="flex items-center border-b border-emperia-border shrink-0">
-            {(['texture', 'properties', 'server', 'equipment', 'hair', 'outfits'] as CenterTab[]).map((tab) => (
+            {(['texture', 'properties', 'equipment', 'hair', 'outfits'] as CenterTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setCenterTab(tab)}
@@ -97,7 +95,6 @@ export default function App() {
           <div className="flex-1 overflow-y-auto">
             {centerTab === 'texture' && <SpritePreview />}
             {centerTab === 'properties' && <PropertyInspector />}
-            {centerTab === 'server' && <ServerPropertiesEditor />}
             {centerTab === 'equipment' && <EquipmentSpriteMap />}
             {centerTab === 'hair' && <HairEditor />}
             {centerTab === 'outfits' && <OutfitEditor />}

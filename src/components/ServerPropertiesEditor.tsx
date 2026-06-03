@@ -11,7 +11,56 @@ interface FieldDef {
   type: 'string' | 'number' | 'select' | 'boolean';
   options?: string[];
   placeholder?: string;
+  help?: string;
 }
+
+const FIELD_HELP: Record<string, string> = {
+  name: 'Server display name used in item look text, search, tooltips, and exports.',
+  article: 'Article prepended to the item name in English text, such as "a" or "an".',
+  description: 'Optional description sent in detailed item look/tooltips.',
+  type: 'Server gameplay class. This decides special runtime behavior such as containers, doors, runes, fluid containers, keys, and splashes.',
+  weaponType: 'Classifies the item for combat formulas and equipment rules.',
+  slotType: 'Equipment slot or item category used by equipment panels, restrictions, and outfit sprite mapping.',
+  ammoType: 'Ammunition category used by ranged weapons.',
+  shootType: 'Projectile visual/type identifier used by ranged attacks.',
+  damageElement: 'Element associated with this item or weapon damage.',
+  physicalAttack: 'Base physical attack value used by combat calculations.',
+  magicalAttack: 'Base magical attack value used by combat calculations.',
+  physicalDefense: 'Base physical defense value used by equipment/stat calculations.',
+  magicalDefense: 'Base magical defense value used by equipment/stat calculations.',
+  armor: 'Legacy armor/defense value kept for compatibility with existing item data.',
+  extradef: 'Extra defense modifier for shields or equipment.',
+  hitChance: 'Base hit chance modifier.',
+  maxHitChance: 'Maximum hit chance cap for this item.',
+  range: 'Attack or use range for ranged items.',
+  weight: 'Server-side weight. Pickupable items use this for capacity calculations and look details.',
+  speed: 'Optional movement speed-style property; most ground movement uses Ground Speed/Friction instead.',
+  friction: 'Ground movement speed exported from the client Ground flag. Non-default values affect walking over this tile.',
+  floorchange: 'Marks tiles that move the player between floors in a direction.',
+  level: 'Minimum player level requirement.',
+  expertise: 'Minimum expertise requirement.',
+  containerSize: 'Number of normal container slots.',
+  containerSizePotions: 'Potion-only slot count for potion belts or similar containers.',
+  weightReduction: 'Capacity/weight reduction applied by this container.',
+  charges: 'Number of uses or charges shown/consumed by chargeable items.',
+  duration: 'Duration in seconds/ticks for decaying or timed items.',
+  decayTo: 'Item id this item transforms into after duration expires.',
+  destroyTo: 'Item id this item becomes when destroyed.',
+  rotateTo: 'Item id this item becomes when rotated.',
+  transformEquipTo: 'Item id this item becomes when equipped.',
+  transformDeEquipTo: 'Item id this item becomes when unequipped.',
+  fluidSource: 'Fluid provided when an empty fluid container is used on this item, such as water, blood, or slime.',
+  field: 'Magic field metadata used by field items.',
+  readable: 'Allows the item to be read.',
+  writeable: 'Allows text to be written to the item.',
+  maxTextLen: 'Maximum text length for readable or writeable items.',
+  healthGain: 'Health regenerated per tick while this item effect is active.',
+  healthTicks: 'Interval for health regeneration.',
+  manaGain: 'Mana regenerated per tick while this item effect is active.',
+  manaTicks: 'Interval for mana regeneration.',
+  maxUses: 'Maximum number of tool uses before depletion or breakage.',
+  uses: 'Current/default uses value for tool items.',
+};
 
 // Unified slot types: equipment slots + tool/item categories (used for both slotType and exclusive slot restrictions)
 const SLOT_TYPES = [
@@ -24,22 +73,41 @@ const SLOT_TYPES = [
   'potion', 'food', 'rune', 'key',
 ] as const;
 
+const FLUID_SOURCE_OPTIONS = [
+  '',
+  'water',
+  'blood',
+  'beer',
+  'slime',
+  'lemonade',
+  'milk',
+  'mana',
+  'oil',
+  'urine',
+  'coconutmilk',
+  'wine',
+  'mud',
+  'fruitjuice',
+  'lava',
+  'rum',
+] as const;
+
 const IDENTITY_FIELDS: FieldDef[] = [
-  { key: 'name', label: 'Name', type: 'string' },
-  { key: 'article', label: 'Article', type: 'string', placeholder: 'a / an' },
-  { key: 'description', label: 'Description', type: 'string' },
+  { key: 'name', label: 'Name', type: 'string', help: FIELD_HELP.name },
+  { key: 'article', label: 'Article', type: 'string', placeholder: 'a / an', help: FIELD_HELP.article },
+  { key: 'description', label: 'Description', type: 'string', help: FIELD_HELP.description },
   { key: 'type', label: 'Type', type: 'select', options: [
     '', 'bed', 'container', 'corpse', 'depot', 'door', 'fluidContainer',
     'key', 'magicfield', 'mailbox', 'readable', 'rune', 'splash',
     'teleport', 'trashholder', 'window',
-  ]},
+  ], help: FIELD_HELP.type },
 ];
 
 const EQUIPMENT_FIELDS: FieldDef[] = [
   { key: 'weaponType', label: 'Weapon Type', type: 'select', options: [
     '', 'sword', 'axe', 'club', 'distance', 'shield', 'wand', 'orb', 'magical',
   ]},
-  { key: 'slotType', label: 'Slot Type', type: 'select', options: ['', ...SLOT_TYPES] },
+  { key: 'slotType', label: 'Slot Type', type: 'select', options: ['', ...SLOT_TYPES], help: FIELD_HELP.slotType },
   { key: 'ammoType', label: 'Ammo Type', type: 'string' },
   { key: 'shootType', label: 'Shoot Type', type: 'string' },
   { key: 'damageElement', label: 'Damage Element', type: 'select', options: [
@@ -88,7 +156,7 @@ const DECAY_FIELDS: FieldDef[] = [
 ];
 
 const SPECIAL_FIELDS: FieldDef[] = [
-  { key: 'fluidSource', label: 'Fluid Source', type: 'string' },
+  { key: 'fluidSource', label: 'Fluid Source', type: 'select', options: [...FLUID_SOURCE_OPTIONS], help: FIELD_HELP.fluidSource },
   { key: 'field', label: 'Field', type: 'string' },
   { key: 'readable', label: 'Readable', type: 'boolean' },
   { key: 'writeable', label: 'Writeable', type: 'boolean' },
@@ -354,6 +422,23 @@ export function ServerPropertiesEditor() {
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
 
+function HelpButton({ text }: { text: string }) {
+  return (
+    <button
+      type="button"
+      title={text}
+      aria-label={text}
+      className="w-4 h-4 rounded-full border border-emperia-border text-[10px] leading-none text-emperia-muted hover:text-emperia-accent hover:border-emperia-accent/70 transition-colors shrink-0"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      ?
+    </button>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
@@ -524,6 +609,13 @@ function FieldRow({
   onChange: (value: string | number | boolean | undefined) => void;
 }) {
   const { label, type, options, placeholder } = field;
+  const help = field.help ?? FIELD_HELP[field.key] ?? `${label} server property.`;
+  const labelNode = (
+    <span className="w-28 text-emperia-muted shrink-0 flex items-center gap-1">
+      <span>{label}</span>
+      <HelpButton text={help} />
+    </span>
+  );
 
   if (type === 'boolean') {
     return (
@@ -535,6 +627,7 @@ function FieldRow({
           className="accent-emperia-accent"
         />
         <span className="text-emperia-text">{label}</span>
+        <HelpButton text={help} />
       </label>
     );
   }
@@ -542,7 +635,7 @@ function FieldRow({
   if (type === 'select') {
     return (
       <div className="flex items-center gap-2">
-        <span className="w-28 text-emperia-muted shrink-0">{label}</span>
+        {labelNode}
         <select
           value={value != null ? String(value) : ''}
           onChange={(e) => onChange(e.target.value || undefined)}
@@ -559,7 +652,7 @@ function FieldRow({
   if (type === 'number') {
     return (
       <div className="flex items-center gap-2">
-        <span className="w-28 text-emperia-muted shrink-0">{label}</span>
+        {labelNode}
         <input
           type="number"
           value={value != null ? String(value) : ''}
@@ -579,7 +672,7 @@ function FieldRow({
   // string
   return (
     <div className="flex items-center gap-2">
-      <span className="w-28 text-emperia-muted shrink-0">{label}</span>
+      {labelNode}
       <input
         type="text"
         value={value != null ? String(value) : ''}

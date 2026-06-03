@@ -94,7 +94,7 @@ export interface OBState {
   outputDirs: OutputDir[];
 
   // UI state
-  centerTab: 'texture' | 'properties' | 'server' | 'equipment' | 'hair' | 'outfits';
+  centerTab: 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits';
   activeCategory: ThingCategory;
   selectedThingId: number | null;
   /** Multi-select set (Ctrl+click / Shift+click in ThingGrid) */

@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, Copy, ClipboardPaste } from 'lucide-react';
 import { useOBStore } from '../store';
 import type { ThingFlags } from '../lib/types';
 import { ColorPalettePopover } from './ColorPalettePopover';
+import { ServerPropertiesEditor } from './ServerPropertiesEditor';
 
 // Numeric sub-properties shown inline when their parent flag is active
 interface NumericProp {
@@ -11,6 +12,7 @@ interface NumericProp {
   min?: number;
   max?: number;
   colorType?: 'light' | 'minimap';
+  help?: string;
 }
 
 // A single flag entry, optionally with inline numeric sub-properties
@@ -18,7 +20,63 @@ interface FlagEntry {
   key: keyof ThingFlags;
   label: string;
   numericProps?: NumericProp[];
+  help?: string;
 }
+
+const FLAG_HELP: Partial<Record<keyof ThingFlags, string>> = {
+  ground: 'Client flag for floor tiles. Enables ground speed and makes the server derive ground group/friction.',
+  groundBorder: 'Draws as a ground border/top-order tile and derives the server ground group.',
+  onBottom: 'Renders below regular items on a tile.',
+  onTop: 'Renders above regular items on a tile.',
+  fullGround: 'Marks the sprite as filling the full tile for rendering and OTB export.',
+  topEffect: 'Renders this effect above other tile layers.',
+  notWalkable: 'Blocks creature movement through this item.',
+  notMoveable: 'Prevents players from moving or dragging this item.',
+  blockProjectile: 'Blocks projectiles and line-of-sight checks.',
+  notPathable: 'Prevents pathfinding from using this tile.',
+  fluidContainer: 'Client flag for buckets, vials, bottles, and similar containers. Usually pairs with server type fluidContainer.',
+  splash: 'Client flag for splash/liquid puddle items. Usually pairs with server type splash.',
+  pickupable: 'Allows the item to be picked up and moved into inventory/containers.',
+  stackable: 'Allows multiple items to share one stack/count.',
+  container: 'Client flag for containers. Usually pairs with server type container and containerSize.',
+  forceUse: 'Makes the client/server treat the item as directly useable.',
+  multiUse: 'Allows use-with interactions against another target.',
+  usable: 'Legacy/client use action flag with an action id.',
+  rotateable: 'Allows the item to rotate into its rotateTo target.',
+  wrapable: 'Allows wrapping this item.',
+  unwrapable: 'Allows unwrapping this item.',
+  hangable: 'Allows this item to hang on wall hooks.',
+  hookSouth: 'Wall hook orientation for south-facing walls.',
+  hookEast: 'Wall hook orientation for east-facing walls.',
+  writable: 'Allows text writing and stores a client max text length.',
+  writableOnce: 'Allows text writing once, then locks further edits.',
+  hasLight: 'Emits client light from the item sprite.',
+  hasDisplacement: 'Offsets sprite drawing from the default tile position.',
+  hasElevation: 'Adds visual height and can affect server height/standing behavior.',
+  hasMinimapColor: 'Paints this item with a minimap color.',
+  translucent: 'Allows looking through this item and maps to look-through behavior.',
+  dontHide: 'Prevents hiding this item behind some visual layers.',
+  animateAlways: 'Keeps the animation running even when it might normally pause.',
+  noMoveAnimation: 'Disables movement animation behavior for this item.',
+  cloth: 'Marks this as an outfit/equipment cloth sprite category.',
+  hasMarket: 'Carries legacy market metadata from the object file.',
+  chargeable: 'Marks the item as having client-visible charges.',
+  lyingCorpse: 'Corpse rendering flag for bodies lying on the ground.',
+  look: 'Legacy look-through/look flag from object data.',
+};
+
+const NUMERIC_HELP: Partial<Record<keyof ThingFlags, string>> = {
+  groundSpeed: 'Movement speed/friction for ground tiles. Non-default values are exported to server friction.',
+  writableMaxLen: 'Maximum characters for writable items.',
+  writableOnceMaxLen: 'Maximum characters for write-once items.',
+  lightLevel: 'Strength/radius of the emitted client light.',
+  lightColor: 'Palette color of the emitted client light.',
+  displacementX: 'Horizontal sprite draw offset.',
+  displacementY: 'Vertical sprite draw offset.',
+  elevation: 'Visual height value for raised items.',
+  minimapColor: 'Palette color shown on the minimap.',
+  clothSlot: 'Legacy cloth/equipment slot id.',
+};
 
 // Organized flag groups — `wide` groups span full width (they have numeric sub-properties)
 const FLAG_GROUPS: { title: string; flags: FlagEntry[]; wide?: boolean }[] = [
@@ -198,7 +256,7 @@ export function PropertyInspector() {
   }
 
   return (
-    <div className="p-3 text-xs space-y-1">
+    <div className="p-3 text-xs space-y-3">
       <div className="flex items-center gap-1 mb-1">
         <button
           onClick={handleCopyProps}
@@ -225,6 +283,8 @@ export function PropertyInspector() {
           <span className="text-[9px] text-emperia-accent ml-1">{copiedThing?.label}</span>
         )}
       </div>
+      <div>
+        <h3 className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider mb-1">Client Object Flags</h3>
       <div className="grid grid-cols-4 gap-1">
         {FLAG_GROUPS.map((group) => {
           const activeCount = group.flags.filter(f => !!thing.flags[f.key]).length;
@@ -243,7 +303,29 @@ export function PropertyInspector() {
           );
         })}
       </div>
+      </div>
+      <div>
+        <h3 className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider mb-1">Server Item Definition</h3>
+        <ServerPropertiesEditor />
+      </div>
     </div>
+  );
+}
+
+function HelpButton({ text }: { text: string }) {
+  return (
+    <button
+      type="button"
+      title={text}
+      aria-label={text}
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+      className="w-4 h-4 rounded-full border border-emperia-border text-[10px] leading-none text-emperia-muted hover:text-emperia-accent hover:border-emperia-accent/70 transition-colors shrink-0"
+    >
+      ?
+    </button>
   );
 }
 
@@ -287,6 +369,7 @@ function FlagGroupSection({
         <div className="px-1 py-0.5">
           {flags.map(({ key, label, numericProps }) => {
             const checked = !!thingFlags[key];
+            const help = FLAG_HELP[key] ?? `${label} client object flag.`;
             return (
               <div key={key}>
                 <label className="flex items-center gap-2 py-[3px] px-1 rounded hover:bg-emperia-hover cursor-pointer select-none">
@@ -299,20 +382,27 @@ function FlagGroupSection({
                   <span className={checked ? 'text-emperia-text' : 'text-emperia-muted'}>
                     {label}
                   </span>
+                  <HelpButton text={help} />
                 </label>
                 {checked && numericProps && numericProps.length > 0 && (
                   <div className="ml-7 mb-1 flex flex-wrap gap-x-3 gap-y-0.5">
                     {numericProps.map((np) => (
                       <div key={np.key} className="flex items-center gap-1.5">
                         {np.colorType ? (
-                          <ColorPalettePopover
-                            type={np.colorType}
-                            value={(thingFlags[np.key] as number) ?? 0}
-                            onChange={(v) => onNumericChange(np.key, v)}
-                          />
+                          <>
+                            <ColorPalettePopover
+                              type={np.colorType}
+                              value={(thingFlags[np.key] as number) ?? 0}
+                              onChange={(v) => onNumericChange(np.key, v)}
+                            />
+                            <HelpButton text={np.help ?? NUMERIC_HELP[np.key] ?? `${np.label} value.`} />
+                          </>
                         ) : (
                           <>
-                            <span className="text-emperia-muted text-[10px]">{np.label}</span>
+                            <span className="text-emperia-muted text-[10px] flex items-center gap-1">
+                              {np.label}
+                              <HelpButton text={np.help ?? NUMERIC_HELP[np.key] ?? `${np.label} value.`} />
+                            </span>
                             <input
                               type="number"
                               value={thingFlags[np.key] as number ?? 0}
