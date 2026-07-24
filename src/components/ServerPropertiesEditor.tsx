@@ -69,7 +69,7 @@ const SLOT_TYPES = [
   'left-hand', 'right-hand', 'hand', 'two-handed',
   'ring', 'necklace', 'backpack', 'belt', 'ammo', 'quiver',
   // Tool / item categories
-  'rope', 'shovel', 'pick', 'knife', 'fishingRod',
+  'rope', 'shovel', 'pick', 'knife', 'machete', 'fishingRod',
   'potion', 'food', 'rune', 'key',
 ] as const;
 

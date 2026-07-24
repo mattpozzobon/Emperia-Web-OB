@@ -55,6 +55,7 @@ const FLAG = {
   FULL_GROUND: 0x1F, IGNORE_LOOK: 0x20, CLOTH: 0x21,
   MARKET_ITEM: 0x22, DEFAULT_ACTION: 0x23,
   WRAPPABLE: 0x24, UNWRAPPABLE: 0x25, TOP_EFFECT: 0x26,
+  RENDER_BELOW_CREATURES: 0x27,
   HAS_CHARGES: 0xFC, FLOOR_CHANGE: 0xFD, USABLE: 0xFE,
 } as const;
 
@@ -187,6 +188,7 @@ function writeFlags(w: BWriter, f: ThingFlags) {
   if (f.wrapable) w.u8(FLAG.WRAPPABLE);
   if (f.unwrapable) w.u8(FLAG.UNWRAPPABLE);
   if (f.topEffect) w.u8(FLAG.TOP_EFFECT);
+  if (f.renderBelowCreatures) w.u8(FLAG.RENDER_BELOW_CREATURES);
   if (f.chargeable) w.u8(FLAG.HAS_CHARGES);
   w.u8(LAST_FLAG);
 }
@@ -202,7 +204,7 @@ function readFlags(r: BReader): ThingFlags {
     hasDisplacement: false, hasElevation: false, lyingCorpse: false,
     animateAlways: false, hasMinimapColor: false, fullGround: false, look: false,
     cloth: false, hasMarket: false, usable: false, wrapable: false,
-    unwrapable: false, topEffect: false, noMoveAnimation: false, chargeable: false,
+    unwrapable: false, topEffect: false, renderBelowCreatures: false, noMoveAnimation: false, chargeable: false,
   };
 
   while (true) {
@@ -260,6 +262,7 @@ function readFlags(r: BReader): ThingFlags {
       case FLAG.WRAPPABLE: f.wrapable = true; break;
       case FLAG.UNWRAPPABLE: f.unwrapable = true; break;
       case FLAG.TOP_EFFECT: f.topEffect = true; break;
+      case FLAG.RENDER_BELOW_CREATURES: f.renderBelowCreatures = true; break;
       case FLAG.USABLE: f.usable = true; break;
       default: throw new Error(`Unknown OBD flag 0x${flag.toString(16)}`);
     }

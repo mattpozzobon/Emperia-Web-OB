@@ -53,6 +53,7 @@ const ATTR = {
   ThingAttrTopEffect: 37,
   ThingAttrOpacity: 100,
   ThingAttrNotPreWalkable: 101,
+  ThingAttrRenderBelowCreatures: 102,
   ThingAttrFloorChange: 252,
   ThingAttrNoMoveAnimation: 253,
   ThingAttrChargeable: 254,
@@ -103,6 +104,7 @@ function emptyFlags(): ThingFlags {
     lyingCorpse: false, animateAlways: false, hasMinimapColor: false,
     fullGround: false, look: false, cloth: false, hasMarket: false,
     usable: false, wrapable: false, unwrapable: false, topEffect: false,
+    renderBelowCreatures: false,
     noMoveAnimation: false, chargeable: false,
   };
 }
@@ -158,9 +160,8 @@ function readFlags(packet: PacketReader, version: number): ThingFlags {
       case ATTR.ThingAttrDisplacement: {
         flags.hasDisplacement = true;
         if (version >= 755) {
-          const d = packet.readLight();
-          flags.displacementX = d.level;
-          flags.displacementY = d.color;
+          flags.displacementX = packet.readInt16();
+          flags.displacementY = packet.readInt16();
         }
         break;
       }
@@ -201,6 +202,7 @@ function readFlags(packet: PacketReader, version: number): ThingFlags {
       case ATTR.ThingAttrTopEffect: flags.topEffect = true; break;
       case ATTR.ThingAttrOpacity: break;
       case ATTR.ThingAttrNotPreWalkable: break;
+      case ATTR.ThingAttrRenderBelowCreatures: flags.renderBelowCreatures = true; break;
       case ATTR.ThingAttrFloorChange: break;
       case ATTR.ThingAttrNoMoveAnimation: flags.noMoveAnimation = true; break;
       case ATTR.ThingAttrChargeable: flags.chargeable = true; break;

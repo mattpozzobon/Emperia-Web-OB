@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, ImageUp, Download, Upload, Crop, Eye, Copy, ClipboardPaste, Pin, PinOff } from 'lucide-react';
+import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, ImageUp, Download, Upload, Crop, Eye, Copy, ClipboardPaste, Pin, PinOff, UserRound } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
 import { encodeOBD, decodeOBD } from '../lib/obd';
@@ -32,6 +32,8 @@ interface PreviewToolbarProps {
   copyMenuRef: React.RefObject<HTMLDivElement | null>;
   baseOutfitId: number | null;
   setBaseOutfitId: (id: number | null) => void;
+  showEffectOutfitReference: boolean;
+  setShowEffectOutfitReference: (show: boolean) => void;
 }
 
 export function PreviewToolbar({
@@ -40,6 +42,7 @@ export function PreviewToolbar({
   previewMode, setPreviewMode, playing, setPlaying, currentFrame, setCurrentFrame,
   canvasRef, handleImageFiles, copyMenuOpen, setCopyMenuOpen, copyMenuRef,
   baseOutfitId, setBaseOutfitId,
+  showEffectOutfitReference, setShowEffectOutfitReference,
 }: PreviewToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const obdImportRef = useRef<HTMLInputElement>(null);
@@ -236,6 +239,24 @@ export function PreviewToolbar({
               {baseOutfitId === thing.id ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
             </button>
           </div>
+        </>
+      )}
+
+      {category === 'effect' && objectData && (
+        <>
+          <div className="flex-1" />
+          <button
+            onClick={() => setShowEffectOutfitReference(!showEffectOutfitReference)}
+            className={`flex items-center gap-1 px-1.5 py-1 rounded transition-colors ${
+              showEffectOutfitReference
+                ? 'bg-sky-500/20 text-sky-400'
+                : 'text-emperia-muted hover:text-sky-400 hover:bg-sky-500/10'
+            }`}
+            title={showEffectOutfitReference ? 'Hide outfit #135 reference' : 'Show outfit #135 behind the effect'}
+          >
+            <UserRound className="w-3.5 h-3.5" />
+            <span className="text-[9px]">Outfit 135</span>
+          </button>
         </>
       )}
     </div>

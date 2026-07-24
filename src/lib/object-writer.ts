@@ -45,6 +45,7 @@ const ATTR = {
   ThingAttrWrapable: 35,
   ThingAttrUnwrapable: 36,
   ThingAttrTopEffect: 37,
+  ThingAttrRenderBelowCreatures: 102,
   ThingAttrNoMoveAnimation: 253,
   ThingAttrChargeable: 254,
   ThingAttrLast: 255,
@@ -148,6 +149,7 @@ function writeFlags(w: PacketWriter, flags: ThingFlags, version: number): void {
   if (flags.wrapable) writeAttr(ATTR.ThingAttrWrapable);
   if (flags.unwrapable) writeAttr(ATTR.ThingAttrUnwrapable);
   if (flags.topEffect) writeAttr(ATTR.ThingAttrTopEffect);
+  if (flags.renderBelowCreatures) writeAttr(ATTR.ThingAttrRenderBelowCreatures);
   if (flags.noMoveAnimation) writeAttr(ATTR.ThingAttrNoMoveAnimation);
   if (flags.chargeable) writeAttr(ATTR.ThingAttrChargeable);
 

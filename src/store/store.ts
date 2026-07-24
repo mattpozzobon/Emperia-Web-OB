@@ -495,7 +495,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       hasDisplacement: false, hasElevation: false, lyingCorpse: false,
       animateAlways: false, hasMinimapColor: false, fullGround: false, look: false,
       cloth: false, hasMarket: false, usable: false, wrapable: false,
-      unwrapable: false, topEffect: false, noMoveAnimation: false, chargeable: false,
+      unwrapable: false, topEffect: false, renderBelowCreatures: false, noMoveAnimation: false, chargeable: false,
     };
 
     const defaultFrameGroup = {
@@ -618,7 +618,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       hasDisplacement: false, hasElevation: false, lyingCorpse: false,
       animateAlways: false, hasMinimapColor: false, fullGround: false, look: false,
       cloth: false, hasMarket: false, usable: false, wrapable: false,
-      unwrapable: false, topEffect: false, noMoveAnimation: false, chargeable: false,
+      unwrapable: false, topEffect: false, renderBelowCreatures: false, noMoveAnimation: false, chargeable: false,
     };
 
     const emptyFrameGroup = {

@@ -6,6 +6,7 @@ import { useOBStore } from '../store';
 import { parseObjectData } from './object-parser';
 import { compileObjectData } from './object-writer';
 import { compileSpriteData } from './sprite-writer';
+import { parseSpriteData } from './sprite-decoder';
 import { gzipCompress } from './emperia-format';
 import { compileItemsOtb } from './otb-writer';
 import { compileItemsXml } from './items-xml-writer';
@@ -218,7 +219,16 @@ export async function runCompile(
     const sprBuf = await gzipCompress(sprBufRaw);
     await saveFile(sprBuf, sourceHandles.spr, sourceNames.spr, 'emperia.espr');
     compiledFiles.push({ name: sourceNames.spr || 'emperia.espr', buf: sprBuf });
-    sd.originalBuffer = sprBufRaw;
+
+    // Make the newly compiled atlas the in-memory baseline. Updating only
+    // originalBuffer leaves buffer/addresses pointing at the file that was
+    // initially opened, so a second compile can rebuild from stale sprite data.
+    const reparsed = parseSpriteData(sprBufRaw);
+    sd.version = reparsed.version;
+    sd.spriteCount = reparsed.spriteCount;
+    sd.addresses = reparsed.addresses;
+    sd.buffer = reparsed.buffer;
+    sd.originalBuffer = reparsed.originalBuffer;
     return sprBuf.byteLength;
   });
 

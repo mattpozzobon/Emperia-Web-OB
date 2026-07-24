@@ -35,6 +35,11 @@ export default class PacketReader {
     return this.buffer[this.index++] + (this.buffer[this.index++] << 8);
   }
 
+  readInt16(): number {
+    const value = this.readUInt16();
+    return value > 0x7FFF ? value - 0x10000 : value;
+  }
+
   readUInt32(): number {
     return (
       this.buffer[this.index++] +

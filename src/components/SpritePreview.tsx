@@ -58,6 +58,7 @@ export function SpritePreview() {
   const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const copyMenuRef = useRef<HTMLDivElement>(null);
   const [baseOutfitId, setBaseOutfitId] = useState<number | null>(null);
+  const [showEffectOutfitReference, setShowEffectOutfitReference] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameTimerRef = useRef<number>(0);
@@ -67,6 +68,10 @@ export function SpritePreview() {
   const isOutfit = category === 'outfit';
   const isEffect = category === 'effect';
   const isDistance = category === 'distance';
+  const effectReferenceOutfitId = isEffect && showEffectOutfitReference && objectData
+    ? objectData.itemCount + 135
+    : null;
+  const previewBaseOutfitId = isEffect ? effectReferenceOutfitId : baseOutfitId;
 
   useEffect(() => {
     setActiveGroup(0);
@@ -91,6 +96,9 @@ export function SpritePreview() {
   }, [copyMenuOpen]);
 
   const group: FrameGroup | null = thing?.frameGroups[activeGroup] ?? null;
+  const effectReferenceGroup = effectReferenceOutfitId != null
+    ? objectData?.things.get(effectReferenceOutfitId)?.frameGroups[0] ?? null
+    : null;
 
   // Helper: render a single thing's frame group onto a canvas context using drawImage (alpha-composites)
   const renderThingLayer = useCallback((
@@ -176,20 +184,28 @@ export function SpritePreview() {
     const colsRendered = pxRange.length;
     const rowsRendered = pyRange.length;
 
-    const hasBase = baseOutfitId != null && baseOutfitId !== selectedId;
+    const hasBase = previewBaseOutfitId != null && previewBaseOutfitId !== selectedId;
+    const hasEffectReference = isEffect && effectReferenceOutfitId != null;
 
-    // Displacement offsets for overlay sprite relative to the base outfit.
-    // Positive = overlay shifts up-left, Negative = overlay shifts down-right.
-    // Applied uniformly in all directions so the user can tune the offset visually.
-    const dispX = (hasBase && thing?.flags.hasDisplacement) ? (thing.flags.displacementX ?? 0) : 0;
-    const dispY = (hasBase && thing?.flags.hasDisplacement) ? (thing.flags.displacementY ?? 0) : 0;
-    const hasDisp = hasBase && (dispX !== 0 || dispY !== 0);
+    // Outfit displacement positions an overlay relative to its base. Effect
+    // displacement positions the complete effect relative to its tile anchor.
+    const hasOutfitDisplacement = hasBase && (thing?.flags.hasDisplacement ?? false);
+    const hasEffectDisplacement = isEffect && (thing?.flags.hasDisplacement ?? false);
+    const dispX = (hasOutfitDisplacement || hasEffectDisplacement) ? (thing?.flags.displacementX ?? 0) : 0;
+    const dispY = (hasOutfitDisplacement || hasEffectDisplacement) ? (thing?.flags.displacementY ?? 0) : 0;
+    const hasDisp = (hasOutfitDisplacement || hasEffectDisplacement) && (dispX !== 0 || dispY !== 0);
 
-    // Canvas padding = absolute displacement so both sprites fit regardless of sign
-    const padX = Math.abs(dispX);
-    const padY = Math.abs(dispY);
-    const cellTotalW = cellW + padX;
-    const cellTotalH = cellH + padY;
+    // Include both the displaced effect and the reference outfit in the canvas.
+    // The outfit may be larger than a 1x1 effect and extends up-left from the
+    // shared bottom-right anchor tile.
+    const referenceW = hasEffectReference && effectReferenceGroup ? effectReferenceGroup.width * 32 : cellW;
+    const referenceH = hasEffectReference && effectReferenceGroup ? effectReferenceGroup.height * 32 : cellH;
+    const effectMinX = isEffect ? Math.min(0, dispX, cellW - referenceW) : 0;
+    const effectMinY = isEffect ? Math.min(0, dispY, cellH - referenceH) : 0;
+    const effectMaxX = isEffect ? Math.max(cellW, dispX + cellW) : cellW + Math.abs(dispX);
+    const effectMaxY = isEffect ? Math.max(cellH, dispY + cellH) : cellH + Math.abs(dispY);
+    const cellTotalW = isEffect ? effectMaxX - effectMinX : effectMaxX;
+    const cellTotalH = isEffect ? effectMaxY - effectMinY : effectMaxY;
     const canvasW = colsRendered * cellTotalW;
     const canvasH = rowsRendered * cellTotalH;
     canvas.width = canvasW;
@@ -207,23 +223,38 @@ export function SpritePreview() {
         const cellOriginX = pxIdx * cellTotalW;
         const cellOriginY = pyIdx * cellTotalH;
 
-        // Position base and overlay within the expanded cell.
-        // Positive disp: overlay at (0,0), base shifted right-down by disp.
-        // Negative disp: base at (0,0), overlay shifted right-down by |disp|.
-        const baseAnchorX = cellOriginX + Math.max(0, dispX);
-        const baseAnchorY = cellOriginY + Math.max(0, dispY);
-        const overlayX = cellOriginX + Math.max(0, -dispX);
-        const overlayY = cellOriginY + Math.max(0, -dispY);
+        // Outfit convention: positive displacement moves the overlay up-left.
+        // Effect convention matches the client: positive moves it down-right
+        // relative to the fixed bottom-right tile anchor.
+        const baseAnchorX = isEffect
+          ? cellOriginX - effectMinX
+          : cellOriginX + Math.max(0, dispX);
+        const baseAnchorY = isEffect
+          ? cellOriginY - effectMinY
+          : cellOriginY + Math.max(0, dispY);
+        const overlayX = isEffect
+          ? cellOriginX + dispX - effectMinX
+          : cellOriginX + Math.max(0, -dispX);
+        const overlayY = isEffect
+          ? cellOriginY + dispY - effectMinY
+          : cellOriginY + Math.max(0, -dispY);
 
         // ── Draw base outfit for this direction ──
         if (hasBase && objectData) {
-          const baseThing = objectData.things.get(baseOutfitId!);
+          const baseThing = objectData.things.get(previewBaseOutfitId!);
           const baseFg = baseThing?.frameGroups[0];
           if (baseFg) {
-            const bPx = px < baseFg.patternX ? px : 0;
+            const requestedDirection = hasEffectReference ? activeDirection : px;
+            const bPx = requestedDirection < baseFg.patternX ? requestedDirection : 0;
             const bPy = py < baseFg.patternY ? py : 0;
             const baseHasMask = baseFg.layers >= 2;
-            renderThingLayer(ctx, baseFg, 0, [bPx], [bPy], baseFg.width * 32, baseFg.height * 32, false, baseHasMask, outfitColors, baseAnchorX, baseAnchorY);
+            const baseX = hasEffectReference
+              ? baseAnchorX + cellW - baseFg.width * 32
+              : baseAnchorX;
+            const baseY = hasEffectReference
+              ? baseAnchorY + cellH - baseFg.height * 32
+              : baseAnchorY;
+            renderThingLayer(ctx, baseFg, 0, [bPx], [bPy], baseFg.width * 32, baseFg.height * 32, false, baseHasMask, outfitColors, baseX, baseY);
           }
         }
 
@@ -278,7 +309,7 @@ export function SpritePreview() {
           }
         }
 
-        // ── Draw visible-tile border for this cell when displacement is active ──
+        // Draw the anchor tile for displaced outfits/effects.
         if (hasDisp) {
           ctx.save();
           ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)'; // yellow-400
@@ -292,7 +323,7 @@ export function SpritePreview() {
         }
       }
     }
-  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers, previewMode, activeDirection, activePatternY, isOutfit, outfitColors, baseOutfitId, selectedId, objectData, renderThingLayer, thing, editVersion]);
+  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers, previewMode, activeDirection, activePatternY, isOutfit, isEffect, outfitColors, previewBaseOutfitId, effectReferenceOutfitId, effectReferenceGroup, selectedId, objectData, renderThingLayer, thing, editVersion]);
 
   useEffect(() => {
     renderFrame(currentFrame);
@@ -319,11 +350,22 @@ export function SpritePreview() {
 
   // Compute expected canvas pixel dimensions from current group data so CSS sizing
   // never reads stale values from canvasRef when switching between items of different sizes.
-  const hasBase = baseOutfitId != null && baseOutfitId !== selectedId;
-  const dispXAbs = (hasBase && thing?.flags.hasDisplacement) ? Math.abs(thing.flags.displacementX ?? 0) : 0;
-  const dispYAbs = (hasBase && thing?.flags.hasDisplacement) ? Math.abs(thing.flags.displacementY ?? 0) : 0;
-  const expectedCanvasW = group ? renderedPxCount * (group.width * 32 + dispXAbs) : 32;
-  const expectedCanvasH = group ? renderedPyCount * (group.height * 32 + dispYAbs) : 32;
+  const hasBase = previewBaseOutfitId != null && previewBaseOutfitId !== selectedId;
+  const hasPreviewDisplacement = (hasBase || isEffect) && (thing?.flags.hasDisplacement ?? false);
+  const previewDispX = hasPreviewDisplacement ? (thing?.flags.displacementX ?? 0) : 0;
+  const previewDispY = hasPreviewDisplacement ? (thing?.flags.displacementY ?? 0) : 0;
+  const previewCellW = group ? group.width * 32 : 32;
+  const previewCellH = group ? group.height * 32 : 32;
+  const referenceW = isEffect && effectReferenceGroup ? effectReferenceGroup.width * 32 : previewCellW;
+  const referenceH = isEffect && effectReferenceGroup ? effectReferenceGroup.height * 32 : previewCellH;
+  const expectedCellW = isEffect
+    ? Math.max(previewCellW, previewDispX + previewCellW) - Math.min(0, previewDispX, previewCellW - referenceW)
+    : previewCellW + Math.abs(previewDispX);
+  const expectedCellH = isEffect
+    ? Math.max(previewCellH, previewDispY + previewCellH) - Math.min(0, previewDispY, previewCellH - referenceH)
+    : previewCellH + Math.abs(previewDispY);
+  const expectedCanvasW = renderedPxCount * expectedCellW;
+  const expectedCanvasH = renderedPyCount * expectedCellH;
 
   // Given a pixel position on the displayed canvas, find the sprite ID at that tile
   const getSpriteAtPosition = useCallback((clientX: number, clientY: number): number => {
@@ -665,7 +707,8 @@ export function SpritePreview() {
           const py = group?.patternY ?? 0;
           const isDistanceGrid = isDistance && px >= 3 && py >= 3;
           const isOutfitDirs = (isOutfit || isEffect) && px > 1 && px <= 4;
-          const showDirButtons = previewMode && group && (isDistanceGrid || isOutfitDirs);
+          const showEffectReferenceDirs = isEffect && showEffectOutfitReference;
+          const showDirButtons = previewMode && group && (isDistanceGrid || isOutfitDirs || showEffectReferenceDirs);
 
           // Grid cell definition: { px, py, label, arrow } or 'canvas' or null
           type DirCell = { px: number; py: number; label: string; arrow: string } | 'canvas' | null;
@@ -971,6 +1014,8 @@ export function SpritePreview() {
         copyMenuRef={copyMenuRef}
         baseOutfitId={baseOutfitId}
         setBaseOutfitId={setBaseOutfitId}
+        showEffectOutfitReference={showEffectOutfitReference}
+        setShowEffectOutfitReference={setShowEffectOutfitReference}
       />
 
       {/* Frame group selector */}

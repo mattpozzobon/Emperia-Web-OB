@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, ClipboardPaste } from 'lucide-react';
 import { useOBStore } from '../store';
-import type { ThingFlags } from '../lib/types';
+import type { ThingCategory, ThingFlags } from '../lib/types';
 import { ColorPalettePopover } from './ColorPalettePopover';
 import { ServerPropertiesEditor } from './ServerPropertiesEditor';
 
@@ -21,6 +21,7 @@ interface FlagEntry {
   label: string;
   numericProps?: NumericProp[];
   help?: string;
+  categories?: ThingCategory[];
 }
 
 const FLAG_HELP: Partial<Record<keyof ThingFlags, string>> = {
@@ -30,6 +31,7 @@ const FLAG_HELP: Partial<Record<keyof ThingFlags, string>> = {
   onTop: 'Renders above regular items on a tile.',
   fullGround: 'Marks the sprite as filling the full tile for rendering and OTB export.',
   topEffect: 'Renders this effect above other tile layers.',
+  renderBelowCreatures: 'Renders this positional effect after floor items but before creatures on the same tile.',
   notWalkable: 'Blocks creature movement through this item.',
   notMoveable: 'Prevents players from moving or dragging this item.',
   blockProjectile: 'Blocks projectiles and line-of-sight checks.',
@@ -166,6 +168,7 @@ const FLAG_GROUPS: { title: string; flags: FlagEntry[]; wide?: boolean }[] = [
       { key: 'dontHide', label: "Don't Hide" },
       { key: 'animateAlways', label: 'Animate Always' },
       { key: 'noMoveAnimation', label: 'No Move Animation' },
+      { key: 'renderBelowCreatures', label: 'Below Creatures', categories: ['effect'] },
     ],
   },
   {
@@ -287,14 +290,18 @@ export function PropertyInspector() {
         <h3 className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider mb-1">Client Object Flags</h3>
       <div className="grid grid-cols-4 gap-1">
         {FLAG_GROUPS.map((group) => {
-          const activeCount = group.flags.filter(f => !!thing.flags[f.key]).length;
+          const visibleFlags = group.flags.filter((flag) =>
+            !flag.categories || flag.categories.includes(thing.category)
+          );
+          if (visibleFlags.length === 0) return null;
+          const activeCount = visibleFlags.filter(f => !!thing.flags[f.key]).length;
           const span = group.wide ? 'col-span-2' : '';
           return (
             <div key={group.title} className={span}>
               <FlagGroupSection
                 title={group.title}
                 activeCount={activeCount}
-                flags={group.flags}
+                flags={visibleFlags}
                 thingFlags={thing.flags}
                 onToggle={toggleFlag}
                 onNumericChange={setNumericProp}

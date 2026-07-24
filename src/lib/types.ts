@@ -78,6 +78,7 @@ export interface ThingFlags {
   wrapable: boolean;
   unwrapable: boolean;
   topEffect: boolean;
+  renderBelowCreatures: boolean;
   noMoveAnimation: boolean;
   chargeable: boolean;
 }

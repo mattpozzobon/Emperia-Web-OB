@@ -20,12 +20,13 @@ export function LayerPanel() {
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
   const isOutfit = category === 'outfit';
+  const isEffect = category === 'effect';
 
   // Use first frame group for layer count (could be extended to track activeGroup)
   const group = thing?.frameGroups[0] ?? null;
   const hasMultipleLayers = group ? group.layers > 1 : false;
   const isAnimated = group ? group.animationLength > 1 : false;
-  const showOffset = isOutfit || (thing?.flags.hasDisplacement ?? false);
+  const showOffset = isOutfit || isEffect || (thing?.flags.hasDisplacement ?? false);
   const showColors = isOutfit && blendLayers && (group?.layers ?? 0) >= 2;
 
   const updateFrameGroupProp = useCallback((key: string, value: number) => {
@@ -153,9 +154,27 @@ export function LayerPanel() {
       {showOffset && (
         <>
           <div className="px-2 py-1 bg-emperia-surface/60 border-y border-emperia-border/40">
-            <span className="text-[9px] font-semibold uppercase tracking-wider text-emperia-muted">Offset</span>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-emperia-muted">Offset</span>
+              <label className="flex items-center gap-1 cursor-pointer normal-case tracking-normal">
+                <input
+                  type="checkbox"
+                  checked={thing.flags.hasDisplacement}
+                  onChange={(e) => {
+                    useOBStore.getState().updateThingFlags(thing.id, {
+                      ...thing.flags,
+                      hasDisplacement: e.target.checked,
+                      displacementX: e.target.checked ? (thing.flags.displacementX ?? 0) : undefined,
+                      displacementY: e.target.checked ? (thing.flags.displacementY ?? 0) : undefined,
+                    });
+                  }}
+                  className="w-2.5 h-2.5 accent-emperia-accent"
+                />
+                <span className="text-[8px] text-emperia-muted">Enabled</span>
+              </label>
+            </div>
           </div>
-          <div className="px-3 py-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+          <div className={`px-3 py-2 grid grid-cols-2 gap-x-3 gap-y-1.5 ${thing.flags.hasDisplacement ? '' : 'opacity-45 pointer-events-none'}`}>
             <ParamField label="X" value={thing.flags.displacementX ?? 0} min={-512} max={512}
               onChange={(v) => {
                 useOBStore.getState().updateThingFlags(thing.id, { ...thing.flags, hasDisplacement: true, displacementX: v });
