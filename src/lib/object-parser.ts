@@ -5,6 +5,7 @@
 import PacketReader from './packet-reader';
 import { parseEmperiaHeader, EMPERIA_HEADER_SIZE, EmperiaFileType } from './emperia-format';
 import type { ObjectData, ThingType, ThingFlags, FrameGroup, ThingCategory } from './types';
+import { decodeItemSlotType } from './item-slot-types';
 
 const LEGACY_SIGNATURES: Record<string, number> = {
   "41BF619C": 740,
@@ -289,6 +290,13 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
       itemAppearances.set(packet.readUInt16(), packet.readUInt16());
     }
   }
+  const itemSlotTypes = new Map<number, string>();
+  if (formatVersion >= 3) {
+    const slotTypeCount = packet.readUInt32();
+    for (let index = 0; index < slotTypeCount; index++) {
+      itemSlotTypes.set(packet.readUInt16(), decodeItemSlotType(packet.readUInt8()));
+    }
+  }
   const totalCount = itemCount + outfitCount + effectCount + distanceCount;
 
   const things = new Map<number, ThingType>();
@@ -327,6 +335,7 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
     effectCount,
     distanceCount,
     itemAppearances,
+    itemSlotTypes,
     things,
     originalBuffer: buffer,
   };

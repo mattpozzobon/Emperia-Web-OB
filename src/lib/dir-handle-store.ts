@@ -26,6 +26,7 @@ export interface SessionHandles {
   spr?: FileSystemFileHandle | null;
   def?: FileSystemFileHandle | null;
   spriteMap?: FileSystemFileHandle | null;
+  hairDefs?: FileSystemFileHandle | null;
 }
 
 /** Persisted output directory entry. */

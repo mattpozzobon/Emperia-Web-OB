@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useOBStore } from '../store';
 import { OTB_FLAG_NAMES } from '../lib/types';
 import type { ItemProperties, ExclusiveSlotDef } from '../lib/types';
+import { ITEM_SLOT_TYPES } from '../lib/item-slot-types';
 
 // ─── Field definitions for the UI ───────────────────────────────────────────
 
@@ -63,16 +64,6 @@ const FIELD_HELP: Record<string, string> = {
 };
 
 // Unified slot types: equipment slots + tool/item categories (used for both slotType and exclusive slot restrictions)
-const SLOT_TYPES = [
-  // Equipment slots
-  'head', 'body', 'legs', 'feet',
-  'left-hand', 'right-hand', 'hand', 'two-handed',
-  'ring', 'necklace', 'backpack', 'belt', 'ammo', 'quiver',
-  // Tool / item categories
-  'rope', 'shovel', 'pick', 'knife', 'machete', 'fishingRod',
-  'potion', 'food', 'rune', 'key',
-] as const;
-
 const FLUID_SOURCE_OPTIONS = [
   '',
   'water',
@@ -107,7 +98,7 @@ const EQUIPMENT_FIELDS: FieldDef[] = [
   { key: 'weaponType', label: 'Weapon Type', type: 'select', options: [
     '', 'sword', 'axe', 'club', 'distance', 'shield', 'wand', 'orb', 'magical',
   ]},
-  { key: 'slotType', label: 'Slot Type', type: 'select', options: ['', ...SLOT_TYPES], help: FIELD_HELP.slotType },
+  { key: 'slotType', label: 'Slot Type', type: 'select', options: ['', ...ITEM_SLOT_TYPES], help: FIELD_HELP.slotType },
   { key: 'ammoType', label: 'Ammo Type', type: 'string' },
   { key: 'shootType', label: 'Shoot Type', type: 'string' },
   { key: 'damageElement', label: 'Damage Element', type: 'select', options: [
@@ -553,7 +544,7 @@ function ExclusiveSlotsEditor({
               <div className="flex items-start gap-1">
                 <span className="text-[9px] text-emperia-muted shrink-0 w-12 pt-0.5">Types</span>
                 <div className="flex-1 flex flex-wrap gap-1">
-                  {SLOT_TYPES.map((st) => {
+                  {ITEM_SLOT_TYPES.map((st) => {
                     const active = (slot.allowedItemTypes ?? []).includes(st);
                     return (
                       <button

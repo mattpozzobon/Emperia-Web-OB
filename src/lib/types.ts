@@ -102,6 +102,8 @@ export interface ObjectData {
   distanceCount: number;
   /** Public item ID -> internal sequential appearance ID, embedded in EOBJ v2. */
   itemAppearances: Map<number, number>;
+  /** Public item ID -> compact slot/category metadata, embedded in EOBJ v3. */
+  itemSlotTypes: Map<number, string>;
   things: Map<number, ThingType>;
   /** The entire original file buffer for lossless round-trip */
   originalBuffer: ArrayBuffer;

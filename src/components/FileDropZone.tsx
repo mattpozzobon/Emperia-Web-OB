@@ -63,29 +63,6 @@ export function FileDropZone() {
     saveSessionHandles(handles);
   }, []);
 
-  // Helper: copy all loaded source files into a 'backup' subfolder
-  const saveBackup = useCallback(async (
-    dirHandle: FileSystemDirectoryHandle,
-    filesToBackup: { name: string; data: ArrayBuffer }[],
-  ) => {
-    try {
-      const backupDir = await dirHandle.getDirectoryHandle('backup', { create: true });
-      for (const { name, data } of filesToBackup) {
-        try {
-          const fh = await backupDir.getFileHandle(name, { create: true });
-          const writable = await fh.createWritable();
-          await writable.write(data);
-          await writable.close();
-        } catch (err) {
-          console.error(`[OB] Failed to backup ${name}:`, err);
-        }
-      }
-      console.log(`[OB] Backup saved: ${filesToBackup.length} file(s) to backup/`);
-    } catch (err) {
-      console.error('[OB] Failed to create backup directory:', err);
-    }
-  }, []);
-
   const tryAutoLoad = useCallback(() => {
     if (!objRef.current || !sprRef.current) return;
     if (pendingJsonRef.current) {
@@ -135,6 +112,10 @@ export function FileDropZone() {
       const opts: any = { mode: 'readwrite' };
       if (lastDirRef.current) opts.startIn = lastDirRef.current;
       const dirHandle: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker(opts);
+      if (dirHandle.name.toLowerCase() === 'backup') {
+        setReloadError('Select the asset folder, not its backup subfolder.');
+        return;
+      }
       const names: { obj?: string; spr?: string; def?: string; spriteMap?: string; hairDefs?: string } = {};
       const handles: SessionHandles = { dir: dirHandle };
 
@@ -162,9 +143,9 @@ export function FileDropZone() {
           handles.spriteMap = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           pendingSpriteMapRef.current = await file.arrayBuffer();
-        } else if (ext === 'json' && (name.toLowerCase().includes('hair-definition') || name.toLowerCase().includes('hair_definition')) && !(names as any).hairDefs) {
-          (names as any).hairDefs = name;
-          (handles as any).hairDefs = entry as FileSystemFileHandle;
+        } else if (ext === 'json' && (name.toLowerCase().includes('hair-definition') || name.toLowerCase().includes('hair_definition')) && !names.hairDefs) {
+          names.hairDefs = name;
+          handles.hairDefs = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           pendingHairDefsRef.current = await file.arrayBuffer();
         }
@@ -175,18 +156,9 @@ export function FileDropZone() {
       lastDirRef.current = dirHandle;
       saveLastDirHandle(dirHandle);
 
-      // Save backup of all loaded files BEFORE tryAutoLoad clears the pending refs
-      const backupFiles: { name: string; data: ArrayBuffer }[] = [];
-      if (objRef.current && names.obj) backupFiles.push({ name: names.obj, data: objRef.current });
-      if (sprRef.current && names.spr) backupFiles.push({ name: names.spr, data: sprRef.current });
-      if (pendingJsonRef.current && names.def) backupFiles.push({ name: names.def, data: pendingJsonRef.current });
-      if (pendingSpriteMapRef.current && names.spriteMap) backupFiles.push({ name: names.spriteMap, data: pendingSpriteMapRef.current });
-      if (pendingHairDefsRef.current && (names as any).hairDefs) backupFiles.push({ name: (names as any).hairDefs, data: pendingHairDefsRef.current });
-      if (backupFiles.length > 0) saveBackup(dirHandle, backupFiles);
-
       tryAutoLoad();
     } catch { /* user cancelled */ }
-  }, [tryAutoLoad, setSourceDir, saveBackup]);
+  }, [tryAutoLoad, setSourceDir]);
 
   // Reload Last Session — re-read from persisted file handles
   const handleReloadSession = useCallback(async () => {
@@ -244,7 +216,7 @@ export function FileDropZone() {
         loadSpriteMap(JSON.parse(text));
       } catch (e) { console.error('Failed to parse sprite map:', e); }
     }
-    const hairBuf = await readHandle((session as any).hairDefs, 'Hair Definitions');
+    const hairBuf = await readHandle(session.hairDefs, 'Hair Definitions');
     if (hairBuf) {
       try {
         const text = new TextDecoder().decode(hairBuf);
@@ -258,29 +230,21 @@ export function FileDropZone() {
       spr: session.spr,
       def: session.def,
       spriteMap: session.spriteMap,
+      hairDefs: session.hairDefs,
     });
     if (session.dir) {
-      const names: { obj?: string; spr?: string; def?: string; spriteMap?: string } = {};
+      const names: { obj?: string; spr?: string; def?: string; spriteMap?: string; hairDefs?: string } = {};
       if (session.obj) names.obj = session.obj.name;
       if (session.spr) names.spr = session.spr.name;
       if (session.def) names.def = session.def.name;
       if (session.spriteMap) names.spriteMap = session.spriteMap.name;
+      if (session.hairDefs) names.hairDefs = session.hairDefs.name;
       setSourceDir(session.dir, names);
     }
 
     loadFiles(objBuf, sprBuf);
 
-    // Save backup of all loaded files
-    if (session.dir) {
-      const backupFiles: { name: string; data: ArrayBuffer }[] = [];
-      if (objBuf && session.obj) backupFiles.push({ name: session.obj.name, data: objBuf });
-      if (sprBuf && session.spr) backupFiles.push({ name: session.spr.name, data: sprBuf });
-      if (defBuf && session.def) backupFiles.push({ name: session.def.name, data: defBuf });
-      if (mapBuf && session.spriteMap) backupFiles.push({ name: session.spriteMap.name, data: mapBuf });
-      if (hairBuf && (session as any).hairDefs) backupFiles.push({ name: (session as any).hairDefs.name, data: hairBuf });
-      if (backupFiles.length > 0) saveBackup(session.dir, backupFiles);
-    }
-  }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, setSourceHandles, setSourceDir, saveBackup]);
+  }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, setSourceHandles, setSourceDir]);
 
   return (
     <div className="h-full flex items-center justify-center bg-emperia-bg p-8">

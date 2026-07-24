@@ -5,8 +5,9 @@
 import PacketWriter from './packet-writer';
 import { EMPERIA_MAGIC, EmperiaFileType } from './emperia-format';
 import type { ObjectData, ThingFlags, FrameGroup } from './types';
+import { encodeItemSlotType } from './item-slot-types';
 
-const EOBJ_FORMAT_VERSION = 2;
+const EOBJ_FORMAT_VERSION = 3;
 
 const ATTR = {
   ThingAttrGround: 0,
@@ -196,6 +197,7 @@ export function compileObjectData(
   data: ObjectData,
   dirtyIds: Set<number> = new Set(),
   itemAppearances: Map<number, number> = data.itemAppearances,
+  itemSlotTypes: Map<number, string> = data.itemSlotTypes,
 ): ArrayBuffer {
   const w = new PacketWriter(1024 * 1024); // 1MB initial
 
@@ -234,6 +236,16 @@ export function compileObjectData(
     }
     w.writeUInt16(itemId);
     w.writeUInt16(appearanceId);
+  }
+
+  const slotTypes = Array.from(itemSlotTypes.entries()).sort(([a], [b]) => a - b);
+  w.writeUInt32(slotTypes.length);
+  for (const [itemId, slotType] of slotTypes) {
+    if (!Number.isInteger(itemId) || itemId <= 0 || itemId > 0xFFFF) {
+      throw new Error(`Item slot metadata ID ${itemId} is outside the UInt16 protocol range`);
+    }
+    w.writeUInt16(itemId);
+    w.writeUInt8(encodeItemSlotType(slotType));
   }
 
   const totalCount = data.itemCount + data.outfitCount + data.effectCount + data.distanceCount;

@@ -81,13 +81,14 @@ export interface OBState {
   // File System Access API: handles for saving back to source files
   sourceDir: FileSystemDirectoryHandle | null;
   /** Original file names keyed by role */
-  sourceNames: { obj?: string; spr?: string; def?: string; spriteMap?: string };
+  sourceNames: { obj?: string; spr?: string; def?: string; spriteMap?: string; hairDefs?: string };
   /** Per-file handles for save-back (files may be in different folders) */
   sourceHandles: {
     obj?: FileSystemFileHandle | null;
     spr?: FileSystemFileHandle | null;
     def?: FileSystemFileHandle | null;
     spriteMap?: FileSystemFileHandle | null;
+    hairDefs?: FileSystemFileHandle | null;
   };
 
   /** Extra directories that receive copies of all compiled files */
