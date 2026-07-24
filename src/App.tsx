@@ -31,21 +31,17 @@ function SelectedItemBadge() {
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
   if (!thing || !objectData) return null;
 
-  const clientId = getDisplayId(objectData, thing.id);
-  const serverId = clientToServerIds.get(thing.id);
+  const displayId = getDisplayId(objectData, thing.id);
+  const itemId = thing.category === 'item'
+    ? (clientToServerIds.get(thing.id) ?? displayId)
+    : displayId;
 
   return (
     <div className="flex items-center gap-3 text-[11px] font-mono">
       <span className="flex items-center gap-1.5">
-        <span className="text-emperia-muted">Client</span>
-        <span className="text-cyan-400 font-semibold">{clientId}</span>
+        <span className="text-emperia-muted">{thing.category === 'item' ? 'Item ID' : 'ID'}</span>
+        <span className="text-cyan-400 font-semibold">{itemId}</span>
       </span>
-      {serverId != null && (
-        <span className="flex items-center gap-1.5">
-          <span className="text-emperia-muted">Server</span>
-          <span className="text-amber-400 font-semibold">{serverId}</span>
-        </span>
-      )}
       <span className="text-emperia-muted/60 capitalize text-[10px]">{thing.category}</span>
     </div>
   );

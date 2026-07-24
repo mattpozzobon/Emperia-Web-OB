@@ -135,7 +135,8 @@ export function ThingGrid() {
             const serverId = clientToServerIds?.get(thing.id);
             const def = serverId != null ? itemDefinitions?.get(serverId) : undefined;
             const itemName = def?.properties?.name;
-            const tipText = itemName ? `#${displayId} — ${itemName}` : `#${displayId}`;
+            const publicId = activeCategory === 'item' ? (serverId ?? displayId) : displayId;
+            const tipText = itemName ? `#${publicId} — ${itemName}` : `#${publicId}`;
 
             const isMultiSelected = selectedIds.has(thing.id);
             const isInEquipMap = activeCategory === 'outfit' && equipOutfitIds.has(displayId);
@@ -195,7 +196,7 @@ export function ThingGrid() {
                   <div className="w-8 h-8 bg-emperia-border/30 rounded-sm" />
                 )}
                 <span className="absolute bottom-0 right-0.5 text-[8px] text-emperia-muted/60 leading-none">
-                  {displayId}
+                  {publicId}
                 </span>
               </button>
             );

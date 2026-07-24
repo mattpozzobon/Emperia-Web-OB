@@ -93,11 +93,15 @@ export interface ThingType {
 }
 
 export interface ObjectData {
+  /** Emperia container format version (0 for legacy Tibia .dat files). */
+  formatVersion: number;
   version: number;
   itemCount: number;
   outfitCount: number;
   effectCount: number;
   distanceCount: number;
+  /** Public item ID -> internal sequential appearance ID, embedded in EOBJ v2. */
+  itemAppearances: Map<number, number>;
   things: Map<number, ThingType>;
   /** The entire original file buffer for lossless round-trip */
   originalBuffer: ArrayBuffer;

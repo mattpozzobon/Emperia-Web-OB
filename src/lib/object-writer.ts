@@ -3,8 +3,10 @@
  * Inverse of object-parser.ts — writes Emperia header + flags + frame groups.
  */
 import PacketWriter from './packet-writer';
-import { EMPERIA_MAGIC, EMPERIA_HEADER_SIZE, EmperiaFileType, isEmperiaFormat } from './emperia-format';
-import type { ObjectData, ThingType, ThingFlags, FrameGroup } from './types';
+import { EMPERIA_MAGIC, EmperiaFileType } from './emperia-format';
+import type { ObjectData, ThingFlags, FrameGroup } from './types';
+
+const EOBJ_FORMAT_VERSION = 2;
 
 const ATTR = {
   ThingAttrGround: 0,
@@ -190,32 +192,15 @@ function writeFrameGroup(w: PacketWriter, fg: FrameGroup, version: number, write
   }
 }
 
-export function compileObjectData(data: ObjectData, dirtyIds?: Set<number>): ArrayBuffer {
-  // No edits? Return the original file, patching header flags if needed.
-  if (!dirtyIds || dirtyIds.size === 0) {
-    const buf = data.originalBuffer.slice(0);
-    const bytes = new Uint8Array(buf);
-    if (bytes.length >= EMPERIA_HEADER_SIZE && isEmperiaFormat(bytes)) {
-      const isExt = data.version >= 960;
-      const isTrans = data.version >= 960;
-      const hasFG = data.version >= 1050;
-      const hasFD = data.version >= 1050;
-      let f = 0;
-      if (isExt)   f |= 0x01;
-      if (isTrans)  f |= 0x02;
-      if (hasFG)   f |= 0x04;
-      if (hasFD)   f |= 0x08;
-      bytes[0x0F] = f;
-    }
-    return buf;
-  }
-
-
+export function compileObjectData(
+  data: ObjectData,
+  dirtyIds: Set<number> = new Set(),
+  itemAppearances: Map<number, number> = data.itemAppearances,
+): ArrayBuffer {
   const w = new PacketWriter(1024 * 1024); // 1MB initial
 
   // Copy the original 20-byte Emperia header, then write current counts
   // (counts may have changed if things were added/removed)
-  const headerBytes = new Uint8Array(data.originalBuffer.slice(0, EMPERIA_HEADER_SIZE));
   // Ensure feature flags byte (offset 0x0F) is correct — previous Web OB builds
   // wrote 0x00 which breaks legacy OB parsing (wrong extended/transparency).
   const isExtended = data.version >= 960;
@@ -227,12 +212,29 @@ export function compileObjectData(data: ObjectData, dirtyIds?: Set<number>): Arr
   if (isTransparent)    hdrFlags |= 0x02;
   if (hasFrameGroups)   hdrFlags |= 0x04;
   if (hasFrameDurations) hdrFlags |= 0x08;
-  headerBytes[0x0F] = hdrFlags;
-  w.writeBytes(headerBytes);
+  w.writeBytes(EMPERIA_MAGIC);
+  w.writeUInt8(EmperiaFileType.OBJECT_DEFS);
+  w.writeUInt16(EOBJ_FORMAT_VERSION);
+  w.writeUInt32(data.version);
+  w.writeUInt8(hdrFlags);
+  w.writeUInt32(0);
   w.writeUInt16(data.itemCount);
   w.writeUInt16(data.outfitCount);
   w.writeUInt16(data.effectCount);
   w.writeUInt16(data.distanceCount);
+
+  const mappings = Array.from(itemAppearances.entries()).sort(([a], [b]) => a - b);
+  w.writeUInt32(mappings.length);
+  for (const [itemId, appearanceId] of mappings) {
+    if (!Number.isInteger(itemId) || itemId <= 0 || itemId > 0xFFFF) {
+      throw new Error(`Public item ID ${itemId} is outside the UInt16 protocol range`);
+    }
+    if (!Number.isInteger(appearanceId) || appearanceId < 100 || appearanceId > data.itemCount) {
+      throw new Error(`Item ${itemId} references invalid EOBJ appearance ${appearanceId}`);
+    }
+    w.writeUInt16(itemId);
+    w.writeUInt16(appearanceId);
+  }
 
   const totalCount = data.itemCount + data.outfitCount + data.effectCount + data.distanceCount;
 

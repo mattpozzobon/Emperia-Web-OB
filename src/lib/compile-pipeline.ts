@@ -201,11 +201,17 @@ export async function runCompile(
     // Preserve untouched raw thing bytes when possible. The parser/writer pair is
     // not perfectly lossless for every object byte, so full reserialization can
     // introduce compatibility regressions in downstream editors.
-    const objBuf = compileObjectData(od, currentDirtyIds);
+    const itemAppearances = new Map<number, number>();
+    for (const [itemId, definition] of itemDefinitions) {
+      itemAppearances.set(itemId, definition.id ?? itemId);
+    }
+    const objBuf = compileObjectData(od, currentDirtyIds, itemAppearances);
     await saveFile(objBuf, sourceHandles.obj, sourceNames.obj, 'emperia.eobj');
     compiledFiles.push({ name: sourceNames.obj || 'emperia.eobj', buf: objBuf });
     od.originalBuffer = objBuf;
     const reparsed = parseObjectData(objBuf);
+    od.formatVersion = reparsed.formatVersion;
+    od.itemAppearances = reparsed.itemAppearances;
     for (const [id, parsedThing] of reparsed.things) {
       const currentThing = od.things.get(id);
       if (currentThing) currentThing.rawBytes = parsedThing.rawBytes;
@@ -290,7 +296,6 @@ export async function runCompile(
       }
 
       const entry: Record<string, unknown> = {};
-      if (def.id != null) entry.id = def.id;
       entry.flags = def.flags;
       entry.group = def.group;
       if (def.topOrder && def.topOrder > 0) entry.topOrder = def.topOrder;
@@ -302,6 +307,7 @@ export async function runCompile(
     const buf = new TextEncoder().encode(defsJson).buffer;
     await saveFile(buf, sourceHandles.def, sourceNames.def, 'items.json');
     compiledFiles.push({ name: sourceNames.def || 'items.json', buf });
+
     return buf.byteLength;
   });
 

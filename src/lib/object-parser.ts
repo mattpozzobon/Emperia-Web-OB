@@ -256,6 +256,7 @@ function readFrameGroup(packet: PacketReader, version: number, hasGroupType: boo
 
 export function parseObjectData(buffer: ArrayBuffer): ObjectData {
   const header = parseEmperiaHeader(buffer);
+  const formatVersion = header?.formatVersion ?? 0;
   let version: number;
   let payloadOffset: number;
 
@@ -281,6 +282,13 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
   const outfitCount = packet.readUInt16();
   const effectCount = packet.readUInt16();
   const distanceCount = packet.readUInt16();
+  const itemAppearances = new Map<number, number>();
+  if (formatVersion >= 2) {
+    const mappingCount = packet.readUInt32();
+    for (let index = 0; index < mappingCount; index++) {
+      itemAppearances.set(packet.readUInt16(), packet.readUInt16());
+    }
+  }
   const totalCount = itemCount + outfitCount + effectCount + distanceCount;
 
   const things = new Map<number, ThingType>();
@@ -311,5 +319,15 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
     things.set(id, { id, category, flags, frameGroups, rawBytes });
   }
 
-  return { version, itemCount, outfitCount, effectCount, distanceCount, things, originalBuffer: buffer };
+  return {
+    formatVersion,
+    version,
+    itemCount,
+    outfitCount,
+    effectCount,
+    distanceCount,
+    itemAppearances,
+    things,
+    originalBuffer: buffer,
+  };
 }

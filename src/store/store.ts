@@ -77,6 +77,20 @@ export const useOBStore = create<OBState>((set, get) => ({
       const decompressedSpr = await maybeDecompress(sprBuffer);
       const spriteData = parseSpriteData(decompressedSpr);
       clearSpriteCache();
+      const currentState = get();
+      let remappedDefinitions = currentState.itemDefinitions;
+      let remappedClientToServer = currentState.clientToServerIds;
+      if (currentState.definitionsLoaded && objectData.itemAppearances.size > 0) {
+        remappedDefinitions = new Map();
+        remappedClientToServer = new Map();
+        for (const [itemId, definition] of currentState.itemDefinitions) {
+          const appearanceId = objectData.itemAppearances.get(itemId) ?? itemId;
+          remappedDefinitions.set(itemId, { ...definition, id: appearanceId });
+          if (!remappedClientToServer.has(appearanceId) || itemId === appearanceId) {
+            remappedClientToServer.set(appearanceId, itemId);
+          }
+        }
+      }
       set({
         objectData,
         spriteData,
@@ -95,8 +109,10 @@ export const useOBStore = create<OBState>((set, get) => ({
         focusSpriteId: null,
         copiedThing: null,
         // Preserve definitions and sprite map if already loaded
-        ...(get().definitionsLoaded ? {} : { itemDefinitions: new Map(), clientToServerIds: new Map(), definitionsLoaded: false }),
-        ...(get().spriteMapLoaded ? {} : { spriteMapEntries: [], spriteMapLoaded: false }),
+        ...(currentState.definitionsLoaded
+          ? { itemDefinitions: remappedDefinitions, clientToServerIds: remappedClientToServer }
+          : { itemDefinitions: new Map(), clientToServerIds: new Map(), definitionsLoaded: false }),
+        ...(currentState.spriteMapLoaded ? {} : { spriteMapEntries: [], spriteMapLoaded: false }),
       });
     } catch (e) {
       set({
@@ -109,10 +125,12 @@ export const useOBStore = create<OBState>((set, get) => ({
   loadDefinitions: (json) => {
     const defs = new Map<number, ServerItemData>();
     const c2s = new Map<number, number>();
+    const embeddedAppearances = get().objectData?.itemAppearances;
     for (const [key, value] of Object.entries(json)) {
       const serverId = parseInt(key, 10);
       if (isNaN(serverId)) continue;
-      const clientId = value.id ?? serverId;
+      // Old items.json files may still contain `id`; EOBJ v2 owns this mapping.
+      const clientId = embeddedAppearances?.get(serverId) ?? value.id ?? serverId;
       defs.set(serverId, {
         serverId,
         id: clientId,

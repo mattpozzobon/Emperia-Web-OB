@@ -287,7 +287,7 @@ export function PropertyInspector() {
         )}
       </div>
       <div>
-        <h3 className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider mb-1">Client Object Flags</h3>
+        <h3 className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider mb-1">Visual Properties</h3>
       <div className="grid grid-cols-4 gap-1">
         {FLAG_GROUPS.map((group) => {
           const visibleFlags = group.flags.filter((flag) =>
@@ -312,7 +312,7 @@ export function PropertyInspector() {
       </div>
       </div>
       <div>
-        <h3 className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider mb-1">Server Item Definition</h3>
+        <h3 className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider mb-1">Item Definition</h3>
         <ServerPropertiesEditor />
       </div>
     </div>

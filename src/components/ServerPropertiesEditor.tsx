@@ -580,7 +580,7 @@ function ExclusiveSlotsEditor({
                 <input
                   type="text"
                   value={(slot.allowedItemIds ?? []).join(', ')}
-                  placeholder="Allowed client IDs (comma-separated)"
+                  placeholder="Allowed item IDs (comma-separated)"
                   onChange={(e) => {
                     const ids = e.target.value
                       .split(',')
