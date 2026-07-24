@@ -4,10 +4,10 @@
  */
 import PacketWriter from './packet-writer';
 import { EMPERIA_MAGIC, EmperiaFileType } from './emperia-format';
-import type { ObjectData, ThingFlags, FrameGroup } from './types';
+import type { ObjectData, ThingFlags, FrameGroup, EquipmentAppearance, HairDefinition } from './types';
 import { encodeItemSlotType } from './item-slot-types';
 
-const EOBJ_FORMAT_VERSION = 3;
+const EOBJ_FORMAT_VERSION = 4;
 
 const ATTR = {
   ThingAttrGround: 0,
@@ -198,6 +198,8 @@ export function compileObjectData(
   dirtyIds: Set<number> = new Set(),
   itemAppearances: Map<number, number> = data.itemAppearances,
   itemSlotTypes: Map<number, string> = data.itemSlotTypes,
+  equipmentAppearances: Map<number, EquipmentAppearance> = data.equipmentAppearances,
+  hairDefinitions: Map<number, HairDefinition> = data.hairDefinitions,
 ): ArrayBuffer {
   const w = new PacketWriter(1024 * 1024); // 1MB initial
 
@@ -246,6 +248,37 @@ export function compileObjectData(
     }
     w.writeUInt16(itemId);
     w.writeUInt8(encodeItemSlotType(slotType));
+  }
+
+  const equipment = Array.from(equipmentAppearances.entries()).sort(([a], [b]) => a - b);
+  w.writeUInt32(equipment.length);
+  for (const [itemId, appearance] of equipment) {
+    if (!Number.isInteger(itemId) || itemId <= 0 || itemId > 0xFFFF) {
+      throw new Error(`Equipment item ID ${itemId} is outside the UInt16 protocol range`);
+    }
+    let mask = 0;
+    if (appearance.default) mask |= 0x01;
+    if (appearance.left) mask |= 0x02;
+    if (appearance.right) mask |= 0x04;
+    if (mask === 0) throw new Error(`Equipment item ${itemId} has no worn appearance`);
+    w.writeUInt16(itemId);
+    w.writeUInt8(mask);
+    if (appearance.default) w.writeUInt16(appearance.default);
+    if (appearance.left) w.writeUInt16(appearance.left);
+    if (appearance.right) w.writeUInt16(appearance.right);
+  }
+
+  const hairs = Array.from(hairDefinitions.values()).sort((a, b) => a.hairId - b.hairId);
+  if (hairs.length > 0xFFFF) throw new Error('Hair catalog exceeds the UInt16 entry limit');
+  w.writeUInt16(hairs.length);
+  for (const hair of hairs) {
+    w.writeUInt16(hair.hairId);
+    w.writeUInt16(hair.outfitId);
+    w.writeUInt8(hair.races);
+    w.writeUInt8(hair.genders);
+    w.writeUInt8(hair.tiers);
+    w.writeUInt16(hair.sortOrder);
+    w.writeString(hair.name);
   }
 
   const totalCount = data.itemCount + data.outfitCount + data.effectCount + data.distanceCount;

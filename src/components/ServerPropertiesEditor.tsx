@@ -21,7 +21,7 @@ const FIELD_HELP: Record<string, string> = {
   description: 'Optional description sent in detailed item look/tooltips.',
   type: 'Server gameplay class. This decides special runtime behavior such as containers, doors, runes, fluid containers, keys, and splashes.',
   weaponType: 'Classifies the item for combat formulas and equipment rules.',
-  slotType: 'Equipment slot or item category used by equipment panels, restrictions, and outfit sprite mapping.',
+  slotType: 'Equipment slot or item category used by equipment panels, restrictions, and outfit catalog links.',
   ammoType: 'Ammunition category used by ranged weapons.',
   shootType: 'Projectile visual/type identifier used by ranged attacks.',
   damageElement: 'Element associated with this item or weapon damage.',

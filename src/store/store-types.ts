@@ -1,7 +1,7 @@
 /**
  * Shared types for the OB Zustand store.
  */
-import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ItemDefinition, ItemToSpriteEntry, ItemToSpriteFile, HairDefinition, HairDefinitionsFile } from '../lib/types';
+import type { ObjectData, SpriteData, ThingType, ThingCategory, LibraryCategory, ThingFlags, FrameGroup, ItemDefinition, EquipmentCatalogEntry, HairDefinition } from '../lib/types';
 import type { OutfitDefinition } from './outfit-slice';
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 
@@ -61,14 +61,6 @@ export interface OBState {
   appearanceToItemIds: Map<number, number>;
   definitionsLoaded: boolean;
 
-  // Equipment sprite mapping (item-to-sprite.json)
-  /** Raw entries from item-to-sprite.json */
-  spriteMapEntries: ItemToSpriteEntry[];
-  spriteMapLoaded: boolean;
-
-  // Hair definitions (hair-definitions.json)
-  hairDefinitions: HairDefinition[];
-  hairDefsLoaded: boolean;
   /** Currently selected hair ID in the Hair tab */
   selectedHairId: number | null;
 
@@ -81,14 +73,12 @@ export interface OBState {
   // File System Access API: handles for saving back to source files
   sourceDir: FileSystemDirectoryHandle | null;
   /** Original file names keyed by role */
-  sourceNames: { obj?: string; spr?: string; def?: string; spriteMap?: string; hairDefs?: string };
+  sourceNames: { obj?: string; spr?: string; def?: string };
   /** Per-file handles for save-back (files may be in different folders) */
   sourceHandles: {
     obj?: FileSystemFileHandle | null;
     spr?: FileSystemFileHandle | null;
     def?: FileSystemFileHandle | null;
-    spriteMap?: FileSystemFileHandle | null;
-    hairDefs?: FileSystemFileHandle | null;
   };
 
   /** Extra directories that receive copies of all compiled files */
@@ -97,6 +87,7 @@ export interface OBState {
   // UI state
   centerTab: 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits';
   activeCategory: ThingCategory;
+  activeLibrary: LibraryCategory;
   selectedThingId: number | null;
   /** Multi-select set (Ctrl+click / Shift+click in ThingGrid) */
   selectedThingIds: Set<number>;
@@ -146,6 +137,7 @@ export interface OBState {
   setOutputDirs: (dirs: OutputDir[]) => void;
   setCenterTab: (tab: OBState['centerTab']) => void;
   setActiveCategory: (cat: ThingCategory) => void;
+  setActiveLibrary: (cat: LibraryCategory) => void;
   setSelectedThingId: (id: number | null) => void;
   toggleThingSelection: (id: number, range?: number[]) => void;
   clearThingSelection: () => void;
@@ -179,21 +171,17 @@ export interface OBState {
   removeSpriteGroup: (id: number) => void;
   clearSpriteGroups: () => void;
 
-  // Equipment sprite mapping actions
-  loadSpriteMap: (json: ItemToSpriteFile) => void;
-  updateSpriteMapEntry: (index: number, entry: ItemToSpriteEntry) => void;
-  addSpriteMapEntry: (entry: ItemToSpriteEntry) => void;
-  removeSpriteMapEntry: (index: number) => void;
-  exportSpriteMapJson: () => string;
+  // Equipment appearances embedded directly in EOBJ
+  updateEquipmentCatalogEntry: (previous: EquipmentCatalogEntry, entry: EquipmentCatalogEntry) => void;
+  addEquipmentCatalogEntry: (entry: EquipmentCatalogEntry) => void;
+  removeEquipmentCatalogEntry: (entry: EquipmentCatalogEntry) => void;
 
-  // Hair definition actions
-  loadHairDefinitions: (json: HairDefinitionsFile) => void;
+  // Hair definitions embedded directly in EOBJ
   addHairDefinition: (hair: HairDefinition) => void;
   updateHairDefinition: (hairId: number, data: Partial<HairDefinition>) => void;
   removeHairDefinition: (hairId: number) => void;
   duplicateHairDefinition: (hairId: number) => void;
   setSelectedHairId: (id: number | null) => void;
-  exportHairDefinitionsJson: () => string;
 
   // Outfit definition actions
   loadOutfitDefinitions: (json: Record<string, OutfitDefinition>) => void;

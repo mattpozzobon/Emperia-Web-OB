@@ -4,6 +4,7 @@
  */
 
 export type ThingCategory = 'item' | 'outfit' | 'effect' | 'distance';
+export type LibraryCategory = ThingCategory | 'equipment' | 'hair';
 
 export interface FrameGroup {
   type: number;
@@ -102,11 +103,21 @@ export interface ObjectData {
   distanceCount: number;
   /** Public item ID -> internal sequential appearance ID, embedded in EOBJ v2. */
   itemAppearances: Map<number, number>;
-  /** Public item ID -> compact slot/category metadata, embedded in EOBJ v3. */
+  /** Public item ID -> compact slot/category metadata, embedded in EOBJ v4. */
   itemSlotTypes: Map<number, string>;
+  /** Public item ID -> worn outfit appearances, embedded in EOBJ v4. */
+  equipmentAppearances: Map<number, EquipmentAppearance>;
+  /** Stable hair ID -> visual outfit and eligibility metadata, embedded in EOBJ v4. */
+  hairDefinitions: Map<number, HairDefinition>;
   things: Map<number, ThingType>;
   /** The entire original file buffer for lossless round-trip */
   originalBuffer: ArrayBuffer;
+}
+
+export interface EquipmentAppearance {
+  default?: number;
+  left?: number;
+  right?: number;
 }
 
 export interface SpriteData {
@@ -260,18 +271,13 @@ export function deriveGroup(f: ThingFlags): number {
   return 0;                                    // Normal
 }
 
-// ─── Equipment sprite mapping (item-to-sprite.json) ─────────────────────────
+// ─── Equipment appearance mapping ────────────────────────────────────────────
 
-/** A single entry in the item-to-sprite.json file. */
-export interface ItemToSpriteEntry {
+/** UI view of one equipment appearance variant embedded in EOBJ. */
+export interface EquipmentCatalogEntry {
   name: string;
   id: number;
   sprite_id: number;
-}
-
-/** The raw JSON shape of item-to-sprite.json. */
-export interface ItemToSpriteFile {
-  items: ItemToSpriteEntry[];
 }
 
 /** Equipment slot filter keys used in the UI. */
@@ -471,16 +477,4 @@ export interface HairDefinition {
   tiers: number;
   /** Sort order for display (lower = first). */
   sortOrder: number;
-}
-
-/** The JSON shape of hair-definitions.json (keyed by hairId as string). */
-export interface HairDefinitionsFile {
-  [hairId: string]: {
-    name: string;
-    outfitId: number;
-    races: number;
-    genders: number;
-    tiers: number;
-    sortOrder: number;
-  };
 }

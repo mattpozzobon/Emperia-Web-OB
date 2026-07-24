@@ -6,7 +6,7 @@
  *
  * Two stores:
  *  - 'dir-handles' — the last-used directory handle (for Open Folder picker)
- *  - 'file-handles' — per-role file handles (obj, spr, def, spriteMap) so each
+ *  - 'file-handles' — per-role file handles (obj, spr, def) so each
  *    file can live at a different path and still be reopened / saved back.
  */
 
@@ -25,8 +25,6 @@ export interface SessionHandles {
   obj?: FileSystemFileHandle | null;
   spr?: FileSystemFileHandle | null;
   def?: FileSystemFileHandle | null;
-  spriteMap?: FileSystemFileHandle | null;
-  hairDefs?: FileSystemFileHandle | null;
 }
 
 /** Persisted output directory entry. */

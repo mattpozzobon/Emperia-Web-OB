@@ -19,16 +19,10 @@ const PRESETS = [
     files: ['items.json'],
   },
   {
-    id: 'server-hair',
-    label: 'Server Hair',
-    description: 'hair-definitions.json → data/1098/outfits/',
-    files: ['hair-definitions.json'],
-  },
-  {
-    id: 'server-equipment',
-    label: 'Server Equipment',
-    description: 'item-to-sprite.json → config/',
-    files: ['item-to-sprite.json'],
+    id: 'server-visuals',
+    label: 'Server Visual Catalog',
+    description: 'emperia.eobj → data/',
+    files: ['emperia.eobj'],
   },
   {
     id: 'map-editor',
@@ -44,6 +38,8 @@ const PRESETS = [
   },
 ] as const;
 
+const LEGACY_OUTPUT_FILES = new Set(['item-to-sprite.json', 'hair-definitions.json']);
+
 function persistDirs() {
   const dirs = useOBStore.getState().outputDirs;
   saveOutputDirs(dirs.map((d) => ({ label: d.label, handle: d.handle, files: d.files })));
@@ -53,8 +49,26 @@ export function OutputDirsPanel() {
   const outputDirs = useOBStore((s) => s.outputDirs);
   const addOutputDir = useOBStore((s) => s.addOutputDir);
   const removeOutputDir = useOBStore((s) => s.removeOutputDir);
+  const setOutputDirs = useOBStore((s) => s.setOutputDirs);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // v4 embeds equipment and hair in emperia.eobj. Remove destinations saved
+  // by older Builder versions from both the header and IndexedDB.
+  useEffect(() => {
+    const migrated = outputDirs.filter(
+      (dir) => !dir.files?.some((file) => LEGACY_OUTPUT_FILES.has(file)),
+    );
+    if (migrated.length === outputDirs.length) return;
+    setOutputDirs(migrated);
+    void saveOutputDirs(
+      migrated.map((dir) => ({
+        label: dir.label,
+        handle: dir.handle,
+        files: dir.files,
+      })),
+    );
+  }, [outputDirs, setOutputDirs]);
 
   // Close menu on outside click
   useEffect(() => {

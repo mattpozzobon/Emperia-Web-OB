@@ -11,7 +11,8 @@ import { Search, Plus, Trash2, Copy, Download, Upload, Palette, X } from 'lucide
 import { useOBStore } from '../store';
 import { decodeSprite } from '../lib/sprite-decoder';
 import { applyOutfitMask, PALETTE_SIZE, paletteToCSS } from '../lib/outfit-colors';
-import type { ObjectData, SpriteData, FrameGroup, ItemToSpriteEntry, EquipSlotFilter } from '../lib/types';
+import type { ObjectData, SpriteData, FrameGroup, EquipmentCatalogEntry, EquipSlotFilter } from '../lib/types';
+import { getEquipmentCatalogEntries } from '../lib/equipment-catalog';
 import { HairRace, HairGender } from '../lib/types';
 import {
   createEmptyOutfit,
@@ -264,7 +265,11 @@ function PresetBar({ outfit, onUpdate }: { outfit: OutfitDefinition; onUpdate: (
   const objectData = useOBStore((s) => s.objectData);
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
-  const hairDefinitions = useOBStore((s) => s.hairDefinitions);
+  const editVersion = useOBStore((s) => s.editVersion);
+  const hairDefinitions = useMemo(
+    () => Array.from(objectData?.hairDefinitions.values() ?? []),
+    [objectData, editVersion],
+  );
 
   // Detect current race/sex from outfit.id
   const detected = useMemo(() => {
@@ -393,7 +398,7 @@ const SLOT_TO_EQUIP_FILTER: (EquipSlotFilter | null)[] = [
 ];
 
 /** Derive the slot category from server slotType (authoritative) or entry name (fallback). */
-function inferEquipSlot(entry: ItemToSpriteEntry, slotType?: string): EquipSlotFilter | null {
+function inferEquipSlot(entry: EquipmentCatalogEntry, slotType?: string): EquipSlotFilter | null {
   // Server slotType is authoritative when available
   if (slotType === 'head') return 'head';
   if (slotType === 'body') return 'body';
@@ -422,20 +427,21 @@ function inferEquipSlot(entry: ItemToSpriteEntry, slotType?: string): EquipSlotF
 function EquipPicker({ slotFilter, onSelect, onClose }: {
   slotFilter: EquipSlotFilter; onSelect: (spriteId: number) => void; onClose: () => void;
 }) {
-  const spriteMapEntries = useOBStore((s) => s.spriteMapEntries);
   const objectData = useOBStore((s) => s.objectData);
+  const editVersion = useOBStore((s) => s.editVersion);
+  const equipmentCatalogEntries = useMemo(
+    () => getEquipmentCatalogEntries(objectData),
+    [objectData, editVersion],
+  );
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   const popRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
 
   const getSlotType = useCallback((itemId: number): string | undefined => {
-    const sid = appearanceToItemIds.get(itemId);
-    const def = sid != null ? itemDefinitions.get(sid) : undefined;
-    return def?.properties?.slotType;
-  }, [appearanceToItemIds, itemDefinitions]);
+    return itemDefinitions.get(itemId)?.properties?.slotType;
+  }, [itemDefinitions]);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (popRef.current && !popRef.current.contains(e.target as Node)) onClose(); };
@@ -445,13 +451,13 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return spriteMapEntries.filter((e) => {
+    return equipmentCatalogEntries.filter((e) => {
       const s = inferEquipSlot(e, getSlotType(e.id));
       if (s !== slotFilter) return false;
       if (q && !e.name.toLowerCase().includes(q) && !e.sprite_id.toString().includes(q)) return false;
       return true;
     });
-  }, [spriteMapEntries, slotFilter, search, getSlotType]);
+  }, [equipmentCatalogEntries, slotFilter, search, getSlotType]);
 
   return createPortal(
     <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/40">
@@ -532,7 +538,7 @@ function SlotRow({ slotIndex, slot, onUpdate, hasMask }: {
   slotIndex: number; slot: OutfitSpriteSlot; onUpdate: (d: OutfitSpriteSlot) => void; hasMask: boolean;
 }) {
   const [showEquipPicker, setShowEquipPicker] = useState(false);
-  const spriteMapLoaded = useOBStore((s) => s.spriteMapLoaded);
+  const objectData = useOBStore((s) => s.objectData);
 
   const updateColor = (ch: keyof OutfitSpriteColors, v: number) => {
     const c: OutfitSpriteColors = slot.colors ? { ...slot.colors, [ch]: v } : { yellow: 0, red: 0, green: 0, blue: 0, [ch]: v };
@@ -541,7 +547,7 @@ function SlotRow({ slotIndex, slot, onUpdate, hasMask }: {
 
   const showColors = hasMask && slot.id > 0;
   const equipFilter = SLOT_TO_EQUIP_FILTER[slotIndex];
-  const canPickEquip = spriteMapLoaded && equipFilter != null;
+  const canPickEquip = objectData != null && equipFilter != null;
 
   return (
     <div className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] ${slot.id > 0 ? '' : 'opacity-40'}`}>

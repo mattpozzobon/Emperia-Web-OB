@@ -1,7 +1,7 @@
 /**
- * Equipment Sprite Map panel.
+ * Equipment catalog editor.
  *
- * Shows all entries from item-to-sprite.json, filtered by equipment slot,
+ * Shows all equipment appearances embedded in EOBJ, filtered by equipment slot,
  * with inline sprite previews. Allows assigning outfit sprites to items
  * and shows left/right hand variants side by side for weapons.
  */
@@ -10,7 +10,8 @@ import { Search, Plus, Trash2, X, ChevronDown } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { decodeSprite, getSpriteDataUrl } from '../lib/sprite-decoder';
 import { applyOutfitMask } from '../lib/outfit-colors';
-import type { EquipSlotFilter, ItemToSpriteEntry, FrameGroup, ObjectData, SpriteData } from '../lib/types';
+import type { EquipSlotFilter, EquipmentCatalogEntry, FrameGroup, ObjectData, SpriteData } from '../lib/types';
+import { getEquipmentCatalogEntries } from '../lib/equipment-catalog';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -27,7 +28,7 @@ const SLOT_FILTERS: { value: EquipSlotFilter; label: string }[] = [
 ];
 
 /** Derive the slot category from server slotType (authoritative) or entry name (fallback). */
-function inferSlot(entry: ItemToSpriteEntry, slotType?: string): EquipSlotFilter | null {
+function inferSlot(entry: EquipmentCatalogEntry, slotType?: string): EquipSlotFilter | null {
   // Server slotType is authoritative when available
   if (slotType === 'head') return 'head';
   if (slotType === 'body') return 'body';
@@ -154,7 +155,7 @@ function renderOutfitThumb(
 }
 
 /**
- * Convert an outfit ID (as stored in item-to-sprite.json, 1-based) to internal thing ID.
+ * Convert a stored outfit ID (1-based) to internal thing ID.
  * The desktop OB uses 1-based outfit numbering, so sprite_id=1 → internal=itemCount+1.
  */
 function outfitIdToInternal(objectData: ObjectData, outfitId: number): number {
@@ -278,7 +279,7 @@ function OutfitSpritePicker({
 // ─── Outfit Thumbnail Component ─────────────────────────────────────────────
 
 /**
- * Renders a composite outfit thumbnail for a given outfit display ID (from item-to-sprite.json).
+ * Renders a composite outfit thumbnail for an EOBJ equipment outfit ID.
  * Handles multi-tile outfits with outfit mask coloring.
  */
 function OutfitThumbnail({ outfitDisplayId, size = 32, direction = 2 }: { outfitDisplayId: number; size?: number; direction?: number }) {
@@ -351,7 +352,7 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
     const { setCenterTab, setSelectedThingId } = useOBStore.getState();
     // Switch to item category if not already
     if (useOBStore.getState().activeCategory !== 'item') {
-      useOBStore.setState({ activeCategory: 'item', searchQuery: '', filterGroup: -1 });
+      useOBStore.setState({ activeCategory: 'item', activeLibrary: 'item', searchQuery: '', filterGroup: -1 });
     }
     setSelectedThingId(appearanceId);
     setCenterTab('texture');
@@ -375,7 +376,7 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
 
 // ─── Add Entry Form ──────────────────────────────────────────────────────────
 
-function AddEntryForm({ onAdd, onCancel }: { onAdd: (entry: ItemToSpriteEntry) => void; onCancel: () => void }) {
+function AddEntryForm({ onAdd, onCancel }: { onAdd: (entry: EquipmentCatalogEntry) => void; onCancel: () => void }) {
   const [name, setName] = useState('');
   const [itemId, setItemId] = useState('');
   const [spriteId, setSpriteId] = useState('');
@@ -447,9 +448,9 @@ function EntryRow({
   onUpdate,
   onRemove,
 }: {
-  entry: ItemToSpriteEntry;
+  entry: EquipmentCatalogEntry;
   index: number;
-  onUpdate: (index: number, entry: ItemToSpriteEntry) => void;
+  onUpdate: (index: number, entry: EquipmentCatalogEntry) => void;
   onRemove: (index: number) => void;
 }) {
   const [showPicker, setShowPicker] = useState(false);
@@ -459,11 +460,9 @@ function EntryRow({
   const [itemIdValue, setItemIdValue] = useState(entry.id.toString());
 
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
 
   // Look up server definition for this item ID
-  const itemId = appearanceToItemIds.get(entry.id);
-  const def = itemId != null ? itemDefinitions.get(itemId) : undefined;
+  const def = itemDefinitions.get(entry.id);
   const serverName = def?.properties?.name;
 
   const handleNameBlur = () => {
@@ -575,9 +574,9 @@ function EntryRow({
 interface WeaponGroup {
   itemId: number;
   baseName: string;
-  leftEntry: { entry: ItemToSpriteEntry; index: number } | null;
-  rightEntry: { entry: ItemToSpriteEntry; index: number } | null;
-  otherEntries: { entry: ItemToSpriteEntry; index: number }[];
+  leftEntry: { entry: EquipmentCatalogEntry; index: number } | null;
+  rightEntry: { entry: EquipmentCatalogEntry; index: number } | null;
+  otherEntries: { entry: EquipmentCatalogEntry; index: number }[];
 }
 
 function WeaponGroupRow({
@@ -586,15 +585,13 @@ function WeaponGroupRow({
   onRemove,
 }: {
   group: WeaponGroup;
-  onUpdate: (index: number, entry: ItemToSpriteEntry) => void;
+  onUpdate: (index: number, entry: EquipmentCatalogEntry) => void;
   onRemove: (index: number) => void;
 }) {
   const [showPickerFor, setShowPickerFor] = useState<'left' | 'right' | null>(null);
 
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
-  const itemId = appearanceToItemIds.get(group.itemId);
-  const def = itemId != null ? itemDefinitions.get(itemId) : undefined;
+  const def = itemDefinitions.get(group.itemId);
   const serverName = def?.properties?.name;
 
   return (
@@ -681,13 +678,13 @@ function WeaponGroupRow({
       {showPickerFor && (
         <OutfitSpritePicker
           onSelect={(displayId) => {
-            const addSpriteMapEntry = useOBStore.getState().addSpriteMapEntry;
-            const updateSpriteMapEntry = useOBStore.getState().updateSpriteMapEntry;
+            const addSpriteMapEntry = useOBStore.getState().addEquipmentCatalogEntry;
+            const updateSpriteMapEntry = useOBStore.getState().updateEquipmentCatalogEntry;
             const hand = showPickerFor === 'left' ? 'Left-Hand' : 'Right-Hand';
             if (showPickerFor === 'left' && group.leftEntry) {
-              updateSpriteMapEntry(group.leftEntry.index, { ...group.leftEntry.entry, sprite_id: displayId });
+              updateSpriteMapEntry(group.leftEntry.entry, { ...group.leftEntry.entry, sprite_id: displayId });
             } else if (showPickerFor === 'right' && group.rightEntry) {
-              updateSpriteMapEntry(group.rightEntry.index, { ...group.rightEntry.entry, sprite_id: displayId });
+              updateSpriteMapEntry(group.rightEntry.entry, { ...group.rightEntry.entry, sprite_id: displayId });
             } else {
               addSpriteMapEntry({ name: `${hand} (${group.baseName})`, id: group.itemId, sprite_id: displayId });
             }
@@ -702,15 +699,25 @@ function WeaponGroupRow({
 
 // ─── Main Component ──────────────────────────────────────────────────────────
 
-export function EquipmentSpriteMap() {
-  const spriteMapEntries = useOBStore((s) => s.spriteMapEntries);
-  const spriteMapLoaded = useOBStore((s) => s.spriteMapLoaded);
+export function EquipmentCatalogEditor() {
+  const objectData = useOBStore((s) => s.objectData);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
-  const updateSpriteMapEntry = useOBStore((s) => s.updateSpriteMapEntry);
-  const addSpriteMapEntry = useOBStore((s) => s.addSpriteMapEntry);
-  const removeSpriteMapEntry = useOBStore((s) => s.removeSpriteMapEntry);
-  useOBStore((s) => s.editVersion);
+  const updateEquipmentCatalogEntry = useOBStore((s) => s.updateEquipmentCatalogEntry);
+  const addSpriteMapEntry = useOBStore((s) => s.addEquipmentCatalogEntry);
+  const removeEquipmentCatalogEntry = useOBStore((s) => s.removeEquipmentCatalogEntry);
+  const editVersion = useOBStore((s) => s.editVersion);
+  const catalogEntries = useMemo(
+    () => getEquipmentCatalogEntries(objectData),
+    [objectData, editVersion],
+  );
+  const updateSpriteMapEntry = useCallback((index: number, entry: EquipmentCatalogEntry) => {
+    const previous = catalogEntries[index];
+    if (previous) updateEquipmentCatalogEntry(previous, entry);
+  }, [catalogEntries, updateEquipmentCatalogEntry]);
+  const removeSpriteMapEntry = useCallback((index: number) => {
+    const entry = catalogEntries[index];
+    if (entry) removeEquipmentCatalogEntry(entry);
+  }, [catalogEntries, removeEquipmentCatalogEntry]);
 
   const [slotFilter, setSlotFilter] = useState<EquipSlotFilter>('all');
   const [search, setSearch] = useState('');
@@ -719,15 +726,13 @@ export function EquipmentSpriteMap() {
 
   // Get slot type from server definitions for each entry
   const getSlotType = useCallback((itemId: number): string | undefined => {
-    const sid = appearanceToItemIds.get(itemId);
-    const def = sid != null ? itemDefinitions.get(sid) : undefined;
-    return def?.properties?.slotType;
-  }, [appearanceToItemIds, itemDefinitions]);
+    return itemDefinitions.get(itemId)?.properties?.slotType;
+  }, [itemDefinitions]);
 
   // Filter entries
   const filteredEntries = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return spriteMapEntries
+    return catalogEntries
       .map((entry, index) => ({ entry, index }))
       .filter(({ entry }) => {
         // Slot filter
@@ -744,7 +749,7 @@ export function EquipmentSpriteMap() {
         }
         return true;
       });
-  }, [spriteMapEntries, slotFilter, search, getSlotType]);
+  }, [catalogEntries, slotFilter, search, getSlotType]);
 
   // Group weapons by item ID for the weapon view
   const weaponGroups = useMemo((): WeaponGroup[] => {
@@ -777,12 +782,12 @@ export function EquipmentSpriteMap() {
     return Array.from(groups.values());
   }, [filteredEntries, viewMode]);
 
-  if (!spriteMapLoaded) {
+  if (!objectData) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-emperia-muted text-sm p-8 gap-3">
-        <p>No equipment sprite map loaded.</p>
+        <p>No equipment catalog loaded.</p>
         <p className="text-[10px] text-emperia-muted/50">
-          Drop an <code className="text-emperia-accent">item-to-sprite.json</code> file or open a folder containing one.
+          Open an EOBJ v4 file containing the equipment catalog.
         </p>
       </div>
     );
@@ -845,7 +850,7 @@ export function EquipmentSpriteMap() {
 
         {/* Count */}
         <span className="text-[10px] text-emperia-muted shrink-0">
-          {filteredEntries.length} / {spriteMapEntries.length}
+          {filteredEntries.length} / {catalogEntries.length}
         </span>
       </div>
 

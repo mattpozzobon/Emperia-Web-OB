@@ -487,12 +487,16 @@ function HairDetail({ hair }: { hair: HairDefinition }) {
 // ─── Main Component ─────────────────────────────────────────────────────────
 
 export function HairEditor() {
-  const hairDefinitions = useOBStore((s) => s.hairDefinitions);
-  const hairDefsLoaded = useOBStore((s) => s.hairDefsLoaded);
+  const objectData = useOBStore((s) => s.objectData);
   const selectedHairId = useOBStore((s) => s.selectedHairId);
   const setSelectedHairId = useOBStore((s) => s.setSelectedHairId);
   const addHairDefinition = useOBStore((s) => s.addHairDefinition);
-  useOBStore((s) => s.editVersion);
+  const editVersion = useOBStore((s) => s.editVersion);
+  const hairDefinitions = useMemo(
+    () => Array.from(objectData?.hairDefinitions.values() ?? [])
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.hairId - b.hairId),
+    [objectData, editVersion],
+  );
 
   const [search, setSearch] = useState('');
   const [raceFilter, setRaceFilter] = useState<RaceFilter>('all');
@@ -530,12 +534,12 @@ export function HairEditor() {
     });
   }, [hairDefinitions, addHairDefinition]);
 
-  if (!hairDefsLoaded) {
+  if (!objectData) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-emperia-muted text-sm p-8 gap-3">
         <p>No hair definitions loaded.</p>
         <p className="text-[10px] text-emperia-muted/50">
-          Drop a <code className="text-emperia-accent">hair-definitions.json</code> file or open a folder containing one.
+          Open an EOBJ v4 file containing the hair catalog.
         </p>
         <button onClick={handleAdd}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs bg-emperia-accent/10 text-emperia-accent hover:bg-emperia-accent/20 border border-emperia-accent/30">

@@ -297,6 +297,34 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
       itemSlotTypes.set(packet.readUInt16(), decodeItemSlotType(packet.readUInt8()));
     }
   }
+  const equipmentAppearances = new Map<number, import('./types').EquipmentAppearance>();
+  const hairDefinitions = new Map<number, import('./types').HairDefinition>();
+  if (formatVersion >= 4) {
+    const equipmentCount = packet.readUInt32();
+    for (let index = 0; index < equipmentCount; index++) {
+      const itemId = packet.readUInt16();
+      const mask = packet.readUInt8();
+      const appearance: import('./types').EquipmentAppearance = {};
+      if (mask & 0x01) appearance.default = packet.readUInt16();
+      if (mask & 0x02) appearance.left = packet.readUInt16();
+      if (mask & 0x04) appearance.right = packet.readUInt16();
+      equipmentAppearances.set(itemId, appearance);
+    }
+
+    const hairCount = packet.readUInt16();
+    for (let index = 0; index < hairCount; index++) {
+      const hairId = packet.readUInt16();
+      hairDefinitions.set(hairId, {
+        hairId,
+        outfitId: packet.readUInt16(),
+        races: packet.readUInt8(),
+        genders: packet.readUInt8(),
+        tiers: packet.readUInt8(),
+        sortOrder: packet.readUInt16(),
+        name: packet.readString(),
+      });
+    }
+  }
   const totalCount = itemCount + outfitCount + effectCount + distanceCount;
 
   const things = new Map<number, ThingType>();
@@ -336,6 +364,8 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
     distanceCount,
     itemAppearances,
     itemSlotTypes,
+    equipmentAppearances,
+    hairDefinitions,
     things,
     originalBuffer: buffer,
   };

@@ -11,6 +11,7 @@ import { compileItemsOtb } from './otb-writer';
 import { compileItemsXml } from './items-xml-writer';
 import { verifyPermission } from './dir-handle-store';
 import type { ObjectData, SpriteData } from './types';
+import type { EquipmentAppearance, HairDefinition } from './types';
 
 export interface CompileStep {
   label: string;
@@ -41,10 +42,8 @@ export const STEP_LABELS = [
   'Sprites (.espr)',
   'Version Manifest',
   'Definitions (.json)',
-  'Sprite Map (.json)',
   'Items OTB (.otb)',
   'Items XML (.xml)',
-  'Hair Definitions',
   'Validate & Save',
 ] as const;
 
@@ -57,7 +56,7 @@ export const INITIAL_COMPILE_STATE: CompileState = {
   totalElapsed: 0,
 };
 
-type ArtifactRole = 'obj' | 'spr' | 'def' | 'spriteMap' | 'hairDefs' | 'generated';
+type ArtifactRole = 'obj' | 'spr' | 'def' | 'generated';
 
 interface CompiledArtifact {
   role: ArtifactRole;
@@ -370,22 +369,57 @@ export async function runCompile(
     finish();
   }
 
-  const itemAppearances = new Map<number, number>();
-  const itemSlotTypes = new Map<number, string>();
-  for (const [itemId, definition] of itemDefinitions) {
-    itemAppearances.set(itemId, definition.appearanceId);
-    const slotType = definition.properties?.slotType;
-    if (typeof slotType === 'string' && slotType) itemSlotTypes.set(itemId, slotType);
+  const itemAppearances = new Map<number, number>(od.itemAppearances);
+  const itemSlotTypes = new Map<number, string>(od.itemSlotTypes);
+  if (state.definitionsLoaded && itemDefinitions.size > 0) {
+    itemAppearances.clear();
+    itemSlotTypes.clear();
+    for (const [itemId, definition] of itemDefinitions) {
+      itemAppearances.set(itemId, definition.appearanceId);
+      const slotType = definition.properties?.slotType;
+      if (typeof slotType === 'string' && slotType) itemSlotTypes.set(itemId, slotType);
+    }
   }
+  if (itemAppearances.size === 0 && sourceHandles.obj) {
+    try {
+      const diskObject = parseObjectData(await (await sourceHandles.obj.getFile()).arrayBuffer());
+      for (const [itemId, appearanceId] of diskObject.itemAppearances) {
+        itemAppearances.set(itemId, appearanceId);
+      }
+      for (const [itemId, slotType] of diskObject.itemSlotTypes) {
+        itemSlotTypes.set(itemId, slotType);
+      }
+    } catch (error) {
+      console.error('[OB] Could not refresh EOBJ mappings from disk:', error);
+    }
+  }
+  const equipmentAppearances = new Map<number, EquipmentAppearance>(od.equipmentAppearances);
+  const hairDefinitions = new Map<number, HairDefinition>(od.hairDefinitions);
 
   if (!await runStep(0, async () => {
-    const buf = compileObjectData(od, dirtyIds, itemAppearances, itemSlotTypes);
+    if (itemAppearances.size === 0) {
+      throw new Error('EOBJ has no public item mappings. Open a valid v4 asset with items.json loaded.');
+    }
+    const buf = compileObjectData(
+      od,
+      dirtyIds,
+      itemAppearances,
+      itemSlotTypes,
+      equipmentAppearances,
+      hairDefinitions,
+    );
     reparsedObject = parseObjectData(buf);
-    if (reparsedObject.formatVersion !== 3) {
-      throw new Error(`Generated EOBJ v${reparsedObject.formatVersion}; expected v3.`);
+    if (reparsedObject.formatVersion !== 4) {
+      throw new Error(`Generated EOBJ v${reparsedObject.formatVersion}; expected v4.`);
     }
     if (reparsedObject.itemAppearances.size !== itemAppearances.size) {
       throw new Error('Generated EOBJ item mapping is incomplete.');
+    }
+    if (reparsedObject.equipmentAppearances.size !== equipmentAppearances.size) {
+      throw new Error('Generated EOBJ equipment catalog is incomplete.');
+    }
+    if (reparsedObject.hairDefinitions.size !== hairDefinitions.size) {
+      throw new Error('Generated EOBJ hair catalog is incomplete.');
     }
     artifacts.push({ role: 'obj', name: sourceNames.obj || 'emperia.eobj', buf });
     return buf.byteLength;
@@ -418,7 +452,8 @@ export async function runCompile(
     return;
   }
 
-  if (!await runStep(3, async () => {
+  if (state.definitionsLoaded && itemDefinitions.size > 0) {
+    if (!await runStep(3, async () => {
     const definitions: Record<string, unknown> = {};
     for (const itemId of Array.from(itemDefinitions.keys()).sort((a, b) => a - b)) {
       const definition = itemDefinitions.get(itemId)!;
@@ -445,11 +480,7 @@ export async function runCompile(
         }
       }
 
-      if (thing?.category === 'item' && thing.flags.hasLight && (thing.flags.lightLevel ?? 0) > 0) {
-        properties ??= {};
-        properties.lightLevel = thing.flags.lightLevel ?? 0;
-        properties.lightColor = thing.flags.lightColor ?? 0;
-      } else if (properties) {
+      if (properties) {
         delete properties.lightLevel;
         delete properties.lightColor;
         if (Object.keys(properties).length === 0) properties = null;
@@ -467,27 +498,16 @@ export async function runCompile(
     validateJson(buf, 'items.json');
     artifacts.push({ role: 'def', name: sourceNames.def || 'items.json', buf });
     return buf.byteLength;
-  })) {
-    abortGeneration(3);
-    return;
-  }
-
-  if (state.spriteMapLoaded) {
-    if (!await runStep(4, async () => {
-      const buf = encodeText(state.exportSpriteMapJson());
-      validateJson(buf, 'item-to-sprite.json');
-      artifacts.push({ role: 'spriteMap', name: sourceNames.spriteMap || 'item-to-sprite.json', buf });
-      return buf.byteLength;
     })) {
-      abortGeneration(4);
+      abortGeneration(3);
       return;
     }
   } else {
-    skipStep(4);
+    skipStep(3);
   }
 
-  if (itemDefinitions.size > 0) {
-    if (!await runStep(5, async () => {
+  if (state.definitionsLoaded && itemDefinitions.size > 0) {
+    if (!await runStep(4, async () => {
       const buf = compileItemsOtb(itemDefinitions, od);
       const bytes = new Uint8Array(buf);
       if (bytes.length < 8 || bytes[0] !== 0 || bytes[1] !== 0 || bytes[2] !== 0 || bytes[3] !== 0) {
@@ -496,40 +516,26 @@ export async function runCompile(
       artifacts.push({ role: 'generated', name: 'items.otb', buf });
       return buf.byteLength;
     })) {
-      abortGeneration(5);
+      abortGeneration(4);
       return;
     }
 
-    if (!await runStep(6, async () => {
+    if (!await runStep(5, async () => {
       const buf = compileItemsXml(itemDefinitions, od);
       validateXml(buf);
       artifacts.push({ role: 'generated', name: 'items.xml', buf });
       return buf.byteLength;
     })) {
-      abortGeneration(6);
+      abortGeneration(5);
       return;
     }
   } else {
+    skipStep(4);
     skipStep(5);
-    skipStep(6);
-  }
-
-  if (state.hairDefsLoaded) {
-    if (!await runStep(7, async () => {
-      const buf = encodeText(state.exportHairDefinitionsJson());
-      validateJson(buf, 'hair-definitions.json');
-      artifacts.push({ role: 'hairDefs', name: sourceNames.hairDefs || 'hair-definitions.json', buf });
-      return buf.byteLength;
-    })) {
-      abortGeneration(7);
-      return;
-    }
-  } else {
-    skipStep(7);
   }
 
   let primarySaved = false;
-  const saveSucceeded = await runStep(8, async () => {
+  const saveSucceeded = await runStep(6, async () => {
     if (sourceDir) {
       if (!await sourcePermission) {
         throw new Error(`Write permission was not granted for source folder "${sourceDir.name}".`);
@@ -543,8 +549,6 @@ export async function runCompile(
         obj: sourceHandles.obj,
         spr: sourceHandles.spr,
         def: sourceHandles.def,
-        spriteMap: sourceHandles.spriteMap,
-        hairDefs: sourceHandles.hairDefs,
       };
       for (const artifact of artifacts) {
         const handle = handleByRole[artifact.role];

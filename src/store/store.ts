@@ -9,8 +9,8 @@ import { maybeDecompress } from '../lib/emperia-format';
 import { syncOtbFromVisual, deriveGroup, deriveTopOrder } from '../lib/types';
 import type { OBState } from './store-types';
 import { shiftThingsDown, allocateThingId, remapSpriteIds } from './thing-helpers';
-import { createHairSlice } from './hair-slice';
-import { createSpriteMapSlice } from './sprite-map-slice';
+import { createHairCatalogSlice } from './hair-catalog-slice';
+import { createEquipmentCatalogSlice } from './equipment-catalog-slice';
 import { createCompactAtlasAction } from './compact-atlas';
 import { createSpriteGroupSlice } from './sprite-group-slice';
 import { createOutfitSlice } from './outfit-slice';
@@ -32,10 +32,6 @@ export const useOBStore = create<OBState>((set, get) => ({
   itemDefinitions: new Map(),
   appearanceToItemIds: new Map(),
   definitionsLoaded: false,
-  spriteMapEntries: [],
-  spriteMapLoaded: false,
-  hairDefinitions: [],
-  hairDefsLoaded: false,
   selectedHairId: null,
   outfitDefinitions: [],
   outfitDefsLoaded: false,
@@ -47,6 +43,7 @@ export const useOBStore = create<OBState>((set, get) => ({
 
   centerTab: 'texture',
   activeCategory: 'item',
+  activeLibrary: 'item',
   selectedThingId: null,
   selectedThingIds: new Set(),
   searchQuery: '',
@@ -91,6 +88,8 @@ export const useOBStore = create<OBState>((set, get) => ({
           }
         }
       }
+      const embeddedHairDefinitions = Array.from(objectData.hairDefinitions.values())
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.hairId - b.hairId);
       set({
         objectData,
         spriteData,
@@ -99,6 +98,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         selectedThingId: 100,
         selectedThingIds: new Set(),
         activeCategory: 'item',
+        activeLibrary: 'item',
         dirty: false,
         dirtyIds: new Set(),
         undoStack: [],
@@ -108,11 +108,12 @@ export const useOBStore = create<OBState>((set, get) => ({
         editVersion: 0,
         focusSpriteId: null,
         copiedThing: null,
-        // Preserve definitions and sprite map if already loaded
+        // Preserve server definitions, but always use the catalogs embedded in
+        // the EOBJ that was just opened.
         ...(currentState.definitionsLoaded
           ? { itemDefinitions: remappedDefinitions, appearanceToItemIds: remappedAppearanceToItem }
           : { itemDefinitions: new Map(), appearanceToItemIds: new Map(), definitionsLoaded: false }),
-        ...(currentState.spriteMapLoaded ? {} : { spriteMapEntries: [], spriteMapLoaded: false }),
+        selectedHairId: embeddedHairDefinitions[0]?.hairId ?? null,
       });
     } catch (e) {
       set({
@@ -129,8 +130,8 @@ export const useOBStore = create<OBState>((set, get) => ({
     for (const [key, value] of Object.entries(json)) {
       const itemId = parseInt(key, 10);
       if (isNaN(itemId)) continue;
-      // Old items.json files may still contain `id`; EOBJ v2 owns this mapping.
-      const appearanceId = embeddedAppearances?.get(itemId) ?? value.id ?? itemId;
+      const appearanceId = embeddedAppearances?.get(itemId);
+      if (appearanceId == null) continue;
       defs.set(itemId, {
         itemId,
         appearanceId,
@@ -179,11 +180,29 @@ export const useOBStore = create<OBState>((set, get) => ({
     const range = get().getCategoryRange(cat);
     set({
       activeCategory: cat,
+      activeLibrary: cat,
       selectedThingId: range ? range.start : null,
       selectedThingIds: new Set(),
       searchQuery: '',
       filterGroup: -1,
     });
+  },
+
+  setActiveLibrary: (cat) => {
+    if (cat === 'equipment' || cat === 'hair') {
+      const range = get().getCategoryRange('outfit');
+      set({
+        activeLibrary: cat,
+        activeCategory: 'outfit',
+        centerTab: cat,
+        selectedThingId: range ? range.start : null,
+        selectedThingIds: new Set(),
+        searchQuery: '',
+        filterGroup: -1,
+      });
+      return;
+    }
+    get().setActiveCategory(cat);
   },
 
   setSelectedThingId: (id) => set({ selectedThingId: id, selectedThingIds: new Set() }),
@@ -212,6 +231,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       loading: false,
       error: null,
       activeCategory: 'item',
+      activeLibrary: 'item',
       selectedThingId: null,
       searchQuery: '',
       filterGroup: -1,
@@ -227,10 +247,6 @@ export const useOBStore = create<OBState>((set, get) => ({
       itemDefinitions: new Map(),
       appearanceToItemIds: new Map(),
       definitionsLoaded: false,
-      spriteMapEntries: [],
-      spriteMapLoaded: false,
-      hairDefinitions: [],
-      hairDefsLoaded: false,
       selectedHairId: null,
       sourceHandles: {},
     });
@@ -807,8 +823,8 @@ export const useOBStore = create<OBState>((set, get) => ({
 
   // ─── Domain slices ──────────────────────────────────────────────────────────
 
-  ...createSpriteMapSlice(set, get),
-  ...createHairSlice(set, get),
+  ...createEquipmentCatalogSlice(set, get),
+  ...createHairCatalogSlice(set, get),
   ...createCompactAtlasAction(set, get),
   ...createSpriteGroupSlice(set, get),
   ...createOutfitSlice(set, get),

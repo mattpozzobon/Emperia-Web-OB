@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Package, Shirt, Sparkles, ArrowRight, Search, Plus, Minus, Download, Trash2 } from 'lucide-react';
+import { Package, Shirt, Sparkles, ArrowRight, Search, Plus, Minus, Download, Trash2, Swords, Scissors } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { exportSelectedSprites, exportSelectedOBD, type BatchExportFormat } from '../lib/export-sprites';
-import type { ThingCategory } from '../lib/types';
+import type { LibraryCategory } from '../lib/types';
 
 const GROUP_LABELS: Record<number, string> = {
   0: 'None',
@@ -19,17 +19,20 @@ const GROUP_LABELS: Record<number, string> = {
   12: 'Splash',
 };
 
-const CATEGORIES: { key: ThingCategory; label: string; icon: typeof Package }[] = [
+const CATEGORIES: { key: LibraryCategory; label: string; icon: typeof Package }[] = [
   { key: 'item', label: 'Items', icon: Package },
   { key: 'outfit', label: 'Outfits', icon: Shirt },
   { key: 'effect', label: 'Effects', icon: Sparkles },
   { key: 'distance', label: 'Distance', icon: ArrowRight },
+  { key: 'equipment', label: 'Equipment', icon: Swords },
+  { key: 'hair', label: 'Hair', icon: Scissors },
 ];
 
 export function CategoryTabs() {
   const [exportFormat, setExportFormat] = useState<BatchExportFormat>('png');
   const activeCategory = useOBStore((s) => s.activeCategory);
-  const setActiveCategory = useOBStore((s) => s.setActiveCategory);
+  const activeLibrary = useOBStore((s) => s.activeLibrary);
+  const setActiveLibrary = useOBStore((s) => s.setActiveLibrary);
   const objectData = useOBStore((s) => s.objectData);
   const searchQuery = useOBStore((s) => s.searchQuery);
   const setSearchQuery = useOBStore((s) => s.setSearchQuery);
@@ -70,26 +73,29 @@ export function CategoryTabs() {
     await exportSelectedSprites(ids, exportCtx);
   };
 
-  const getCategoryCount = (cat: ThingCategory) => {
+  const getCategoryCount = (cat: LibraryCategory) => {
     if (!objectData) return 0;
     switch (cat) {
       case 'item': return objectData.itemCount - 99;
       case 'outfit': return objectData.outfitCount;
       case 'effect': return objectData.effectCount;
       case 'distance': return objectData.distanceCount;
+      case 'equipment': return objectData?.equipmentAppearances.size ?? 0;
+      case 'hair': return objectData?.hairDefinitions.size ?? 0;
     }
   };
+  const isVirtualCategory = activeLibrary === 'equipment' || activeLibrary === 'hair';
 
   return (
     <div className="shrink-0">
-      <div className="flex border-b border-emperia-border">
+      <div className="grid grid-cols-3 border-b border-emperia-border">
         {CATEGORIES.map(({ key, label, icon: Icon }) => (
           <button
             key={key}
-            onClick={() => setActiveCategory(key)}
+            onClick={() => setActiveLibrary(key)}
             className={`
               flex-1 flex flex-col items-center gap-0.5 py-2 text-xs transition-colors
-              ${activeCategory === key
+              ${activeLibrary === key
                 ? 'text-emperia-accent border-b-2 border-emperia-accent bg-emperia-accent/5'
                 : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'
               }
@@ -120,7 +126,7 @@ export function CategoryTabs() {
       </div>
       {/* Row 2: Actions */}
       <div className="px-2 py-1 border-b border-emperia-border flex items-center gap-1">
-        {definitionsLoaded && activeCategory === 'item' && (
+        {definitionsLoaded && activeLibrary === 'item' && (
           <select
             value={filterGroup}
             onChange={(e) => setFilterGroup(parseInt(e.target.value, 10))}
@@ -150,44 +156,48 @@ export function CategoryTabs() {
         >
           <Download className="w-3.5 h-3.5" />
         </button>
-        <button
-          onClick={() => addThing(activeCategory)}
-          disabled={!objectData}
-          className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-green-400 hover:border-green-400/50 disabled:opacity-30 transition-colors"
-          title={`Add new ${activeCategory}`}
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={() => {
-            if (!selectedThingId || !objectData) return;
-            const dId = getDisplayId(objectData, selectedThingId);
-            if (confirm(`Clear ${activeCategory} #${dId}? This will strip all sprites and properties but keep the slot.`)) {
-              clearThing(selectedThingId);
-            }
-          }}
-          disabled={!objectData || !selectedThingId}
-          className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-red-400 hover:border-red-400/50 disabled:opacity-30 transition-colors"
-          title={`Clear selected ${activeCategory} (keep slot)`}
-        >
-          <Trash2 className="w-3.5 h-3.5" />
-        </button>
-        <button
-          onClick={() => {
-            if (!selectedThingId || !objectData) return;
-            const range = getCategoryRange(activeCategory);
-            if (!range || selectedThingId !== range.end) return;
-            const dId = objectData ? getDisplayId(objectData, selectedThingId) : selectedThingId;
-            if (confirm(`Remove ${activeCategory} #${dId}? Only the last entry can be removed.`)) {
-              removeThing(selectedThingId);
-            }
-          }}
-          disabled={!objectData || !selectedThingId || (() => { const r = getCategoryRange(activeCategory); return !r || selectedThingId !== r.end; })()}
-          className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-orange-400 hover:border-orange-400/50 disabled:opacity-30 transition-colors"
-          title={`Remove last ${activeCategory}`}
-        >
-          <Minus className="w-3.5 h-3.5" />
-        </button>
+        {!isVirtualCategory && (
+          <>
+            <button
+              onClick={() => addThing(activeCategory)}
+              disabled={!objectData}
+              className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-green-400 hover:border-green-400/50 disabled:opacity-30 transition-colors"
+              title={`Add new ${activeCategory}`}
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => {
+                if (!selectedThingId || !objectData) return;
+                const dId = getDisplayId(objectData, selectedThingId);
+                if (confirm(`Clear ${activeCategory} #${dId}? This will strip all sprites and properties but keep the slot.`)) {
+                  clearThing(selectedThingId);
+                }
+              }}
+              disabled={!objectData || !selectedThingId}
+              className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-red-400 hover:border-red-400/50 disabled:opacity-30 transition-colors"
+              title={`Clear selected ${activeCategory} (keep slot)`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => {
+                if (!selectedThingId || !objectData) return;
+                const range = getCategoryRange(activeCategory);
+                if (!range || selectedThingId !== range.end) return;
+                const dId = objectData ? getDisplayId(objectData, selectedThingId) : selectedThingId;
+                if (confirm(`Remove ${activeCategory} #${dId}? Only the last entry can be removed.`)) {
+                  removeThing(selectedThingId);
+                }
+              }}
+              disabled={!objectData || !selectedThingId || (() => { const r = getCategoryRange(activeCategory); return !r || selectedThingId !== r.end; })()}
+              className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-orange-400 hover:border-orange-400/50 disabled:opacity-30 transition-colors"
+              title={`Remove last ${activeCategory}`}
+            >
+              <Minus className="w-3.5 h-3.5" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

@@ -16,8 +16,6 @@ export function FileDropZone() {
   const loading = useOBStore((s) => s.loading);
   const error = useOBStore((s) => s.error);
   const loadDefinitions = useOBStore((s) => s.loadDefinitions);
-  const loadSpriteMap = useOBStore((s) => s.loadSpriteMap);
-  const loadHairDefinitions = useOBStore((s) => s.loadHairDefinitions);
   const setSourceDir = useOBStore((s) => s.setSourceDir);
   const setSourceHandles = useOBStore((s) => s.setSourceHandles);
   const setOutputDirs = useOBStore((s) => s.setOutputDirs);
@@ -25,8 +23,6 @@ export function FileDropZone() {
   const sprRef = useRef<ArrayBuffer | null>(null);
 
   const pendingJsonRef = useRef<ArrayBuffer | null>(null);
-  const pendingSpriteMapRef = useRef<ArrayBuffer | null>(null);
-  const pendingHairDefsRef = useRef<ArrayBuffer | null>(null);
   const lastDirRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   // Track collected file handles during folder load for persisting to IndexedDB
@@ -65,37 +61,18 @@ export function FileDropZone() {
 
   const tryAutoLoad = useCallback(() => {
     if (!objRef.current || !sprRef.current) return;
+    let definitions: unknown = null;
     if (pendingJsonRef.current) {
       try {
         const text = new TextDecoder().decode(pendingJsonRef.current);
-        const json = JSON.parse(text);
-        loadDefinitions(json);
+        definitions = JSON.parse(text);
       } catch (err) {
         console.error('Failed to parse definitions JSON:', err);
       }
       pendingJsonRef.current = null;
     }
-    if (pendingSpriteMapRef.current) {
-      try {
-        const text = new TextDecoder().decode(pendingSpriteMapRef.current);
-        const json = JSON.parse(text);
-        loadSpriteMap(json);
-      } catch (err) {
-        console.error('Failed to parse item-to-sprite JSON:', err);
-      }
-      pendingSpriteMapRef.current = null;
-    }
-    if (pendingHairDefsRef.current) {
-      try {
-        const text = new TextDecoder().decode(pendingHairDefsRef.current);
-        const json = JSON.parse(text);
-        loadHairDefinitions(json);
-      } catch (err) {
-        console.error('Failed to parse hair-definitions JSON:', err);
-      }
-      pendingHairDefsRef.current = null;
-    }
     loadFiles(objRef.current, sprRef.current);
+    if (definitions) loadDefinitions(definitions as Record<string, any>);
 
     // Persist whatever handles we collected so far
     if (pendingHandlesRef.current.obj || pendingHandlesRef.current.spr) {
@@ -103,7 +80,7 @@ export function FileDropZone() {
       // Also store them in Zustand for compile save-back
       setSourceHandles(pendingHandlesRef.current);
     }
-  }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, persistSession, setSourceHandles]);
+  }, [loadFiles, loadDefinitions, persistSession, setSourceHandles]);
 
   // Open Folder — uses File System Access API for direct save-back
   const handleOpenFolder = useCallback(async () => {
@@ -116,7 +93,7 @@ export function FileDropZone() {
         setReloadError('Select the asset folder, not its backup subfolder.');
         return;
       }
-      const names: { obj?: string; spr?: string; def?: string; spriteMap?: string; hairDefs?: string } = {};
+      const names: { obj?: string; spr?: string; def?: string } = {};
       const handles: SessionHandles = { dir: dirHandle };
 
       // Scan for matching files in the selected folder
@@ -138,16 +115,6 @@ export function FileDropZone() {
           handles.def = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           pendingJsonRef.current = await file.arrayBuffer();
-        } else if (ext === 'json' && (name.toLowerCase().includes('item-to-sprite') || name.toLowerCase().includes('sprite-map')) && !names.spriteMap) {
-          names.spriteMap = name;
-          handles.spriteMap = entry as FileSystemFileHandle;
-          const file = await (entry as FileSystemFileHandle).getFile();
-          pendingSpriteMapRef.current = await file.arrayBuffer();
-        } else if (ext === 'json' && (name.toLowerCase().includes('hair-definition') || name.toLowerCase().includes('hair_definition')) && !names.hairDefs) {
-          names.hairDefs = name;
-          handles.hairDefs = entry as FileSystemFileHandle;
-          const file = await (entry as FileSystemFileHandle).getFile();
-          pendingHairDefsRef.current = await file.arrayBuffer();
         }
       }
 
@@ -191,7 +158,6 @@ export function FileDropZone() {
     const objBuf = await readHandle(session.obj, 'Objects');
     const sprBuf = await readHandle(session.spr, 'Sprites');
     const defBuf = await readHandle(session.def, 'Definitions');
-    const mapBuf = await readHandle(session.spriteMap, 'Sprite Map');
 
     if (permFailed.length > 0) {
       setReloadError(`Permission denied for: ${permFailed.join(', ')}. Click to retry.`);
@@ -203,48 +169,30 @@ export function FileDropZone() {
       return;
     }
 
-    // Load definitions first so they're available when loadFiles runs
+    // EOBJ owns the public ID -> appearance mapping, so it must be loaded
+    // before server definitions can be associated with appearances.
+    loadFiles(objBuf, sprBuf);
     if (defBuf) {
       try {
         const text = new TextDecoder().decode(defBuf);
         loadDefinitions(JSON.parse(text));
       } catch (e) { console.error('Failed to parse definitions:', e); }
     }
-    if (mapBuf) {
-      try {
-        const text = new TextDecoder().decode(mapBuf);
-        loadSpriteMap(JSON.parse(text));
-      } catch (e) { console.error('Failed to parse sprite map:', e); }
-    }
-    const hairBuf = await readHandle(session.hairDefs, 'Hair Definitions');
-    if (hairBuf) {
-      try {
-        const text = new TextDecoder().decode(hairBuf);
-        loadHairDefinitions(JSON.parse(text));
-      } catch (e) { console.error('Failed to parse hair definitions:', e); }
-    }
-
     // Set handles in store for save-back
     setSourceHandles({
       obj: session.obj,
       spr: session.spr,
       def: session.def,
-      spriteMap: session.spriteMap,
-      hairDefs: session.hairDefs,
     });
     if (session.dir) {
-      const names: { obj?: string; spr?: string; def?: string; spriteMap?: string; hairDefs?: string } = {};
+      const names: { obj?: string; spr?: string; def?: string } = {};
       if (session.obj) names.obj = session.obj.name;
       if (session.spr) names.spr = session.spr.name;
       if (session.def) names.def = session.def.name;
-      if (session.spriteMap) names.spriteMap = session.spriteMap.name;
-      if (session.hairDefs) names.hairDefs = session.hairDefs.name;
       setSourceDir(session.dir, names);
     }
 
-    loadFiles(objBuf, sprBuf);
-
-  }, [loadFiles, loadDefinitions, loadSpriteMap, loadHairDefinitions, setSourceHandles, setSourceDir]);
+  }, [loadFiles, loadDefinitions, setSourceHandles, setSourceDir]);
 
   return (
     <div className="h-full flex items-center justify-center bg-emperia-bg p-8">

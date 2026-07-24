@@ -8,7 +8,7 @@ import { PropertyInspector } from './components/PropertyInspector';
 import { ThingSpriteGrid } from './components/ThingSpriteGrid';
 import { ObjectSlots } from './components/ObjectSlots';
 import { LayerPanel } from './components/LayerPanel';
-import { EquipmentSpriteMap } from './components/EquipmentSpriteMap';
+import { EquipmentCatalogEditor } from './components/EquipmentCatalogEditor';
 import { HairEditor } from './components/HairEditor';
 import { OutfitEditor } from './components/OutfitEditor';
 
@@ -51,6 +51,7 @@ export default function App() {
   const loaded = useOBStore((s) => s.loaded);
   const centerTab = useOBStore((s) => s.centerTab);
   const setCenterTab = useOBStore((s) => s.setCenterTab);
+  const setActiveLibrary = useOBStore((s) => s.setActiveLibrary);
 
   if (!loaded) {
     return <FileDropZone />;
@@ -72,7 +73,10 @@ export default function App() {
             {(['texture', 'properties', 'equipment', 'hair', 'outfits'] as CenterTab[]).map((tab) => (
               <button
                 key={tab}
-                onClick={() => setCenterTab(tab)}
+                onClick={() => {
+                  if (tab === 'equipment' || tab === 'hair') setActiveLibrary(tab);
+                  else setCenterTab(tab);
+                }}
                 className={`px-4 py-2 text-xs font-medium transition-colors
                   ${centerTab === tab
                     ? 'text-emperia-accent border-b-2 border-emperia-accent'
@@ -91,7 +95,7 @@ export default function App() {
           <div className="flex-1 overflow-y-auto">
             {centerTab === 'texture' && <SpritePreview />}
             {centerTab === 'properties' && <PropertyInspector />}
-            {centerTab === 'equipment' && <EquipmentSpriteMap />}
+            {centerTab === 'equipment' && <EquipmentCatalogEditor />}
             {centerTab === 'hair' && <HairEditor />}
             {centerTab === 'outfits' && <OutfitEditor />}
           </div>

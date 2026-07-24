@@ -9,6 +9,7 @@ const VISIBLE_BUFFER = 20; // extra items to render above/below viewport
 export function ThingGrid() {
   const objectData = useOBStore((s) => s.objectData);
   const activeCategory = useOBStore((s) => s.activeCategory);
+  const activeLibrary = useOBStore((s) => s.activeLibrary);
   const searchQuery = useOBStore((s) => s.searchQuery);
   const getCategoryRange = useOBStore((s) => s.getCategoryRange);
   const selectedId = useOBStore((s) => s.selectedThingId);
@@ -21,22 +22,43 @@ export function ThingGrid() {
   const filterGroup = useOBStore((s) => s.filterGroup);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
-  const spriteMapEntries = useOBStore((s) => s.spriteMapEntries);
+  const hairDefinitions = useMemo(
+    () => Array.from(objectData?.hairDefinitions.values() ?? []),
+    [objectData, editVersion],
+  );
+  const setSelectedHairId = useOBStore((s) => s.setSelectedHairId);
 
-  // Build a set of outfit display IDs that appear in the equipment sprite map
+  // Build a set of outfit display IDs referenced by the equipment catalog.
   const equipOutfitIds = useMemo(() => {
-    if (activeCategory !== 'outfit' || !spriteMapEntries.length) return new Set<number>();
     const ids = new Set<number>();
-    for (const e of spriteMapEntries) ids.add(e.sprite_id);
+    for (const appearance of objectData?.equipmentAppearances.values() ?? []) {
+      if (appearance.default != null) ids.add(appearance.default);
+      if (appearance.left != null) ids.add(appearance.left);
+      if (appearance.right != null) ids.add(appearance.right);
+    }
     return ids;
-  }, [activeCategory, spriteMapEntries]);
+  }, [objectData, editVersion]);
+
+  const hairOutfitIds = useMemo(
+    () => new Set(hairDefinitions.map((hair) => hair.outfitId)),
+    [hairDefinitions],
+  );
 
   const tooltip = useSpriteTooltip(spriteData, spriteOverrides);
 
   const things = useMemo(
-    () => getThingsForCategory(objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds),
+    () => {
+      const base = getThingsForCategory(objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds);
+      if (activeLibrary === 'equipment') {
+        return base.filter((thing) => objectData && equipOutfitIds.has(getDisplayId(objectData, thing.id)));
+      }
+      if (activeLibrary === 'hair') {
+        return base.filter((thing) => objectData && hairOutfitIds.has(getDisplayId(objectData, thing.id)));
+      }
+      return base;
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds, editVersion],
+    [objectData, activeCategory, activeLibrary, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds, editVersion, equipOutfitIds, hairOutfitIds],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -139,7 +161,7 @@ export function ThingGrid() {
             const tipText = itemName ? `#${publicId} — ${itemName}` : `#${publicId}`;
 
             const isMultiSelected = selectedIds.has(thing.id);
-            const isInEquipMap = activeCategory === 'outfit' && equipOutfitIds.has(displayId);
+            const isInEquipMap = (activeLibrary === 'outfit' || activeLibrary === 'equipment') && equipOutfitIds.has(displayId);
 
             return (
               <button
@@ -158,6 +180,10 @@ export function ThingGrid() {
                     }
                   } else {
                     setSelectedId(thing.id);
+                    if (activeLibrary === 'hair' && objectData) {
+                      const hair = hairDefinitions.find((entry) => entry.outfitId === getDisplayId(objectData, thing.id));
+                      if (hair) setSelectedHairId(hair.hairId);
+                    }
                   }
                 }}
                 className={`
