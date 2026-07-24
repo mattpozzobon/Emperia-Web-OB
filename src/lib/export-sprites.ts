@@ -4,7 +4,7 @@
  */
 import { decodeSprite } from './sprite-decoder';
 import { encodeOBD } from './obd';
-import type { SpriteData, ObjectData, ThingType, ServerItemData } from './types';
+import type { SpriteData, ObjectData, ThingType, ItemDefinition } from './types';
 import { getDisplayId } from '../store/derived';
 
 // ── Minimal ZIP builder ────────────────────────────────────────────────────
@@ -127,8 +127,8 @@ export interface ExportContext {
   objectData: ObjectData;
   spriteData: SpriteData;
   spriteOverrides: Map<number, ImageData>;
-  itemDefinitions: Map<number, ServerItemData>;
-  clientToServerIds: Map<number, number>;
+  itemDefinitions: Map<number, ItemDefinition>;
+  appearanceToItemIds: Map<number, number>;
 }
 
 export type BatchExportFormat = 'png' | 'obd';
@@ -159,8 +159,8 @@ export async function exportSelectedSprites(
     if (spriteIds.length === 0) continue;
 
     // Build a name prefix from definitions
-    const serverId = ctx.clientToServerIds.get(id);
-    const def = serverId != null ? ctx.itemDefinitions.get(serverId) : undefined;
+    const itemId = ctx.appearanceToItemIds.get(id);
+    const def = itemId != null ? ctx.itemDefinitions.get(itemId) : undefined;
     const name = def?.properties?.name;
     const prefix = name ? `${id}_${sanitize(name)}` : `${id}`;
 
@@ -205,8 +205,8 @@ export async function exportSelectedOBD(
     if (!thing) continue;
 
     const displayId = getDisplayId(ctx.objectData, id);
-    const serverId = ctx.clientToServerIds.get(id);
-    const def = serverId != null ? ctx.itemDefinitions.get(serverId) : undefined;
+    const itemId = ctx.appearanceToItemIds.get(id);
+    const def = itemId != null ? ctx.itemDefinitions.get(itemId) : undefined;
     const name = def?.properties?.name;
     const prefix = name
       ? `${thing.category}_${displayId}_${sanitize(name)}`

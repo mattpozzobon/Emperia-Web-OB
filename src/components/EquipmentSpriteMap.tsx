@@ -318,8 +318,8 @@ function OutfitThumbnail({ outfitDisplayId, size = 32, direction = 2 }: { outfit
 // ─── Item Thumbnail Component ────────────────────────────────────────────────
 
 /**
- * Renders the base item sprite for a given server item ID.
- * Resolves server ID → client ID via itemDefinitions, then looks up the ThingType.
+ * Renders the base sprite for a public item ID.
+ * Resolves item ID → appearance ID, then looks up the ThingType.
  */
 function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number }) {
   const objectData = useOBStore((s) => s.objectData);
@@ -339,10 +339,10 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
     );
   }
 
-  // itemId is a server ID; resolve to client ID via definitions
+  // Resolve the public item ID to its internal EOBJ appearance.
   const def = itemDefinitions.get(itemId);
-  const clientId = def?.id ?? itemId;
-  const thing = objectData.things.get(clientId);
+  const appearanceId = def?.appearanceId ?? itemId;
+  const thing = objectData.things.get(appearanceId);
   const sprId = thing?.frameGroups[0]?.sprites[0] ?? 0;
   const url = sprId > 0 ? getSpriteDataUrl(spriteData, sprId, spriteOverrides) : null;
 
@@ -353,7 +353,7 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
     if (useOBStore.getState().activeCategory !== 'item') {
       useOBStore.setState({ activeCategory: 'item', searchQuery: '', filterGroup: -1 });
     }
-    setSelectedThingId(clientId);
+    setSelectedThingId(appearanceId);
     setCenterTab('texture');
   };
 
@@ -362,7 +362,7 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
       onClick={handleClick}
       className="checkerboard rounded border border-emperia-border/50 overflow-hidden flex items-center justify-center hover:border-emperia-accent/60 transition-colors cursor-pointer shrink-0"
       style={{ width: size, height: size }}
-      title={`Go to item #${clientId}`}
+      title={`Go to item #${appearanceId}`}
     >
       {url ? (
         <img src={url} alt={`item#${itemId}`} className="pixelated" style={{ width: size, height: size, imageRendering: 'pixelated' }} draggable={false} />
@@ -459,11 +459,11 @@ function EntryRow({
   const [itemIdValue, setItemIdValue] = useState(entry.id.toString());
 
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
 
   // Look up server definition for this item ID
-  const serverId = clientToServerIds.get(entry.id);
-  const def = serverId != null ? itemDefinitions.get(serverId) : undefined;
+  const itemId = appearanceToItemIds.get(entry.id);
+  const def = itemId != null ? itemDefinitions.get(itemId) : undefined;
   const serverName = def?.properties?.name;
 
   const handleNameBlur = () => {
@@ -592,9 +592,9 @@ function WeaponGroupRow({
   const [showPickerFor, setShowPickerFor] = useState<'left' | 'right' | null>(null);
 
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
-  const serverId = clientToServerIds.get(group.itemId);
-  const def = serverId != null ? itemDefinitions.get(serverId) : undefined;
+  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
+  const itemId = appearanceToItemIds.get(group.itemId);
+  const def = itemId != null ? itemDefinitions.get(itemId) : undefined;
   const serverName = def?.properties?.name;
 
   return (
@@ -706,7 +706,7 @@ export function EquipmentSpriteMap() {
   const spriteMapEntries = useOBStore((s) => s.spriteMapEntries);
   const spriteMapLoaded = useOBStore((s) => s.spriteMapLoaded);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   const updateSpriteMapEntry = useOBStore((s) => s.updateSpriteMapEntry);
   const addSpriteMapEntry = useOBStore((s) => s.addSpriteMapEntry);
   const removeSpriteMapEntry = useOBStore((s) => s.removeSpriteMapEntry);
@@ -719,10 +719,10 @@ export function EquipmentSpriteMap() {
 
   // Get slot type from server definitions for each entry
   const getSlotType = useCallback((itemId: number): string | undefined => {
-    const sid = clientToServerIds.get(itemId);
+    const sid = appearanceToItemIds.get(itemId);
     const def = sid != null ? itemDefinitions.get(sid) : undefined;
     return def?.properties?.slotType;
-  }, [clientToServerIds, itemDefinitions]);
+  }, [appearanceToItemIds, itemDefinitions]);
 
   // Filter entries
   const filteredEntries = useMemo(() => {

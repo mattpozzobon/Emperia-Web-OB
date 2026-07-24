@@ -45,7 +45,7 @@ export function CategoryTabs() {
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   useOBStore((s) => s.editVersion);
 
   const selCount = selectedThingIds.size;
@@ -61,7 +61,7 @@ export function CategoryTabs() {
       spriteData,
       spriteOverrides,
       itemDefinitions,
-      clientToServerIds,
+      appearanceToItemIds,
     };
     if (exportFormat === 'obd') {
       await exportSelectedOBD(ids, exportCtx);

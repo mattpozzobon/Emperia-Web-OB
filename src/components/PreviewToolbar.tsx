@@ -288,9 +288,9 @@ function CopyPasteMenu({
 
   const handleCopy = () => {
     if (!anyChecked) return;
-    const { clientToServerIds, itemDefinitions } = useOBStore.getState();
-    const serverId = clientToServerIds.get(thing.id);
-    const serverDef = serverId != null ? itemDefinitions.get(serverId) ?? null : null;
+    const { appearanceToItemIds, itemDefinitions } = useOBStore.getState();
+    const itemId = appearanceToItemIds.get(thing.id);
+    const itemDefinition = itemId != null ? itemDefinitions.get(itemId) ?? null : null;
     const parts: string[] = [];
     const copied: NonNullable<typeof useOBStore extends { getState: () => infer S } ? S extends { copiedThing: infer C } ? C : never : never> = {};
     if (copyFlags) {
@@ -302,7 +302,7 @@ function CopyPasteMenu({
       parts.push('Sprites');
     }
     if (copyServer) {
-      copied.serverDef = serverDef ? { ...serverDef, properties: serverDef.properties ? { ...serverDef.properties } : null } : null;
+      copied.itemDefinition = itemDefinition ? { ...itemDefinition, properties: itemDefinition.properties ? { ...itemDefinition.properties } : null } : null;
       parts.push('Server');
     }
     copied.label = parts.join(' + ');
@@ -370,15 +370,15 @@ function CopyPasteMenu({
           }
           thing.rawBytes = undefined;
           clearSpriteCache();
-          if (copiedThing.serverDef && thing.category === 'item') {
-            const { clientToServerIds, itemDefinitions } = store;
-            const serverId = clientToServerIds.get(thing.id);
-            if (serverId != null) {
+          if (copiedThing.itemDefinition && thing.category === 'item') {
+            const { appearanceToItemIds, itemDefinitions } = store;
+            const itemId = appearanceToItemIds.get(thing.id);
+            if (itemId != null) {
               const newDefs = new Map(itemDefinitions);
-              newDefs.set(serverId, {
-                ...copiedThing.serverDef,
-                serverId,
-                id: thing.id,
+              newDefs.set(itemId, {
+                ...copiedThing.itemDefinition,
+                itemId,
+                appearanceId: thing.id,
               });
               useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1, itemDefinitions: newDefs });
             }

@@ -25,7 +25,7 @@ const TAB_LABELS: Record<CenterTab, string> = {
 function SelectedItemBadge() {
   const selectedId = useOBStore((s) => s.selectedThingId);
   const objectData = useOBStore((s) => s.objectData);
-  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   useOBStore((s) => s.editVersion);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
@@ -33,7 +33,7 @@ function SelectedItemBadge() {
 
   const displayId = getDisplayId(objectData, thing.id);
   const itemId = thing.category === 'item'
-    ? (clientToServerIds.get(thing.id) ?? displayId)
+    ? (appearanceToItemIds.get(thing.id) ?? displayId)
     : displayId;
 
   return (

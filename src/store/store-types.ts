@@ -1,7 +1,7 @@
 /**
  * Shared types for the OB Zustand store.
  */
-import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData, ItemToSpriteEntry, ItemToSpriteFile, HairDefinition, HairDefinitionsFile } from '../lib/types';
+import type { ObjectData, SpriteData, ThingType, ThingCategory, ThingFlags, FrameGroup, ItemDefinition, ItemToSpriteEntry, ItemToSpriteFile, HairDefinition, HairDefinitionsFile } from '../lib/types';
 import type { OutfitDefinition } from './outfit-slice';
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 
@@ -54,11 +54,11 @@ export interface OBState {
   spriteOverrides: Map<number, ImageData>;
   dirtySpriteIds: Set<number>;
 
-  // Server item definitions (from items.json)
-  /** Map of serverId (JSON key) → server-side item data */
-  itemDefinitions: Map<number, ServerItemData>;
-  /** Map of clientId → serverId for UI lookups (multiple serverIds can map to same clientId) */
-  clientToServerIds: Map<number, number>;
+  // Public item definitions (from items.json + EOBJ appearance mapping)
+  /** Map of public itemId (JSON key) → item definition. */
+  itemDefinitions: Map<number, ItemDefinition>;
+  /** Map of appearanceId → primary public itemId for UI lookups. */
+  appearanceToItemIds: Map<number, number>;
   definitionsLoaded: boolean;
 
   // Equipment sprite mapping (item-to-sprite.json)
@@ -122,7 +122,7 @@ export interface OBState {
   copiedThing: {
     flags?: ThingFlags;
     frameGroups?: FrameGroup[];
-    serverDef?: ServerItemData | null;
+    itemDefinition?: ItemDefinition | null;
     /** Label describing what was copied, for UI display */
     label?: string;
   } | null;
@@ -137,7 +137,7 @@ export interface OBState {
 
   // Actions
   loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => Promise<void>;
-  loadDefinitions: (json: Record<string, ServerItemData>) => void;
+  loadDefinitions: (json: Record<string, Partial<ItemDefinition> & { id?: number }>) => void;
   setSourceDir: (dir: FileSystemDirectoryHandle, names: OBState['sourceNames']) => void;
   setSourceHandles: (handles: Partial<OBState['sourceHandles']>) => void;
   addOutputDir: (label: string, handle: FileSystemDirectoryHandle, files?: string[]) => void;
@@ -168,7 +168,7 @@ export interface OBState {
   markClean: () => void;
 
   // Server definitions actions
-  updateItemDefinition: (itemId: number, data: Partial<ServerItemData>) => void;
+  updateItemDefinition: (appearanceId: number, data: Partial<ItemDefinition>) => void;
 
   // Sprite atlas maintenance
   compactSpriteAtlas: () => { removed: number; deduplicated: number; blanked: number; oldCount: number; newCount: number } | null;

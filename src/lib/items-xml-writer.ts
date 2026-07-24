@@ -8,7 +8,7 @@
  * Each item has id, article (optional), name attributes, and child
  * <attribute> elements for properties the map editor understands.
  */
-import type { ServerItemData, ObjectData } from './types';
+import type { ItemDefinition, ObjectData } from './types';
 
 /** XML-escape special characters in attribute values. */
 function escXml(s: string): string {
@@ -50,24 +50,24 @@ const XML_ATTRIBUTE_KEYS = [
  * Generate a complete items.xml covering all items in objectData.
  *
  * Strategy mirrors the OTB writer:
- *  1. Emit all definitions (by serverId) with name/properties.
- *  2. Fill bare entries for client IDs not already covered.
+ *  1. Emit all definitions (by itemId) with name/properties.
+ *  2. Fill bare entries for internal appearances not already covered.
  */
 export function compileItemsXml(
-  itemDefinitions: Map<number, ServerItemData>,
+  itemDefinitions: Map<number, ItemDefinition>,
   objectData: ObjectData,
 ): ArrayBuffer {
   const lines: string[] = [];
   lines.push('<?xml version="1.0" encoding="iso-8859-1"?>');
   lines.push('<items>');
 
-  const coveredClientIds = new Set<number>();
-  const emittedServerIds = new Set<number>();
+  const coveredAppearanceIds = new Set<number>();
+  const emittedItemIds = new Set<number>();
 
-  // Phase 1: Emit all definitions sorted by server ID
+  // Phase 1: Emit all definitions sorted by public item ID.
   const sortedDefs = Array.from(itemDefinitions.values())
     .filter((d) => d.group !== 14)
-    .sort((a, b) => a.serverId - b.serverId);
+    .sort((a, b) => a.itemId - b.itemId);
 
   for (const def of sortedDefs) {
     const props = def.properties;
@@ -91,7 +91,7 @@ export function compileItemsXml(
       }
     }
 
-    let tag = `\t<item id="${def.serverId}"`;
+    let tag = `\t<item id="${def.itemId}"`;
     if (article) tag += ` article="${escXml(article)}"`;
     if (name) tag += ` name="${escXml(name)}"`;
 
@@ -106,17 +106,16 @@ export function compileItemsXml(
       }
       lines.push('\t</item>');
     }
-    const clientID = def.id ?? def.serverId;
-    coveredClientIds.add(clientID);
-    emittedServerIds.add(def.serverId);
+    coveredAppearanceIds.add(def.appearanceId);
+    emittedItemIds.add(def.itemId);
   }
 
-  // Phase 2: Fill bare entries for client IDs not already covered
-  const maxClientId = 99 + objectData.itemCount;
-  for (let cid = 100; cid <= maxClientId; cid++) {
-    if (coveredClientIds.has(cid)) continue;
-    if (emittedServerIds.has(cid)) continue;
-    lines.push(`\t<item id="${cid}" />`);
+  // Phase 2: Fill bare entries for internal appearances not already covered.
+  const maxAppearanceId = 99 + objectData.itemCount;
+  for (let appearanceId = 100; appearanceId <= maxAppearanceId; appearanceId++) {
+    if (coveredAppearanceIds.has(appearanceId)) continue;
+    if (emittedItemIds.has(appearanceId)) continue;
+    lines.push(`\t<item id="${appearanceId}" />`);
   }
 
   lines.push('</items>');

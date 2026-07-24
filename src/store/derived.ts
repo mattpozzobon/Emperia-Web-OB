@@ -1,7 +1,7 @@
 /**
  * Derived helper functions that live outside the store (safe for useMemo).
  */
-import type { ObjectData, ThingType, ThingCategory, ServerItemData } from '../lib/types';
+import type { ObjectData, ThingType, ThingCategory, ItemDefinition } from '../lib/types';
 
 /** Convert internal map ID to display ID (1-based for outfits/effects/distances). */
 export function getDisplayId(objectData: ObjectData, internalId: number): number {
@@ -18,8 +18,8 @@ export function getThingsForCategory(
   searchQuery: string,
   filterGroup: number,
   getCategoryRange: (cat: ThingCategory) => { start: number; end: number } | null,
-  itemDefinitions?: Map<number, ServerItemData>,
-  clientToServerIds?: Map<number, number>,
+  itemDefinitions?: Map<number, ItemDefinition>,
+  appearanceToItemIds?: Map<number, number>,
 ): ThingType[] {
   if (!objectData) return [];
   const range = getCategoryRange(activeCategory);
@@ -32,22 +32,22 @@ export function getThingsForCategory(
     if (!thing) continue;
 
     // Group filter (only for items with definitions loaded)
-    if (filterGroup >= 0 && clientToServerIds && itemDefinitions) {
-      const serverId = clientToServerIds.get(id);
-      const def = serverId != null ? itemDefinitions.get(serverId) : undefined;
+    if (filterGroup >= 0 && appearanceToItemIds && itemDefinitions) {
+      const itemId = appearanceToItemIds.get(id);
+      const def = itemId != null ? itemDefinitions.get(itemId) : undefined;
       if (!def || def.group !== filterGroup) continue;
     }
 
-    // Search filter: match by client ID, server ID, or name
+    // Search filter: match by appearance ID, public item ID, or name.
     if (q) {
       const displayId = getDisplayId(objectData, id);
       const idStr = displayId.toString();
       let match = idStr.includes(q);
-      if (!match && clientToServerIds && itemDefinitions) {
-        const serverId = clientToServerIds.get(id);
-        if (serverId != null) {
-          if (serverId.toString().includes(q)) match = true;
-          const def = itemDefinitions.get(serverId);
+      if (!match && appearanceToItemIds && itemDefinitions) {
+        const itemId = appearanceToItemIds.get(id);
+        if (itemId != null) {
+          if (itemId.toString().includes(q)) match = true;
+          const def = itemDefinitions.get(itemId);
           if (!match && def?.properties?.name) {
             match = def.properties.name.toLowerCase().includes(q);
           }

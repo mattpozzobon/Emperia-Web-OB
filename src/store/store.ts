@@ -2,7 +2,7 @@
  * Global state for the Object Builder using Zustand.
  */
 import { create } from 'zustand';
-import type { ThingType, ThingCategory, ThingFlags, FrameGroup, ServerItemData } from '../lib/types';
+import type { ThingType, ThingCategory, ThingFlags, FrameGroup, ItemDefinition } from '../lib/types';
 import { parseObjectData } from '../lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from '../lib/sprite-decoder';
 import { maybeDecompress } from '../lib/emperia-format';
@@ -30,7 +30,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   dirtySpriteIds: new Set(),
 
   itemDefinitions: new Map(),
-  clientToServerIds: new Map(),
+  appearanceToItemIds: new Map(),
   definitionsLoaded: false,
   spriteMapEntries: [],
   spriteMapLoaded: false,
@@ -79,15 +79,15 @@ export const useOBStore = create<OBState>((set, get) => ({
       clearSpriteCache();
       const currentState = get();
       let remappedDefinitions = currentState.itemDefinitions;
-      let remappedClientToServer = currentState.clientToServerIds;
+      let remappedAppearanceToItem = currentState.appearanceToItemIds;
       if (currentState.definitionsLoaded && objectData.itemAppearances.size > 0) {
         remappedDefinitions = new Map();
-        remappedClientToServer = new Map();
+        remappedAppearanceToItem = new Map();
         for (const [itemId, definition] of currentState.itemDefinitions) {
           const appearanceId = objectData.itemAppearances.get(itemId) ?? itemId;
-          remappedDefinitions.set(itemId, { ...definition, id: appearanceId });
-          if (!remappedClientToServer.has(appearanceId) || itemId === appearanceId) {
-            remappedClientToServer.set(appearanceId, itemId);
+          remappedDefinitions.set(itemId, { ...definition, appearanceId });
+          if (!remappedAppearanceToItem.has(appearanceId) || itemId === appearanceId) {
+            remappedAppearanceToItem.set(appearanceId, itemId);
           }
         }
       }
@@ -110,8 +110,8 @@ export const useOBStore = create<OBState>((set, get) => ({
         copiedThing: null,
         // Preserve definitions and sprite map if already loaded
         ...(currentState.definitionsLoaded
-          ? { itemDefinitions: remappedDefinitions, clientToServerIds: remappedClientToServer }
-          : { itemDefinitions: new Map(), clientToServerIds: new Map(), definitionsLoaded: false }),
+          ? { itemDefinitions: remappedDefinitions, appearanceToItemIds: remappedAppearanceToItem }
+          : { itemDefinitions: new Map(), appearanceToItemIds: new Map(), definitionsLoaded: false }),
         ...(currentState.spriteMapLoaded ? {} : { spriteMapEntries: [], spriteMapLoaded: false }),
       });
     } catch (e) {
@@ -123,28 +123,28 @@ export const useOBStore = create<OBState>((set, get) => ({
   },
 
   loadDefinitions: (json) => {
-    const defs = new Map<number, ServerItemData>();
-    const c2s = new Map<number, number>();
+    const defs = new Map<number, ItemDefinition>();
+    const appearanceMap = new Map<number, number>();
     const embeddedAppearances = get().objectData?.itemAppearances;
     for (const [key, value] of Object.entries(json)) {
-      const serverId = parseInt(key, 10);
-      if (isNaN(serverId)) continue;
+      const itemId = parseInt(key, 10);
+      if (isNaN(itemId)) continue;
       // Old items.json files may still contain `id`; EOBJ v2 owns this mapping.
-      const clientId = embeddedAppearances?.get(serverId) ?? value.id ?? serverId;
-      defs.set(serverId, {
-        serverId,
-        id: clientId,
+      const appearanceId = embeddedAppearances?.get(itemId) ?? value.id ?? itemId;
+      defs.set(itemId, {
+        itemId,
+        appearanceId,
         flags: value.flags ?? 0,
         group: value.group ?? 0,
         ...(value.topOrder ? { topOrder: value.topOrder } : {}),
         properties: value.properties ? { ...value.properties } : null,
       });
-      // Build clientId → serverId reverse lookup; prefer entry where serverId==clientId
-      if (!c2s.has(clientId) || serverId === clientId) {
-        c2s.set(clientId, serverId);
+      // Build appearanceId → itemId reverse lookup; prefer entry where itemId==appearanceId
+      if (!appearanceMap.has(appearanceId) || itemId === appearanceId) {
+        appearanceMap.set(appearanceId, itemId);
       }
     }
-    set({ itemDefinitions: defs, clientToServerIds: c2s, definitionsLoaded: true });
+    set({ itemDefinitions: defs, appearanceToItemIds: appearanceMap, definitionsLoaded: true });
   },
 
   // ─── Source file handles ────────────────────────────────────────────────────
@@ -225,7 +225,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       focusSpriteId: null,
       copiedThing: null,
       itemDefinitions: new Map(),
-      clientToServerIds: new Map(),
+      appearanceToItemIds: new Map(),
       definitionsLoaded: false,
       spriteMapEntries: [],
       spriteMapLoaded: false,
@@ -238,13 +238,13 @@ export const useOBStore = create<OBState>((set, get) => ({
 
   // ─── Server definitions ─────────────────────────────────────────────────────
 
-  updateItemDefinition: (clientId, data) => {
-    const { itemDefinitions, clientToServerIds, editVersion } = get();
-    const serverId = clientToServerIds.get(clientId) ?? clientId;
-    const existing = itemDefinitions.get(serverId);
-    const updated: ServerItemData = {
-      serverId,
-      id: data.id ?? existing?.id ?? clientId,
+  updateItemDefinition: (appearanceId, data) => {
+    const { itemDefinitions, appearanceToItemIds, editVersion } = get();
+    const itemId = appearanceToItemIds.get(appearanceId) ?? appearanceId;
+    const existing = itemDefinitions.get(itemId);
+    const updated: ItemDefinition = {
+      itemId,
+      appearanceId: data.appearanceId ?? existing?.appearanceId ?? appearanceId,
       flags: data.flags ?? existing?.flags ?? 0,
       group: data.group ?? existing?.group ?? 0,
       properties: data.properties !== undefined
@@ -252,10 +252,10 @@ export const useOBStore = create<OBState>((set, get) => ({
         : (existing?.properties ? { ...existing.properties } : null),
     };
     const newDefs = new Map(itemDefinitions);
-    newDefs.set(serverId, updated);
-    const newC2s = new Map(clientToServerIds);
-    if (!newC2s.has(clientId)) newC2s.set(clientId, serverId);
-    set({ itemDefinitions: newDefs, clientToServerIds: newC2s, dirty: true, editVersion: editVersion + 1 });
+    newDefs.set(itemId, updated);
+    const newAppearanceMap = new Map(appearanceToItemIds);
+    if (!newAppearanceMap.has(appearanceId)) newAppearanceMap.set(appearanceId, itemId);
+    set({ itemDefinitions: newDefs, appearanceToItemIds: newAppearanceMap, dirty: true, editVersion: editVersion + 1 });
   },
 
   // ─── Thing flag editing + undo/redo ─────────────────────────────────────────
@@ -275,23 +275,23 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     // Sync server OTB flags & group from updated visual flags
     if (thing.category === 'item') {
-      const { clientToServerIds } = get();
-      let serverId = clientToServerIds.get(id);
+      const { appearanceToItemIds } = get();
+      let itemId = appearanceToItemIds.get(id);
       const newDefs = new Map(itemDefinitions);
-      let newC2s: Map<number, number> | undefined;
+      let newAppearanceMap: Map<number, number> | undefined;
 
       // Auto-create a server definition if this item doesn't have one yet
-      if (serverId == null) {
-        let maxServerId = 0;
+      if (itemId == null) {
+        let maxItemId = 0;
         for (const sid of itemDefinitions.keys()) {
-          if (sid > maxServerId) maxServerId = sid;
+          if (sid > maxItemId) maxItemId = sid;
         }
-        serverId = maxServerId + 1;
-        newC2s = new Map(clientToServerIds);
-        newC2s.set(id, serverId);
+        itemId = maxItemId + 1;
+        newAppearanceMap = new Map(appearanceToItemIds);
+        newAppearanceMap.set(id, itemId);
       }
 
-      const existing = itemDefinitions.get(serverId);
+      const existing = itemDefinitions.get(itemId);
       const oldOtb = existing?.flags ?? 0;
       const newOtb = syncOtbFromVisual(oldOtb, newFlags);
       const newGroup = deriveGroup(newFlags);
@@ -303,15 +303,15 @@ export const useOBStore = create<OBState>((set, get) => ({
         delete syncedProps.friction;
       }
       const newTopOrder = deriveTopOrder(newFlags);
-      const updated: ServerItemData = {
-        serverId,
-        id: existing?.id ?? id,
+      const updated: ItemDefinition = {
+        itemId,
+        appearanceId: existing?.appearanceId ?? id,
         flags: newOtb,
         group: newGroup,
         ...(newTopOrder ? { topOrder: newTopOrder } : {}),
         properties: Object.keys(syncedProps).length > 0 ? syncedProps as any : null,
       };
-      newDefs.set(serverId, updated);
+      newDefs.set(itemId, updated);
       set({
         dirty: true,
         dirtyIds: newDirtyIds,
@@ -319,7 +319,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         redoStack: [],
         editVersion: editVersion + 1,
         itemDefinitions: newDefs,
-        ...(newC2s ? { clientToServerIds: newC2s } : {}),
+        ...(newAppearanceMap ? { appearanceToItemIds: newAppearanceMap } : {}),
       });
     } else {
       set({
@@ -341,14 +341,14 @@ export const useOBStore = create<OBState>((set, get) => ({
       thing.flags = { ...entry.oldFlags };
       // Sync OTB flags for items
       if (thing.category === 'item') {
-        const { clientToServerIds } = get();
-        const sid = clientToServerIds.get(entry.thingId) ?? entry.thingId;
+        const { appearanceToItemIds } = get();
+        const sid = appearanceToItemIds.get(entry.thingId) ?? entry.thingId;
         const existing = itemDefinitions.get(sid);
         const newDefs = new Map(itemDefinitions);
         const undoTopOrder = deriveTopOrder(entry.oldFlags);
         newDefs.set(sid, {
-          serverId: sid,
-          id: existing?.id ?? entry.thingId,
+          itemId: sid,
+          appearanceId: existing?.appearanceId ?? entry.thingId,
           flags: syncOtbFromVisual(existing?.flags ?? 0, entry.oldFlags),
           group: deriveGroup(entry.oldFlags),
           ...(undoTopOrder ? { topOrder: undoTopOrder } : {}),
@@ -380,14 +380,14 @@ export const useOBStore = create<OBState>((set, get) => ({
       thing.flags = { ...entry.newFlags };
       // Sync OTB flags for items
       if (thing.category === 'item') {
-        const { clientToServerIds } = get();
-        const sid = clientToServerIds.get(entry.thingId) ?? entry.thingId;
+        const { appearanceToItemIds } = get();
+        const sid = appearanceToItemIds.get(entry.thingId) ?? entry.thingId;
         const existing = itemDefinitions.get(sid);
         const newDefs = new Map(itemDefinitions);
         const redoTopOrder = deriveTopOrder(entry.newFlags);
         newDefs.set(sid, {
-          serverId: sid,
-          id: existing?.id ?? entry.thingId,
+          itemId: sid,
+          appearanceId: existing?.appearanceId ?? entry.thingId,
           flags: syncOtbFromVisual(existing?.flags ?? 0, entry.newFlags),
           group: deriveGroup(entry.newFlags),
           ...(redoTopOrder ? { topOrder: redoTopOrder } : {}),
@@ -534,7 +534,7 @@ export const useOBStore = create<OBState>((set, get) => ({
     objectData.things.set(insertId, newThing);
     newDirtyIds.add(insertId);
 
-    // Auto-create a server definition for new items so the clientId matches the .eobj position
+    // Auto-create a server definition for new items so the appearanceId matches the .eobj position
     const stateUpdate: Partial<OBState> = {
       dirty: true,
       dirtyIds: newDirtyIds,
@@ -543,35 +543,33 @@ export const useOBStore = create<OBState>((set, get) => ({
     };
 
     if (cat === 'item' && get().definitionsLoaded) {
-      const { itemDefinitions, clientToServerIds } = get();
+      const { itemDefinitions, appearanceToItemIds } = get();
       // Always create a new server definition for new items.
-      // Even if c2s already maps this clientId to an old serverId, the new .eobj
+      // Even if appearanceMap already maps this appearanceId to an old itemId, the new .eobj
       // entry needs its own definition so the server can reference it correctly.
-      const existingServerId = clientToServerIds.get(insertId);
-
-      // Allocate next available serverId (max existing + 1)
-      let maxServerId = 0;
+      // Allocate next available itemId (max existing + 1)
+      let maxItemId = 0;
       for (const sid of itemDefinitions.keys()) {
-        if (sid > maxServerId) maxServerId = sid;
+        if (sid > maxItemId) maxItemId = sid;
       }
-      const newServerId = maxServerId + 1;
+      const newItemId = maxItemId + 1;
 
-      const newDef: ServerItemData = {
-        serverId: newServerId,
-        id: insertId, // clientId = .eobj internal ID
+      const newDef: ItemDefinition = {
+        itemId: newItemId,
+        appearanceId: insertId,
         flags: 0,
         group: 0,
         properties: null,
       };
 
       const newDefs = new Map(itemDefinitions);
-      newDefs.set(newServerId, newDef);
-      const newC2s = new Map(clientToServerIds);
-      // Point this clientId to the NEW serverId (overrides any stale mapping)
-      newC2s.set(insertId, newServerId);
+      newDefs.set(newItemId, newDef);
+      const newAppearanceMap = new Map(appearanceToItemIds);
+      // Point this appearanceId to the NEW itemId (overrides any stale mapping)
+      newAppearanceMap.set(insertId, newItemId);
 
       stateUpdate.itemDefinitions = newDefs;
-      stateUpdate.clientToServerIds = newC2s;
+      stateUpdate.appearanceToItemIds = newAppearanceMap;
 
     }
 
@@ -662,11 +660,11 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     // Also clear the server definition properties for items
     if (thing.category === 'item' && get().definitionsLoaded) {
-      const { itemDefinitions, clientToServerIds } = get();
-      const serverId = clientToServerIds.get(id);
-      if (serverId != null && itemDefinitions.has(serverId)) {
+      const { itemDefinitions, appearanceToItemIds } = get();
+      const itemId = appearanceToItemIds.get(id);
+      if (itemId != null && itemDefinitions.has(itemId)) {
         const newDefs = new Map(itemDefinitions);
-        newDefs.set(serverId, { serverId, id, flags: 0, group: 0, properties: null });
+        newDefs.set(itemId, { itemId, appearanceId: id, flags: 0, group: 0, properties: null });
         stateUpdate.itemDefinitions = newDefs;
       }
     }
@@ -710,28 +708,28 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     // Auto-create a server definition for imported items
     if (cat === 'item' && get().definitionsLoaded) {
-      const { itemDefinitions, clientToServerIds } = get();
-      let maxServerId = 0;
+      const { itemDefinitions, appearanceToItemIds } = get();
+      let maxItemId = 0;
       for (const sid of itemDefinitions.keys()) {
-        if (sid > maxServerId) maxServerId = sid;
+        if (sid > maxItemId) maxItemId = sid;
       }
-      const newServerId = maxServerId + 1;
+      const newItemId = maxItemId + 1;
 
-      const newDef: ServerItemData = {
-        serverId: newServerId,
-        id: newId,
+      const newDef: ItemDefinition = {
+        itemId: newItemId,
+        appearanceId: newId,
         flags: 0,
         group: 0,
         properties: null,
       };
 
       const newDefs = new Map(itemDefinitions);
-      newDefs.set(newServerId, newDef);
-      const newC2s = new Map(clientToServerIds);
-      newC2s.set(newId, newServerId);
+      newDefs.set(newItemId, newDef);
+      const newAppearanceMap = new Map(appearanceToItemIds);
+      newAppearanceMap.set(newId, newItemId);
 
       stateUpdate.itemDefinitions = newDefs;
-      stateUpdate.clientToServerIds = newC2s;
+      stateUpdate.appearanceToItemIds = newAppearanceMap;
     }
 
     set(stateUpdate);
@@ -776,29 +774,29 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     // Ensure a server definition exists for replaced items
     if (existing.category === 'item' && get().definitionsLoaded) {
-      const { itemDefinitions, clientToServerIds } = get();
-      if (!clientToServerIds.has(targetId)) {
-        let maxServerId = 0;
+      const { itemDefinitions, appearanceToItemIds } = get();
+      if (!appearanceToItemIds.has(targetId)) {
+        let maxItemId = 0;
         for (const sid of itemDefinitions.keys()) {
-          if (sid > maxServerId) maxServerId = sid;
+          if (sid > maxItemId) maxItemId = sid;
         }
-        const newServerId = maxServerId + 1;
+        const newItemId = maxItemId + 1;
 
-        const newDef: ServerItemData = {
-          serverId: newServerId,
-          id: targetId,
+        const newDef: ItemDefinition = {
+          itemId: newItemId,
+          appearanceId: targetId,
           flags: 0,
           group: 0,
           properties: null,
         };
 
         const newDefs = new Map(itemDefinitions);
-        newDefs.set(newServerId, newDef);
-        const newC2s = new Map(clientToServerIds);
-        newC2s.set(targetId, newServerId);
+        newDefs.set(newItemId, newDef);
+        const newAppearanceMap = new Map(appearanceToItemIds);
+        newAppearanceMap.set(targetId, newItemId);
 
         stateUpdate.itemDefinitions = newDefs;
-        stateUpdate.clientToServerIds = newC2s;
+        stateUpdate.appearanceToItemIds = newAppearanceMap;
       }
     }
 

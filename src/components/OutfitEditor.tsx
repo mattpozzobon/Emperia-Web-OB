@@ -427,15 +427,15 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   const popRef = useRef<HTMLDivElement>(null);
   const [search, setSearch] = useState('');
 
   const getSlotType = useCallback((itemId: number): string | undefined => {
-    const sid = clientToServerIds.get(itemId);
+    const sid = appearanceToItemIds.get(itemId);
     const def = sid != null ? itemDefinitions.get(sid) : undefined;
     return def?.properties?.slotType;
-  }, [clientToServerIds, itemDefinitions]);
+  }, [appearanceToItemIds, itemDefinitions]);
 
   useEffect(() => {
     const h = (e: MouseEvent) => { if (popRef.current && !popRef.current.contains(e.target as Node)) onClose(); };

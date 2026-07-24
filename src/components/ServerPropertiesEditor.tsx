@@ -264,19 +264,19 @@ export function ServerPropertiesEditor() {
   const objectData = useOBStore((s) => s.objectData);
   const activeCategory = useOBStore((s) => s.activeCategory);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   const updateItemDefinition = useOBStore((s) => s.updateItemDefinition);
   useOBStore((s) => s.editVersion);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
-  const serverId = selectedId != null ? clientToServerIds.get(selectedId) : undefined;
-  const def = serverId != null ? itemDefinitions.get(serverId) ?? null : null;
+  const itemId = selectedId != null ? appearanceToItemIds.get(selectedId) : undefined;
+  const def = itemId != null ? itemDefinitions.get(itemId) ?? null : null;
 
   const props: ItemProperties = useMemo(() => def?.properties ?? {}, [def]);
 
   const setProperty = useCallback((key: string, value: string | number | boolean | undefined) => {
     if (selectedId == null) return;
-    const sid = clientToServerIds.get(selectedId);
+    const sid = appearanceToItemIds.get(selectedId);
     const current = sid != null ? itemDefinitions.get(sid) : undefined;
     const currentProps = current?.properties ? { ...current.properties } : {};
     if (value === undefined || value === '' || value === false) {
@@ -289,7 +289,7 @@ export function ServerPropertiesEditor() {
 
   const setExclusiveSlots = useCallback((slots: ExclusiveSlotDef[] | undefined) => {
     if (selectedId == null) return;
-    const sid = clientToServerIds.get(selectedId);
+    const sid = appearanceToItemIds.get(selectedId);
     const current = sid != null ? itemDefinitions.get(sid) : undefined;
     const currentProps = current?.properties ? { ...current.properties } : {};
     if (!slots || slots.length === 0) {

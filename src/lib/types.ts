@@ -416,13 +416,13 @@ export interface ExclusiveSlotDef {
   allowedItemIds?: number[];
 }
 
-/** Full server-side item definition (one entry in items.json).
- *  - `serverId` = the JSON key in items.json (server/OTB ID)
- *  - `id` = the inner "id" field (client/.eobj ID) — used to map to the Web OB's things
+/** Full public item definition paired with its EOBJ appearance.
+ *  - `itemId` = the stable public ID used by tools, server and client.
+ *  - `appearanceId` = the internal EOBJ appearance reference.
  */
-export interface ServerItemData {
-  serverId: number;
-  id?: number;
+export interface ItemDefinition {
+  itemId: number;
+  appearanceId: number;
   flags: number;
   group: number;
   topOrder?: number;

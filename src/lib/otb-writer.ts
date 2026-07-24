@@ -14,7 +14,7 @@
  *
  * Data bytes matching 0xFD/0xFE/0xFF are escaped with a 0xFD prefix.
  */
-import type { ServerItemData, ObjectData } from './types';
+import type { ItemDefinition, ObjectData } from './types';
 
 // OTB node markers
 const NODE_ESC  = 0xFD;
@@ -59,8 +59,8 @@ function escapeBytes(raw: Uint8Array): Uint8Array {
  *         [+ MAXITEMS attr] [+ TOPORDER attr]
  */
 function buildItemNodeData(
-  serverID: number,
-  clientID: number,
+  itemId: number,
+  appearanceId: number,
   group: number,
   flags: number,
   topOrder: number = 0,
@@ -83,15 +83,15 @@ function buildItemNodeData(
   buf[off] = group & 0xFF; off += 1;
   view.setUint32(off, flags, true); off += 4;
 
-  // ITEM_ATTR_SERVERID: type(u8) + datalen(u16) + serverID(u16)
+  // ITEM_ATTR_SERVERID: type(u8) + datalen(u16) + itemID(u16)
   buf[off] = ITEM_ATTR_SERVERID; off += 1;
   view.setUint16(off, 2, true); off += 2;
-  view.setUint16(off, serverID, true); off += 2;
+  view.setUint16(off, itemId, true); off += 2;
 
-  // ITEM_ATTR_CLIENTID: type(u8) + datalen(u16) + clientID(u16)
+  // ITEM_ATTR_CLIENTID: type(u8) + datalen(u16) + appearanceID(u16)
   buf[off] = ITEM_ATTR_CLIENTID; off += 1;
   view.setUint16(off, 2, true); off += 2;
-  view.setUint16(off, clientID, true); off += 2;
+  view.setUint16(off, appearanceId, true); off += 2;
 
   // ITEM_ATTR_MAXITEMS: type(u8) + datalen(u16) + volume(u16)
   if (hasVolume) {
@@ -138,20 +138,20 @@ function buildRootNodeData(): Uint8Array {
  * Generate a complete items.otb binary.
  *
  * Strategy:
- *  1. Emit all definitions from itemDefinitions (keyed by serverId).
+ *  1. Emit all definitions from itemDefinitions (keyed by itemId).
  *  2. For every client ID in 100…objectData.itemCount that was NOT
  *     already covered by a definition, emit a passthrough entry
- *     (serverId = clientId, group = 0, flags = 0).
+ *     (itemId = appearanceId, group = 0, flags = 0).
  *
  * This guarantees every .eobj item has an OTB entry and every
  * server-side item definition is present — with zero duplicates.
  *
- * @param itemDefinitions Map of server ID → ServerItemData
+ * @param itemDefinitions Map of server ID → ItemDefinition
  * @param objectData      The loaded .eobj data (provides total item count)
  * @returns ArrayBuffer containing the OTB file
  */
 export function compileItemsOtb(
-  itemDefinitions: Map<number, ServerItemData>,
+  itemDefinitions: Map<number, ItemDefinition>,
   objectData: ObjectData,
 ): ArrayBuffer {
   const parts: Uint8Array[] = [];
@@ -163,36 +163,36 @@ export function compileItemsOtb(
   parts.push(new Uint8Array([NODE_INIT]));
   parts.push(escapeBytes(buildRootNodeData()));
 
-  // Track which client IDs are covered AND which server IDs are emitted
-  const coveredClientIds = new Set<number>();
-  const emittedServerIds = new Set<number>();
+  // Track covered appearances and emitted public item IDs.
+  const coveredAppearanceIds = new Set<number>();
+  const emittedItemIds = new Set<number>();
 
   // Collect all definitions sorted by server ID
   const sortedDefs = Array.from(itemDefinitions.values())
     .filter((d) => d.group !== 14) // skip deprecated
-    .sort((a, b) => a.serverId - b.serverId);
+    .sort((a, b) => a.itemId - b.itemId);
 
   // Phase 1: Emit every definition entry
   for (const def of sortedDefs) {
-    const clientID = def.id ?? def.serverId;
+    const appearanceId = def.appearanceId;
     // Compute total container volume: base containerSize + exclusive slots
     const baseSize = def.properties?.containerSize ?? 0;
     const exSlots  = def.properties?.exclusiveSlots?.length ?? 0;
     const volume   = baseSize + exSlots;
-    const raw = buildItemNodeData(def.serverId, clientID, def.group, def.flags, def.topOrder ?? 0, volume);
+    const raw = buildItemNodeData(def.itemId, appearanceId, def.group, def.flags, def.topOrder ?? 0, volume);
     parts.push(new Uint8Array([NODE_INIT]));
     parts.push(escapeBytes(raw));
     parts.push(new Uint8Array([NODE_TERM]));
-    coveredClientIds.add(clientID);
-    emittedServerIds.add(def.serverId);
+    coveredAppearanceIds.add(appearanceId);
+    emittedItemIds.add(def.itemId);
   }
 
   // Phase 2: Fill passthrough entries for client IDs not already covered
-  const maxClientId = 99 + objectData.itemCount; // items start at 100
-  for (let cid = 100; cid <= maxClientId; cid++) {
-    if (coveredClientIds.has(cid)) continue; // client ID covered by a definition
-    if (emittedServerIds.has(cid)) continue;  // would duplicate a server ID from Phase 1
-    const raw = buildItemNodeData(cid, cid, 0, 0);
+  const maxAppearanceId = 99 + objectData.itemCount; // items start at 100
+  for (let appearanceId = 100; appearanceId <= maxAppearanceId; appearanceId++) {
+    if (coveredAppearanceIds.has(appearanceId)) continue;
+    if (emittedItemIds.has(appearanceId)) continue;
+    const raw = buildItemNodeData(appearanceId, appearanceId, 0, 0);
     parts.push(new Uint8Array([NODE_INIT]));
     parts.push(escapeBytes(raw));
     parts.push(new Uint8Array([NODE_TERM]));

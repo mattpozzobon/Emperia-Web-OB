@@ -203,7 +203,7 @@ export async function runCompile(
     // introduce compatibility regressions in downstream editors.
     const itemAppearances = new Map<number, number>();
     for (const [itemId, definition] of itemDefinitions) {
-      itemAppearances.set(itemId, definition.id ?? itemId);
+      itemAppearances.set(itemId, definition.appearanceId);
     }
     const objBuf = compileObjectData(od, currentDirtyIds, itemAppearances);
     await saveFile(objBuf, sourceHandles.obj, sourceNames.obj, 'emperia.eobj');
@@ -250,11 +250,11 @@ export async function runCompile(
 
   // Step 3: Compile items.json
   await runStep(3, async () => {
-    const sortedServerIds = Array.from(itemDefinitions.keys()).sort((a, b) => a - b);
+    const sortedItemIds = Array.from(itemDefinitions.keys()).sort((a, b) => a - b);
     const defsObj: Record<string, unknown> = {};
 
-    for (const serverId of sortedServerIds) {
-      const def = itemDefinitions.get(serverId)!;
+    for (const itemId of sortedItemIds) {
+      const def = itemDefinitions.get(itemId)!;
       let cleanProps: Record<string, unknown> | null = null;
       if (def.properties) {
         cleanProps = {};
@@ -267,8 +267,8 @@ export async function runCompile(
         if (Object.keys(cleanProps).length === 0) cleanProps = null;
       }
 
-      const clientId = def.id ?? serverId;
-      const thing = od.things.get(clientId);
+      const appearanceId = def.appearanceId;
+      const thing = od.things.get(appearanceId);
       if (thing?.category === 'item' && thing.flags.ground) {
         const speed = thing.flags.groundSpeed ?? 100;
         if (speed !== 100) {
@@ -296,11 +296,11 @@ export async function runCompile(
       }
 
       const entry: Record<string, unknown> = {};
-      entry.flags = def.flags;
-      entry.group = def.group;
+      if (def.flags !== 0) entry.flags = def.flags;
+      if (def.group !== 0) entry.group = def.group;
       if (def.topOrder && def.topOrder > 0) entry.topOrder = def.topOrder;
-      entry.properties = cleanProps;
-      defsObj[String(serverId)] = entry;
+      if (cleanProps) entry.properties = cleanProps;
+      defsObj[String(itemId)] = entry;
     }
 
     const defsJson = JSON.stringify(defsObj, null, 4);

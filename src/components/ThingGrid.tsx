@@ -20,7 +20,7 @@ export function ThingGrid() {
   const editVersion = useOBStore((s) => s.editVersion); // re-render on sprite replacement
   const filterGroup = useOBStore((s) => s.filterGroup);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const clientToServerIds = useOBStore((s) => s.clientToServerIds);
+  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   const spriteMapEntries = useOBStore((s) => s.spriteMapEntries);
 
   // Build a set of outfit display IDs that appear in the equipment sprite map
@@ -34,9 +34,9 @@ export function ThingGrid() {
   const tooltip = useSpriteTooltip(spriteData, spriteOverrides);
 
   const things = useMemo(
-    () => getThingsForCategory(objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, clientToServerIds),
+    () => getThingsForCategory(objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, clientToServerIds, editVersion],
+    [objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds, editVersion],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -132,10 +132,10 @@ export function ThingGrid() {
             const url = spriteData ? getSpriteDataUrl(spriteData, firstSprite, spriteOverrides) : null;
             const isSelected = thing.id === selectedId;
             const displayId = objectData ? getDisplayId(objectData, thing.id) : thing.id;
-            const serverId = clientToServerIds?.get(thing.id);
-            const def = serverId != null ? itemDefinitions?.get(serverId) : undefined;
+            const itemId = appearanceToItemIds?.get(thing.id);
+            const def = itemId != null ? itemDefinitions?.get(itemId) : undefined;
             const itemName = def?.properties?.name;
-            const publicId = activeCategory === 'item' ? (serverId ?? displayId) : displayId;
+            const publicId = activeCategory === 'item' ? (itemId ?? displayId) : displayId;
             const tipText = itemName ? `#${publicId} — ${itemName}` : `#${publicId}`;
 
             const isMultiSelected = selectedIds.has(thing.id);
