@@ -4,6 +4,7 @@ import { useOBStore } from '../store';
 import { INITIAL_COMPILE_STATE, runCompile } from '../lib/compile-pipeline';
 import type { CompileState } from '../lib/compile-pipeline';
 import { CompileModal } from './CompileModal';
+import { LibraryTabs } from './LibraryTabs';
 
 export function Header() {
   const objectData = useOBStore((state) => state.objectData);
@@ -77,7 +78,13 @@ export function Header() {
 
   return (
     <>
-      <div className="h-10 flex items-center px-3 gap-2 bg-emperia-surface border-b border-emperia-border shrink-0">
+      <div className="relative h-10 flex items-center px-3 gap-2 bg-emperia-surface border-b border-emperia-border shrink-0">
+        <img
+          src="/emperia-icon-purple.svg"
+          alt=""
+          aria-hidden="true"
+          className="w-6 h-6"
+        />
         <span className="text-sm font-bold text-emperia-text tracking-wide">
           Emperia Object Builder
         </span>
@@ -88,6 +95,8 @@ export function Header() {
             <Circle className="w-2 h-2 fill-amber-400 text-amber-400" />
           </span>
         )}
+
+        <LibraryTabs />
 
         <div className="flex-1" />
 

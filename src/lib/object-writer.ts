@@ -32,41 +32,25 @@ const ATTR = {
   ThingAttrHookEast: 19,
   ThingAttrRotateable: 20,
   ThingAttrLight: 21,
-  ThingAttrDontHide: 22,
   ThingAttrTranslucent: 23,
   ThingAttrDisplacement: 24,
   ThingAttrElevation: 25,
-  ThingAttrLyingCorpse: 26,
   ThingAttrAnimateAlways: 27,
   ThingAttrMinimapColor: 28,
-  ThingAttrLensHelp: 29,
-  ThingAttrFullGround: 30,
-  ThingAttrLook: 31,
-  ThingAttrCloth: 32,
-  ThingAttrMarket: 33,
-  ThingAttrUsable: 34,
-  ThingAttrWrapable: 35,
-  ThingAttrUnwrapable: 36,
-  ThingAttrTopEffect: 37,
   ThingAttrRenderBelowCreatures: 102,
-  ThingAttrNoMoveAnimation: 253,
-  ThingAttrChargeable: 254,
   ThingAttrLast: 255,
 } as const;
 
 function writeFlags(w: PacketWriter, flags: ThingFlags, version: number): void {
   // Write each flag in the canonical attribute order.
-  // For version >= 1000, we need to reverse the mapVersionFlag mapping:
-  //   written flag 16 = ThingAttrNoMoveAnimation (253)
-  //   written flags > 16 are shifted: writtenFlag = attr + 1
+  // Version 1000+ reserves raw attribute 16, so later canonical attributes
+  // are serialized one position higher.
 
   const writeAttr = (attr: number) => {
     if (version >= 1000) {
       // Inverse of parser's mapVersionFlag for v >= 1000:
       //   parser: raw 16 → 253, raw > 16 → raw - 1
       //   writer: canonical 253 → raw 16, canonical >= 16 → raw canonical + 1
-      if (attr === ATTR.ThingAttrNoMoveAnimation) { w.writeUInt8(16); return; }
-      if (attr === ATTR.ThingAttrChargeable) { w.writeUInt8(ATTR.ThingAttrChargeable + 1); return; }
       if (attr >= 16) { w.writeUInt8(attr + 1); return; }
     }
     w.writeUInt8(attr);
@@ -85,11 +69,11 @@ function writeFlags(w: PacketWriter, flags: ThingFlags, version: number): void {
   if (flags.multiUse) writeAttr(ATTR.ThingAttrMultiUse);
   if (flags.writable) {
     writeAttr(ATTR.ThingAttrWritable);
-    w.writeUInt16(flags.writableMaxLen ?? 0);
+    w.writeUInt16(0);
   }
   if (flags.writableOnce) {
     writeAttr(ATTR.ThingAttrWritableOnce);
-    w.writeUInt16(flags.writableOnceMaxLen ?? 0);
+    w.writeUInt16(0);
   }
   if (flags.fluidContainer) writeAttr(ATTR.ThingAttrFluidContainer);
   if (flags.splash) writeAttr(ATTR.ThingAttrSplash);
@@ -107,7 +91,6 @@ function writeFlags(w: PacketWriter, flags: ThingFlags, version: number): void {
     w.writeUInt16(flags.lightLevel ?? 0);
     w.writeUInt16(flags.lightColor ?? 0);
   }
-  if (flags.dontHide) writeAttr(ATTR.ThingAttrDontHide);
   if (flags.translucent) writeAttr(ATTR.ThingAttrTranslucent);
   if (flags.hasDisplacement) {
     writeAttr(ATTR.ThingAttrDisplacement);
@@ -120,41 +103,12 @@ function writeFlags(w: PacketWriter, flags: ThingFlags, version: number): void {
     writeAttr(ATTR.ThingAttrElevation);
     w.writeUInt16(flags.elevation ?? 0);
   }
-  if (flags.lyingCorpse) writeAttr(ATTR.ThingAttrLyingCorpse);
   if (flags.animateAlways) writeAttr(ATTR.ThingAttrAnimateAlways);
   if (flags.hasMinimapColor) {
     writeAttr(ATTR.ThingAttrMinimapColor);
     w.writeUInt16(flags.minimapColor ?? 0);
   }
-  if (flags.lensHelp != null) {
-    writeAttr(ATTR.ThingAttrLensHelp);
-    w.writeUInt16(flags.lensHelp);
-  }
-  if (flags.fullGround) writeAttr(ATTR.ThingAttrFullGround);
-  if (flags.look) writeAttr(ATTR.ThingAttrLook);
-  if (flags.cloth) {
-    writeAttr(ATTR.ThingAttrCloth);
-    w.writeUInt16(flags.clothSlot ?? 0);
-  }
-  if (flags.hasMarket) {
-    writeAttr(ATTR.ThingAttrMarket);
-    w.writeUInt16(flags.marketCategory ?? 0);
-    w.writeUInt16(flags.marketTradeAs ?? 0);
-    w.writeUInt16(flags.marketShowAs ?? 0);
-    w.writeString(flags.marketName ?? '');
-    w.writeUInt16(flags.marketRestrictVocation ?? 0);
-    w.writeUInt16(flags.marketRequiredLevel ?? 0);
-  }
-  if (flags.usable) {
-    writeAttr(ATTR.ThingAttrUsable);
-    w.writeUInt16(flags.usableActionId ?? 0);
-  }
-  if (flags.wrapable) writeAttr(ATTR.ThingAttrWrapable);
-  if (flags.unwrapable) writeAttr(ATTR.ThingAttrUnwrapable);
-  if (flags.topEffect) writeAttr(ATTR.ThingAttrTopEffect);
   if (flags.renderBelowCreatures) writeAttr(ATTR.ThingAttrRenderBelowCreatures);
-  if (flags.noMoveAnimation) writeAttr(ATTR.ThingAttrNoMoveAnimation);
-  if (flags.chargeable) writeAttr(ATTR.ThingAttrChargeable);
 
   // Terminator
   w.writeUInt8(ATTR.ThingAttrLast);

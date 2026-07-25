@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useOBStore } from '../store';
-import { OTB_FLAG_NAMES } from '../lib/types';
 import type { ItemProperties, ExclusiveSlotDef } from '../lib/types';
 import { ITEM_SLOT_TYPES } from '../lib/item-slot-types';
+import { HelpTooltip } from './HelpTooltip';
+import type { HelpContent } from './HelpTooltip';
 
 // ─── Field definitions for the UI ───────────────────────────────────────────
 
@@ -29,14 +30,12 @@ const FIELD_HELP: Record<string, string> = {
   magicalAttack: 'Base magical attack value used by combat calculations.',
   physicalDefense: 'Base physical defense value used by equipment/stat calculations.',
   magicalDefense: 'Base magical defense value used by equipment/stat calculations.',
-  armor: 'Legacy armor/defense value kept for compatibility with existing item data.',
   extradef: 'Extra defense modifier for shields or equipment.',
   hitChance: 'Base hit chance modifier.',
   maxHitChance: 'Maximum hit chance cap for this item.',
   range: 'Attack or use range for ranged items.',
   weight: 'Server-side weight. Pickupable items use this for capacity calculations and look details.',
   speed: 'Optional movement speed-style property; most ground movement uses Ground Speed/Friction instead.',
-  friction: 'Ground movement speed exported from the client Ground flag. Non-default values affect walking over this tile.',
   floorchange: 'Marks tiles that move the player between floors in a direction.',
   level: 'Minimum player level requirement.',
   expertise: 'Minimum expertise requirement.',
@@ -52,9 +51,6 @@ const FIELD_HELP: Record<string, string> = {
   transformDeEquipTo: 'Item id this item becomes when unequipped.',
   fluidSource: 'Fluid provided when an empty fluid container is used on this item, such as water, blood, or slime.',
   field: 'Magic field metadata used by field items.',
-  readable: 'Allows the item to be read.',
-  writeable: 'Allows text to be written to the item.',
-  maxTextLen: 'Maximum text length for readable or writeable items.',
   healthGain: 'Health regenerated per tick while this item effect is active.',
   healthTicks: 'Interval for health regeneration.',
   manaGain: 'Mana regenerated per tick while this item effect is active.',
@@ -62,6 +58,76 @@ const FIELD_HELP: Record<string, string> = {
   maxUses: 'Maximum number of tool uses before depletion or breakage.',
   uses: 'Current/default uses value for tool items.',
 };
+
+const FIELD_EXAMPLES: Record<string, string> = {
+  name: 'An item named "steel sword" appears with that name in look text, searches, and server messages.',
+  article: 'Use "an" for "an arcane orb"; the server combines it with the item name in English text.',
+  description: 'A quest item can display "An old key marked with the royal seal." when inspected.',
+  type: 'Set type to door so server door logic recognizes it; use teleport for an item that changes position.',
+  weaponType: 'Set sword so combat and equipment rules treat the item as a sword weapon.',
+  slotType: 'Set head for a helmet or potion for an item that belongs to the potion/tool category.',
+  ammoType: 'A bow can require the same ammunition category configured on its arrow item.',
+  shootType: 'A bow attack can request the arrow projectile visual associated with this value.',
+  damageElement: 'Set fire on a weapon whose additional damage must be resolved as fire damage.',
+  weight: 'A value of 350 represents 3.50 oz in server capacity and item look calculations.',
+  speed: 'A special item can grant or describe a movement-speed modifier where the consuming system reads this property.',
+  floorchange: 'Set north on a stair tile that moves a creature toward the corresponding upper/lower-floor destination.',
+  level: 'Set 20 so equipment validation can reject a level 12 player attempting to equip the item.',
+  expertise: 'Set the required expertise rank before the server allows the item to be used or equipped.',
+  containerSize: 'Set 20 on a backpack to create twenty normal inventory slots.',
+  containerSizePotions: 'Set 4 on a potion belt to reserve four potion-specific positions.',
+  weightReduction: 'A specialized bag can reduce the effective carried weight according to this configured value.',
+  charges: 'A rune with 5 charges can be used five times before its charge count reaches zero.',
+  duration: 'A temporary field can remain active for the configured duration before decay processing.',
+  decayTo: 'A lit torch can decay into the dimmer torch item ID after its duration expires.',
+  destroyTo: 'A breakable crate can transform into its debris item ID when destroyed.',
+  rotateTo: 'Rotating a north-facing chair changes it into the east-facing chair item ID.',
+  transformEquipTo: 'Equipping an inactive torch can transform it into its equipped/active item variant.',
+  transformDeEquipTo: 'Removing that active torch can transform it back to the inventory variant.',
+  fluidSource: 'A water source configured as water fills an empty vial with the water subtype.',
+  field: 'A fire-field item stores the field metadata used when the server applies its field behavior.',
+  healthGain: 'Food can restore the configured health amount each regeneration tick.',
+  healthTicks: 'Set the interval that separates each health regeneration application.',
+  manaGain: 'A regeneration item can restore the configured mana amount on every mana tick.',
+  manaTicks: 'Set the interval that separates each mana regeneration application.',
+  maxUses: 'A pickaxe with Max Uses 100 can track a lifetime limit of one hundred uses.',
+  uses: 'A partially used pickaxe can start or persist with its current use counter.',
+};
+
+function getFieldHelp(field: FieldDef): HelpContent {
+  let description = field.help ?? FIELD_HELP[field.key];
+  if (!description && field.key.startsWith('skill')) {
+    description = `Equipment bonus applied to the player's ${field.label} skill while the item contributes its stats.`;
+  } else if (!description && field.key === 'magiclevelpoints') {
+    description = 'Equipment bonus applied to the player magic-level stat while the item contributes its stats.';
+  } else if (!description && field.key.startsWith('absorbPercent')) {
+    description = `Percentage reduction for the ${field.label.replace('Absorb ', '').replace(' %', '')} damage category.`;
+  } else if (!description && field.key.startsWith('bonus')) {
+    description = `${field.label} contribution included when the server aggregates active equipment bonuses.`;
+  } else if (!description) {
+    description = `${field.label} is stored in the item definition and consumed by the corresponding server system.`;
+  }
+
+  let example = FIELD_EXAMPLES[field.key];
+  if (!example && (field.key.startsWith('skill') || field.key === 'magiclevelpoints')) {
+    example = `Equipment with ${field.label} 2 contributes two points to that skill while its bonuses are active.`;
+  } else if (!example && field.key.startsWith('absorbPercent')) {
+    example = `${field.label} 10 reduces the matching incoming damage category by ten percent when the equipment applies.`;
+  } else if (!example && field.key.startsWith('bonus')) {
+    example = `${field.label} 3 contributes a value of three to the player's aggregated equipment bonuses.`;
+  } else if (!example && /Attack|Defense|armor|extradef|hitChance|maxHitChance|range/i.test(field.key)) {
+    example = `A value configured for ${field.label} is included when the server builds the item's combat profile.`;
+  } else {
+    example = `Set ${field.label} on this item, compile, and the server will load it from items.json for the relevant gameplay rule.`;
+  }
+
+  return {
+    title: field.label,
+    scope: 'Server',
+    description,
+    example,
+  };
+}
 
 // Unified slot types: equipment slots + tool/item categories (used for both slotType and exclusive slot restrictions)
 const FLUID_SOURCE_OPTIONS = [
@@ -89,7 +155,7 @@ const IDENTITY_FIELDS: FieldDef[] = [
   { key: 'description', label: 'Description', type: 'string', help: FIELD_HELP.description },
   { key: 'type', label: 'Type', type: 'select', options: [
     '', 'bed', 'container', 'corpse', 'depot', 'door', 'fluidContainer',
-    'key', 'magicfield', 'mailbox', 'readable', 'rune', 'splash',
+    'key', 'magicfield', 'mailbox', 'rune', 'splash',
     'teleport', 'trashholder', 'window',
   ], help: FIELD_HELP.type },
 ];
@@ -111,7 +177,6 @@ const COMBAT_FIELDS: FieldDef[] = [
   { key: 'magicalAttack', label: 'Magical Attack', type: 'number' },
   { key: 'physicalDefense', label: 'Physical Defense', type: 'number' },
   { key: 'magicalDefense', label: 'Magical Defense', type: 'number' },
-  { key: 'armor', label: 'Armor', type: 'number' },
   { key: 'extradef', label: 'Extra Def', type: 'number' },
   { key: 'hitChance', label: 'Hit Chance', type: 'number' },
   { key: 'maxHitChance', label: 'Max Hit Chance', type: 'number' },
@@ -121,7 +186,6 @@ const COMBAT_FIELDS: FieldDef[] = [
 const WEIGHT_FIELDS: FieldDef[] = [
   { key: 'weight', label: 'Weight', type: 'number' },
   { key: 'speed', label: 'Speed', type: 'number' },
-  { key: 'friction', label: 'Friction', type: 'number' },
   { key: 'floorchange', label: 'Floor Change', type: 'select', options: ['', 'down', 'north', 'south', 'east', 'west'] },
 ];
 
@@ -149,9 +213,6 @@ const DECAY_FIELDS: FieldDef[] = [
 const SPECIAL_FIELDS: FieldDef[] = [
   { key: 'fluidSource', label: 'Fluid Source', type: 'select', options: [...FLUID_SOURCE_OPTIONS], help: FIELD_HELP.fluidSource },
   { key: 'field', label: 'Field', type: 'string' },
-  { key: 'readable', label: 'Readable', type: 'boolean' },
-  { key: 'writeable', label: 'Writeable', type: 'boolean' },
-  { key: 'maxTextLen', label: 'Max Text Length', type: 'number' },
 ];
 
 const REGEN_FIELDS: FieldDef[] = [
@@ -216,21 +277,6 @@ const TOOL_USES_FIELDS: FieldDef[] = [
   { key: 'uses', label: 'Uses', type: 'number' },
 ];
 
-const GROUP_OPTIONS = [
-  { value: 0, label: '0 — Normal' },
-  { value: 1, label: '1 — Ground' },
-  { value: 2, label: '2 — Container' },
-  { value: 3, label: '3 — Weapon' },
-  { value: 4, label: '4 — Ammunition' },
-  { value: 5, label: '5 — Armor' },
-  { value: 6, label: '6 — Charges' },
-  { value: 7, label: '7 — Teleport' },
-  { value: 9, label: '9 — Write' },
-  { value: 10, label: '10 — Write Once' },
-  { value: 11, label: '11 — Fluid (Splash)' },
-  { value: 12, label: '12 — Fluid Container' },
-];
-
 // ─── Component ───────────────────────────────────────────────────────────────
 
 const SECTIONS: { key: string; title: string; fields: FieldDef[] }[] = [
@@ -241,7 +287,7 @@ const SECTIONS: { key: string; title: string; fields: FieldDef[] }[] = [
   { key: 'requirements', title: 'Requirements', fields: REQUIREMENT_FIELDS },
   { key: 'container', title: 'Container', fields: CONTAINER_FIELDS },
   { key: 'decay', title: 'Decay / Transform', fields: DECAY_FIELDS },
-  { key: 'special', title: 'Special', fields: SPECIAL_FIELDS },
+  { key: 'special', title: 'Sources & Fields', fields: SPECIAL_FIELDS },
   { key: 'regen', title: 'Regeneration', fields: REGEN_FIELDS },
   { key: 'skills', title: 'Skill Bonuses', fields: SKILL_FIELDS },
   { key: 'absorb', title: 'Absorb %', fields: ABSORB_FIELDS },
@@ -347,48 +393,8 @@ export function ServerPropertiesEditor() {
     );
   }
 
-  // Show imported/stored flags (what actually gets exported)
-  const storedFlags = def?.flags ?? 0;
-  const storedGroup = def?.group ?? 0;
-  const activeOtbNames = OTB_FLAG_NAMES.filter((_, i) => (storedFlags & (1 << i)) !== 0)
-    .map((n) => n.replace('FLAG_', ''));
-
   return (
-    <div className="p-3 text-xs space-y-2 overflow-y-auto">
-      {/* Stored flags & group from items.json */}
-      <Section title="OTB Flags & Group">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <span className="w-16 text-emperia-muted shrink-0">Group</span>
-            <select
-              value={storedGroup}
-              onChange={(e) => {
-                const g = parseInt(e.target.value, 10);
-                if (selectedId != null) updateItemDefinition(selectedId, { group: g });
-              }}
-              className="flex-1 bg-emperia-bg border border-emperia-border rounded px-2 py-0.5 text-emperia-text text-xs"
-            >
-              {GROUP_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="w-16 text-emperia-muted shrink-0">Flags</span>
-            <span className="text-emperia-text font-mono text-[10px]">{storedFlags}</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="w-16 text-emperia-muted shrink-0">Active</span>
-            <span className="text-emperia-text font-mono text-[10px] leading-relaxed">
-              {activeOtbNames.length > 0 ? activeOtbNames.join(', ') : <span className="text-emperia-muted/50">none</span>}
-            </span>
-          </div>
-          <p className="text-[9px] text-emperia-muted/50 mt-1">
-            Groups 1 (Ground), 2 (Container), 11 (Splash), 12 (Fluid) are used by the server for gameplay logic.
-          </p>
-        </div>
-      </Section>
-
+    <div className="space-y-2 text-xs">
       {SECTIONS.map((sec) => (
         <div key={sec.key}>
           <FieldSection
@@ -412,32 +418,6 @@ export function ServerPropertiesEditor() {
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
-
-function HelpButton({ text }: { text: string }) {
-  return (
-    <button
-      type="button"
-      title={text}
-      aria-label={text}
-      className="w-4 h-4 rounded-full border border-emperia-border text-[10px] leading-none text-emperia-muted hover:text-emperia-accent hover:border-emperia-accent/70 transition-colors shrink-0"
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-      }}
-    >
-      ?
-    </button>
-  );
-}
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <h3 className="text-[10px] font-semibold text-emperia-muted uppercase tracking-wider mb-1">{title}</h3>
-      {children}
-    </div>
-  );
-}
 
 function FieldSection({
   title,
@@ -600,11 +580,11 @@ function FieldRow({
   onChange: (value: string | number | boolean | undefined) => void;
 }) {
   const { label, type, options, placeholder } = field;
-  const help = field.help ?? FIELD_HELP[field.key] ?? `${label} server property.`;
+  const help = getFieldHelp(field);
   const labelNode = (
     <span className="w-28 text-emperia-muted shrink-0 flex items-center gap-1">
       <span>{label}</span>
-      <HelpButton text={help} />
+      <HelpTooltip content={help} />
     </span>
   );
 
@@ -618,7 +598,7 @@ function FieldRow({
           className="accent-emperia-accent"
         />
         <span className="text-emperia-text">{label}</span>
-        <HelpButton text={help} />
+        <HelpTooltip content={help} />
       </label>
     );
   }

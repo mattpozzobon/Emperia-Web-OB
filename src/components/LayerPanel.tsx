@@ -19,15 +19,19 @@ export function LayerPanel() {
   const showColorPicker = useOBStore((s) => s.showColorPicker);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
-  const isOutfit = category === 'outfit';
+  const isDirectionalAppearance = (
+    category === 'outfit'
+    || category === 'equipment'
+    || category === 'hair'
+  );
   const isEffect = category === 'effect';
 
   // Use first frame group for layer count (could be extended to track activeGroup)
   const group = thing?.frameGroups[0] ?? null;
   const hasMultipleLayers = group ? group.layers > 1 : false;
   const isAnimated = group ? group.animationLength > 1 : false;
-  const showOffset = isOutfit || isEffect || (thing?.flags.hasDisplacement ?? false);
-  const showColors = isOutfit && blendLayers && (group?.layers ?? 0) >= 2;
+  const showOffset = isDirectionalAppearance || isEffect || (thing?.flags.hasDisplacement ?? false);
+  const showColors = isDirectionalAppearance && blendLayers && (group?.layers ?? 0) >= 2;
 
   const updateFrameGroupProp = useCallback((key: string, value: number) => {
     if (!thing || !group) return;

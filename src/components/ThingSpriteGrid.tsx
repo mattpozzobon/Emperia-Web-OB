@@ -1,7 +1,8 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { Search, Plus, Trash2, X, Minimize2, Grid2x2, RefreshCw } from 'lucide-react';
+import { Search, Plus, Trash2, X, Minimize2, Grid2x2, RefreshCw, Images } from 'lucide-react';
 import { useOBStore } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
+import { importFullDirectionalSheet } from '../lib/full-directional-sheet-import';
 import { AtlasCell } from './AtlasCell';
 import { SpriteGroupTray } from './SpriteGroupTray';
 import { useSpriteTooltip } from './SpriteTooltip';
@@ -41,10 +42,48 @@ export function ThingSpriteGrid() {
   const [lastClickedAtlasId, setLastClickedAtlasId] = useState<number | null>(null);
   const atlasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const fullSheetInputRef = useRef<HTMLInputElement>(null);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const replaceSpriteIdRef = useRef<number>(0);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
+
+  const handleFullSheetImport = useCallback(async (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) return;
+    if (!thing || !spriteData || thing.category !== 'equipment') {
+      alert('Select an Equipment object before importing equipment.');
+      return;
+    }
+
+    try {
+      const store = useOBStore.getState();
+      const result = await importFullDirectionalSheet({
+        file,
+        thing,
+        addSprite: store.addSprite,
+      });
+      clearSpriteCache();
+      const latest = useOBStore.getState();
+      const dirtyIds = new Set(latest.dirtyIds);
+      dirtyIds.add(thing.id);
+      useOBStore.setState({
+        dirty: true,
+        dirtyIds,
+        editVersion: latest.editVersion + 1,
+        currentFrame: 0,
+        playing: false,
+        activeLayer: 0,
+        selectedSlots: [],
+      });
+      alert(
+        `Equipment imported: 2x2, ${result.idleFrames} Idle frame(s), `
+        + `${result.movingFrames} Moving frame(s), 4 directions.`,
+      );
+    } catch (error) {
+      alert(`Could not import complete sheet: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }, [thing, spriteData]);
 
   // Import PNG(s) as new atlas sprites (always sliced into 32×32 tiles)
   // When grouped (W>1 or H>1), inserts blank padding sprites after each W×H group
@@ -425,12 +464,31 @@ export function ThingSpriteGrid() {
             className="hidden"
             onChange={(e) => { handleReplaceFile(e.target.files); e.target.value = ''; }}
           />
+          <input
+            ref={fullSheetInputRef}
+            type="file"
+            accept="image/png,image/gif,image/bmp"
+            className="hidden"
+            onChange={(event) => {
+              void handleFullSheetImport(event.target.files);
+              event.target.value = '';
+            }}
+          />
           <button
             onClick={() => fileInputRef.current?.click()}
             className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-green-400 hover:border-green-400/50 transition-colors"
             title={`Add new sprites from PNG (32×32 tiles${importTileWidth > 1 || importTileHeight > 1 ? `, grouped ${importTileWidth}×${importTileHeight} with row padding` : ''})`}
           >
             <Plus className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => fullSheetInputRef.current?.click()}
+            disabled={!thing || thing.category !== 'equipment'}
+            className="flex items-center gap-1 rounded border border-emperia-accent/40 bg-emperia-accent/10 px-1.5 py-1 text-[10px] font-medium text-emperia-accent transition-colors hover:border-emperia-accent hover:bg-emperia-accent/20 disabled:cursor-default disabled:opacity-30"
+            title="Import Equipment — automatically configures 2x2, 4 directions, 1 Idle and 2 Moving frames"
+          >
+            <Images className="w-3.5 h-3.5" />
+            <span>Equipment</span>
           </button>
           <div className="relative group">
             <button

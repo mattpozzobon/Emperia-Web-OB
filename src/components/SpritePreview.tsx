@@ -65,7 +65,11 @@ export function SpritePreview() {
   const latestRenderKeyRef = useRef('');
 
   const category = useOBStore((s) => s.activeCategory);
-  const isOutfit = category === 'outfit';
+  const isDirectionalAppearance = (
+    category === 'outfit'
+    || category === 'equipment'
+    || category === 'hair'
+  );
   const isEffect = category === 'effect';
   const isDistance = category === 'distance';
   const effectReferenceOutfitId = isEffect && showEffectOutfitReference && objectData
@@ -79,9 +83,9 @@ export function SpritePreview() {
     setActiveZ(0);
     setActiveDirection(2);
     setActivePatternY(0);
-    // Default outfits to preview mode, items to pattern mode
-    setPreviewMode(isOutfit || isEffect || isDistance);
-  }, [selectedId, isOutfit, isEffect, isDistance]);
+    // Character appearances use the same cardinal-direction preview.
+    setPreviewMode(isDirectionalAppearance || isEffect || isDistance);
+  }, [selectedId, isDirectionalAppearance, isEffect, isDistance]);
 
   // Close copy menu on outside click
   useEffect(() => {
@@ -258,7 +262,7 @@ export function SpritePreview() {
           }
         }
 
-        const useOutfitMask = isOutfit && blendLayers && group.layers >= 2;
+        const useOutfitMask = isDirectionalAppearance && blendLayers && group.layers >= 2;
         const layersToRender = useOutfitMask
           ? [0]
           : blendLayers
@@ -323,7 +327,7 @@ export function SpritePreview() {
         }
       }
     }
-  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers, previewMode, activeDirection, activePatternY, isOutfit, isEffect, outfitColors, previewBaseOutfitId, effectReferenceOutfitId, effectReferenceGroup, selectedId, objectData, renderThingLayer, thing, editVersion]);
+  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers, previewMode, activeDirection, activePatternY, isDirectionalAppearance, isEffect, outfitColors, previewBaseOutfitId, effectReferenceOutfitId, effectReferenceGroup, selectedId, objectData, renderThingLayer, thing, editVersion]);
 
   useEffect(() => {
     renderFrame(currentFrame);
@@ -660,6 +664,35 @@ export function SpritePreview() {
     useOBStore.setState({ dirty: true, dirtyIds: newDirtyIds, editVersion: store.editVersion + 1 });
   }, [thing, group]);
 
+  const addMovingFrameGroup = () => {
+    if (!thing || thing.frameGroups.length !== 1) return;
+    const idle = thing.frameGroups[0];
+    const moving: FrameGroup = {
+      ...idle,
+      type: 1,
+      animationLengths: idle.animationLengths.map((duration) => ({ ...duration })),
+      sprites: new Array(idle.sprites.length).fill(0),
+    };
+    thing.frameGroups.push(moving);
+    thing.rawBytes = undefined;
+    clearSpriteCache();
+
+    const store = useOBStore.getState();
+    const dirtyIds = new Set(store.dirtyIds);
+    dirtyIds.add(thing.id);
+    useOBStore.setState({
+      dirty: true,
+      dirtyIds,
+      editVersion: store.editVersion + 1,
+      currentFrame: 0,
+      playing: false,
+      activeLayer: 0,
+      selectedSlots: [],
+    });
+    setActiveGroup(1);
+    setActiveZ(0);
+  };
+
   if (!thing) {
     return (
       <div className="flex items-center justify-center h-full text-emperia-muted text-sm">
@@ -706,7 +739,7 @@ export function SpritePreview() {
           const px = group?.patternX ?? 0;
           const py = group?.patternY ?? 0;
           const isDistanceGrid = isDistance && px >= 3 && py >= 3;
-          const isOutfitDirs = (isOutfit || isEffect) && px > 1 && px <= 4;
+          const isOutfitDirs = (isDirectionalAppearance || isEffect) && px > 1 && px <= 4;
           const showEffectReferenceDirs = isEffect && showEffectOutfitReference;
           const showDirButtons = previewMode && group && (isDistanceGrid || isOutfitDirs || showEffectReferenceDirs);
 
@@ -1019,7 +1052,7 @@ export function SpritePreview() {
       />
 
       {/* Frame group selector */}
-      {(thing.frameGroups.length > 1 || isOutfit) && (
+      {(thing.frameGroups.length > 1 || isDirectionalAppearance) && (
         <div className="flex items-center justify-center px-4 py-1.5 gap-1 border-t border-emperia-border">
           {thing.frameGroups.map((_, i) => (
             <button
@@ -1032,6 +1065,15 @@ export function SpritePreview() {
               {i === 0 ? 'Idle' : i === 1 ? 'Moving' : `Group ${i}`}
             </button>
           ))}
+          {isDirectionalAppearance && thing.frameGroups.length === 1 && (
+            <button
+              onClick={addMovingFrameGroup}
+              className="px-3 py-1 rounded border border-dashed border-emperia-accent/50 text-[11px] font-medium text-emperia-accent transition-colors hover:border-emperia-accent hover:bg-emperia-accent/10"
+              title="Create a Moving frame group with the same dimensions and patterns as Idle"
+            >
+              + Moving
+            </button>
+          )}
           <span className="text-[9px] text-emperia-muted/50 ml-1">{thing.frameGroups.length} grp</span>
         </div>
       )}
@@ -1041,7 +1083,7 @@ export function SpritePreview() {
         <ControlsPanel
           thing={thing}
           group={group}
-          isOutfit={isOutfit}
+          isOutfit={isDirectionalAppearance}
           isDistance={isDistance}
           previewMode={previewMode}
           activeDirection={activeDirection}

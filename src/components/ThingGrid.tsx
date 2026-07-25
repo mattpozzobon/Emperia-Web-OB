@@ -1,9 +1,8 @@
 import { useCallback, useRef, useEffect, useState, useMemo } from 'react';
 import { useOBStore, getThingsForCategory, getDisplayId } from '../store';
-import { getSpriteDataUrl } from '../lib/sprite-decoder';
+import { compositeThingDataUrl } from '../lib/sprite-decoder';
 import { useSpriteTooltip } from './SpriteTooltip';
 
-const CELL_SIZE = 40;
 const VISIBLE_BUFFER = 20; // extra items to render above/below viewport
 
 export function ThingGrid() {
@@ -20,6 +19,7 @@ export function ThingGrid() {
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
   const editVersion = useOBStore((s) => s.editVersion); // re-render on sprite replacement
   const filterGroup = useOBStore((s) => s.filterGroup);
+  const cols = useOBStore((s) => s.libraryColumns);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   const hairDefinitions = useMemo(
@@ -39,15 +39,16 @@ export function ThingGrid() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(240);
 
   // Compute grid layout
-  const cols = 6;
+  const cellSize = Math.max(40, Math.floor(containerWidth / cols));
   const totalRows = Math.ceil(things.length / cols);
-  const totalHeight = totalRows * CELL_SIZE;
+  const totalHeight = totalRows * cellSize;
 
   // Visible range
-  const startRow = Math.max(0, Math.floor(scrollTop / CELL_SIZE) - VISIBLE_BUFFER);
-  const endRow = Math.min(totalRows, Math.ceil((scrollTop + containerHeight) / CELL_SIZE) + VISIBLE_BUFFER);
+  const startRow = Math.max(0, Math.floor(scrollTop / cellSize) - VISIBLE_BUFFER);
+  const endRow = Math.min(totalRows, Math.ceil((scrollTop + containerHeight) / cellSize) + VISIBLE_BUFFER);
   const startIdx = startRow * cols;
   const endIdx = Math.min(things.length, endRow * cols);
   const visibleThings = things.slice(startIdx, endIdx);
@@ -61,9 +62,13 @@ export function ThingGrid() {
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const obs = new ResizeObserver(() => setContainerHeight(el.clientHeight));
+    const updateSize = () => {
+      setContainerHeight(el.clientHeight);
+      setContainerWidth(el.clientWidth);
+    };
+    const obs = new ResizeObserver(updateSize);
     obs.observe(el);
-    setContainerHeight(el.clientHeight);
+    updateSize();
     return () => obs.disconnect();
   }, []);
 
@@ -100,12 +105,12 @@ export function ThingGrid() {
     const idx = things.findIndex((t) => t.id === selectedId);
     if (idx < 0) return;
     const row = Math.floor(idx / cols);
-    const top = row * CELL_SIZE;
+    const top = row * cellSize;
     const el = containerRef.current;
-    if (top < el.scrollTop || top + CELL_SIZE > el.scrollTop + el.clientHeight) {
-      el.scrollTop = Math.max(0, top - el.clientHeight / 2 + CELL_SIZE / 2);
+    if (top < el.scrollTop || top + cellSize > el.scrollTop + el.clientHeight) {
+      el.scrollTop = Math.max(0, top - el.clientHeight / 2 + cellSize / 2);
     }
-  }, [selectedId, things]);
+  }, [selectedId, things, cols, cellSize]);
 
   return (<>
     <div
@@ -117,7 +122,7 @@ export function ThingGrid() {
         <div
           style={{
             position: 'absolute',
-            top: startRow * CELL_SIZE,
+            top: startRow * cellSize,
             left: 0,
             right: 0,
             display: 'grid',
@@ -125,8 +130,33 @@ export function ThingGrid() {
           }}
         >
           {visibleThings.map((thing) => {
-            const firstSprite = thing.frameGroups[0]?.sprites.find((s) => s > 0) ?? 0;
-            const url = spriteData ? getSpriteDataUrl(spriteData, firstSprite, spriteOverrides) : null;
+            const previewGroup = thing.frameGroups[0];
+            const previewWidth = previewGroup?.width || 1;
+            const previewHeight = previewGroup?.height || 1;
+            const previewTileCount = previewWidth * previewHeight;
+            const facesSouth = (
+              thing.category === 'outfit'
+              || thing.category === 'equipment'
+              || thing.category === 'hair'
+            ) && (previewGroup?.patternX ?? 0) > 2;
+            const previewDirection = facesSouth ? 2 : 0;
+            const previewOffset = previewGroup
+              ? previewDirection * Math.max(1, previewGroup.layers) * previewTileCount
+              : 0;
+            const previewSprites = previewGroup?.sprites.slice(
+              previewOffset,
+              previewOffset + previewTileCount,
+            ) ?? [];
+            const url = spriteData && previewGroup
+              ? compositeThingDataUrl(
+                  spriteData,
+                  thing.id,
+                  previewWidth,
+                  previewHeight,
+                  previewSprites,
+                  spriteOverrides,
+                )
+              : null;
             const isSelected = thing.id === selectedId;
             const displayId = objectData ? getDisplayId(objectData, thing.id) : thing.id;
             const itemId = appearanceToItemIds?.get(thing.id);
@@ -169,14 +199,18 @@ export function ThingGrid() {
                       : 'border-transparent hover:bg-emperia-hover'
                   }
                 `}
-                style={{ width: CELL_SIZE, height: CELL_SIZE }}
+                style={{ width: cellSize, height: cellSize }}
                 title={tipText}
                 onMouseEnter={(e) => {
-                  const fg = thing.frameGroups[0];
-                  if (fg && (fg.width > 1 || fg.height > 1)) {
-                    tooltip.showThing(thing.id, fg, tipText, e);
+                  if (previewGroup && (previewWidth > 1 || previewHeight > 1)) {
+                    tooltip.showThing(
+                      thing.id,
+                      { ...previewGroup, patternX: 1, sprites: previewSprites },
+                      tipText,
+                      e,
+                    );
                   } else {
-                    tooltip.show(firstSprite, tipText, e);
+                    tooltip.show(previewSprites.find((spriteId) => spriteId > 0) ?? 0, tipText, e);
                   }
                 }}
                 onMouseMove={tooltip.move}
@@ -186,11 +220,22 @@ export function ThingGrid() {
                   <img
                     src={url}
                     alt=""
-                    className="w-8 h-8 pixelated"
-                    style={{ imageRendering: 'pixelated' }}
+                    className="pixelated"
+                    style={{
+                      imageRendering: 'pixelated',
+                      width: Math.max(32, cellSize - 8),
+                      height: Math.max(32, cellSize - 8),
+                      objectFit: 'contain',
+                    }}
                   />
                 ) : (
-                  <div className="w-8 h-8 bg-emperia-border/30 rounded-sm" />
+                  <div
+                    className="rounded-sm bg-emperia-border/30"
+                    style={{
+                      width: Math.max(32, cellSize - 8),
+                      height: Math.max(32, cellSize - 8),
+                    }}
+                  />
                 )}
                 <span className="absolute bottom-0 right-0.5 text-[8px] text-emperia-muted/60 leading-none">
                   {publicId}

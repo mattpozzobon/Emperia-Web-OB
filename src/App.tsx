@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import { useOBStore, getDisplayId } from './store';
 import { FileDropZone } from './components/FileDropZone';
 import { Header } from './components/Header';
@@ -21,6 +22,34 @@ const TAB_LABELS: Record<CenterTab, string> = {
   hair: 'Hair',
   outfits: 'Outfits',
 } as const;
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const getSavedPanelWidth = (key: string, fallback: number, min: number, max: number): number => {
+  if (typeof localStorage === 'undefined') return fallback;
+  const stored = Number(localStorage.getItem(key));
+  return Number.isFinite(stored) ? clamp(stored, min, max) : fallback;
+};
+
+type ResizeTarget = 'left' | 'right';
+
+function ResizeHandle({ onPointerDown, label }: {
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void;
+  label: string;
+}) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      title="Drag to resize"
+      onPointerDown={onPointerDown}
+      className="group relative z-20 w-1.5 shrink-0 cursor-col-resize touch-none"
+    >
+      <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-emperia-border transition-colors group-hover:w-0.5 group-hover:bg-emperia-accent" />
+    </div>
+  );
+}
 
 function SelectedItemBadge() {
   const selectedId = useOBStore((s) => s.selectedThingId);
@@ -52,6 +81,63 @@ export default function App() {
   const centerTab = useOBStore((s) => s.centerTab);
   const setCenterTab = useOBStore((s) => s.setCenterTab);
   const setActiveLibrary = useOBStore((s) => s.setActiveLibrary);
+  const [leftPanelWidth, setLeftPanelWidth] = useState(() => (
+    getSavedPanelWidth('emperia-ob-left-panel-width', 256, 200, 520)
+  ));
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => (
+    getSavedPanelWidth('emperia-ob-right-panel-width', 288, 220, 640)
+  ));
+  const resizeRef = useRef<{
+    target: ResizeTarget;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('emperia-ob-left-panel-width', String(leftPanelWidth));
+  }, [leftPanelWidth]);
+
+  useEffect(() => {
+    localStorage.setItem('emperia-ob-right-panel-width', String(rightPanelWidth));
+  }, [rightPanelWidth]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const resize = resizeRef.current;
+      if (!resize) return;
+      const delta = event.clientX - resize.startX;
+      if (resize.target === 'left') {
+        setLeftPanelWidth(clamp(resize.startWidth + delta, 200, 520));
+      } else {
+        setRightPanelWidth(clamp(resize.startWidth - delta, 220, 640));
+      }
+    };
+    const handlePointerUp = () => {
+      if (!resizeRef.current) return;
+      resizeRef.current = null;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, []);
+
+  const beginResize = (
+    target: ResizeTarget,
+    width: number,
+    event: React.PointerEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault();
+    resizeRef.current = { target, startX: event.clientX, startWidth: width };
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
 
   if (!loaded) {
     return <FileDropZone />;
@@ -62,10 +148,17 @@ export default function App() {
       <Header />
       <div className="flex-1 flex overflow-hidden">
         {/* Left: Category tabs + item grid */}
-        <div className="w-64 flex flex-col border-r border-emperia-border bg-emperia-bg">
+        <div
+          className="shrink-0 flex flex-col bg-emperia-bg"
+          style={{ width: leftPanelWidth }}
+        >
           <CategoryTabs />
           <ThingGrid />
         </div>
+        <ResizeHandle
+          label="Resize object library"
+          onPointerDown={(event) => beginResize('left', leftPanelWidth, event)}
+        />
 
         {/* Center: Texture / Properties / Attributes */}
         <div className="flex-1 flex flex-col bg-emperia-bg overflow-hidden">
@@ -108,7 +201,14 @@ export default function App() {
         </div>
 
         {/* Right: Sprite atlas browser */}
-        <div className="w-72 border-l border-emperia-border bg-emperia-bg flex flex-col">
+        <ResizeHandle
+          label="Resize sprite atlas"
+          onPointerDown={(event) => beginResize('right', rightPanelWidth, event)}
+        />
+        <div
+          className="shrink-0 bg-emperia-bg flex flex-col"
+          style={{ width: rightPanelWidth }}
+        >
           <ThingSpriteGrid />
         </div>
       </div>

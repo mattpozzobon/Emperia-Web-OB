@@ -7,11 +7,15 @@ import { compileObjectData } from './object-writer';
 import { compileSpriteData } from './sprite-writer';
 import { parseSpriteData } from './sprite-decoder';
 import { gzipCompress } from './emperia-format';
-import { compileItemsOtb } from './otb-writer';
-import { compileItemsXml } from './items-xml-writer';
 import { verifyPermission } from './dir-handle-store';
 import type { ObjectData, SpriteData } from './types';
 import type { EquipmentAppearance, HairDefinition } from './types';
+import {
+  deriveGroup,
+  deriveTopOrder,
+  stripRetiredItemFlags,
+  syncItemFlagsFromVisual,
+} from './types';
 
 export interface CompileStep {
   label: string;
@@ -41,8 +45,6 @@ export const STEP_LABELS = [
   'Objects (.eobj)',
   'Sprites (.espr)',
   'Definitions (.json)',
-  'Items OTB (.otb)',
-  'Items XML (.xml)',
   'Asset Package Manifest',
   'Validate & Save',
 ] as const;
@@ -68,6 +70,17 @@ const SERVER_ITEM_EXCLUDED_PROPERTIES = new Set([
   'clientId',
   'serverId',
 ]);
+
+const SERVER_PROPERTY_ALIASES: Readonly<Record<string, string>> = {
+  containersize: 'containerSize',
+  decayto: 'decayTo',
+  corpsetype: 'corpseType',
+  fluidsource: 'fluidSource',
+  blockprojectile: 'blockProjectile',
+  attack: 'physicalAttack',
+  defense: 'physicalDefense',
+  armor: 'physicalDefense',
+};
 
 type ArtifactRole = 'obj' | 'spr' | 'def' | 'generated';
 
@@ -137,13 +150,6 @@ function validateJson(buf: ArrayBuffer, label: string): void {
   }
 }
 
-function validateXml(buf: ArrayBuffer): void {
-  const document = new DOMParser().parseFromString(new TextDecoder().decode(buf), 'application/xml');
-  if (document.querySelector('parsererror') || document.documentElement.tagName !== 'items') {
-    throw new Error('items.xml is not valid XML.');
-  }
-}
-
 async function writeAndVerify(
   handle: FileSystemFileHandle,
   buf: ArrayBuffer,
@@ -179,6 +185,18 @@ async function writeAndVerify(
   }
   if (offset !== expected.length) {
     throw new Error(`Content verification failed for ${handle.name}: expected ${expected.length} bytes, read ${offset}.`);
+  }
+}
+
+async function removeObsoletePackageArtifacts(dir: FileSystemDirectoryHandle): Promise<void> {
+  for (const name of ['items.otb', 'items.xml']) {
+    try {
+      await dir.removeEntry(name);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'NotFoundError')) {
+        throw error;
+      }
+    }
   }
 }
 
@@ -472,6 +490,30 @@ export async function runCompile(
   const equipmentAppearances = new Map<number, EquipmentAppearance>(od.equipmentAppearances);
   const hairDefinitions = new Map<number, HairDefinition>(od.hairDefinitions);
 
+  // Text access has one canonical editor but two runtime projections. Bring
+  // imported legacy definitions and EOBJ flags into agreement before writing
+  // either artifact.
+  for (const definition of itemDefinitions.values()) {
+    const thing = od.things.get(definition.appearanceId);
+    if (thing?.category !== 'item') continue;
+    const properties = definition.properties ?? {};
+    const writeOnce = thing.flags.writableOnce
+      || (properties.writeable === true && properties.writeOnceItemId != null);
+    const writable = !writeOnce && (
+      thing.flags.writable
+      || properties.writeable === true
+    );
+    if (thing.flags.writable !== writable || thing.flags.writableOnce !== writeOnce) {
+      thing.flags = {
+        ...thing.flags,
+        writable,
+        writableOnce: writeOnce,
+      };
+      thing.rawBytes = undefined;
+      dirtyIds.add(thing.id);
+    }
+  }
+
   if (!await runStep(0, async () => {
     if (sourceNames.def && (!state.definitionsLoaded || itemDefinitions.size === 0)) {
       throw new Error(
@@ -533,20 +575,37 @@ export async function runCompile(
       if (definition.properties) {
         properties = {};
         for (const [key, value] of Object.entries(definition.properties)) {
+          const canonicalKey = SERVER_PROPERTY_ALIASES[key] ?? key;
           if (
-            !SERVER_ITEM_EXCLUDED_PROPERTIES.has(key)
+            canonicalKey !== key
+            && definition.properties[canonicalKey] !== undefined
+          ) {
+            continue;
+          }
+          if (
+            !SERVER_ITEM_EXCLUDED_PROPERTIES.has(canonicalKey)
             && value !== undefined
             && value !== null
             && value !== ''
-            && !(key === 'article' && value === 'a')
+            && !(canonicalKey === 'article' && value === 'a')
           ) {
-            properties[key] = value;
+            properties[canonicalKey] = value;
           }
         }
         if (Object.keys(properties).length === 0) properties = null;
       }
 
       const thing = od.things.get(definition.appearanceId);
+      if (properties?.type === 'readable') {
+        delete properties.type;
+        properties.readable = true;
+      }
+      if (thing?.category === 'item' && (thing.flags.writable || thing.flags.writableOnce)) {
+        properties ??= {};
+        properties.writeable = true;
+        delete properties.readable;
+        if (!thing.flags.writableOnce) delete properties.writeOnceItemId;
+      }
       if (thing?.category === 'item' && thing.flags.ground) {
         const speed = thing.flags.groundSpeed ?? 100;
         if (speed !== 100) {
@@ -559,9 +618,19 @@ export async function runCompile(
       }
 
       const entry: Record<string, unknown> = {};
-      if (definition.flags !== 0) entry.flags = definition.flags;
-      if (definition.group !== 0) entry.group = definition.group;
-      if (definition.topOrder && definition.topOrder > 0) entry.topOrder = definition.topOrder;
+      const hasVisualSource = thing?.category === 'item';
+      const itemFlags = hasVisualSource
+        ? syncItemFlagsFromVisual(definition.flags, thing.flags)
+        : stripRetiredItemFlags(definition.flags);
+      const group = hasVisualSource
+        ? deriveGroup(thing.flags)
+        : definition.group;
+      const topOrder = hasVisualSource
+        ? deriveTopOrder(thing.flags)
+        : (definition.topOrder ?? 0);
+      if (itemFlags !== 0) entry.flags = itemFlags;
+      if (group !== 0) entry.group = group;
+      if (topOrder > 0) entry.topOrder = topOrder;
       if (properties) entry.properties = properties;
       definitions[String(itemId)] = entry;
     }
@@ -578,51 +647,24 @@ export async function runCompile(
     skipStep(2);
   }
 
-  if (state.definitionsLoaded && itemDefinitions.size > 0) {
-    if (!await runStep(3, async () => {
-      const buf = compileItemsOtb(itemDefinitions, od);
-      const bytes = new Uint8Array(buf);
-      if (bytes.length < 8 || bytes[0] !== 0 || bytes[1] !== 0 || bytes[2] !== 0 || bytes[3] !== 0) {
-        throw new Error('Generated items.otb has an invalid header.');
-      }
-      artifacts.push({ role: 'generated', name: 'items.otb', buf });
-      return buf.byteLength;
-    })) {
-      abortGeneration(3);
-      return;
-    }
-
-    if (!await runStep(4, async () => {
-      const buf = compileItemsXml(itemDefinitions, od);
-      validateXml(buf);
-      artifacts.push({ role: 'generated', name: 'items.xml', buf });
-      return buf.byteLength;
-    })) {
-      abortGeneration(4);
-      return;
-    }
-  } else {
-    skipStep(3);
-    skipStep(4);
-  }
-
-  if (!await runStep(5, async () => {
+  if (!await runStep(3, async () => {
     const buf = await compilePackageManifest(artifacts);
     validateJson(buf, 'asset-package.json');
     artifacts.push({ role: 'generated', name: 'asset-package.json', buf });
     return buf.byteLength;
   })) {
-    abortGeneration(5);
+    abortGeneration(3);
     return;
   }
 
   let primarySaved = false;
-  const saveSucceeded = await runStep(6, async () => {
+  const saveSucceeded = await runStep(4, async () => {
     if (sourceDir) {
       if (!await sourcePermission) {
         throw new Error(`Write permission was not granted for source folder "${sourceDir.name}".`);
       }
       await saveDirectoryBatch(sourceDir, artifacts, true);
+      await removeObsoletePackageArtifacts(sourceDir);
       for (const artifact of artifacts) {
         outputs.push({ name: artifact.name, destination: sourceDir.name, size: artifact.buf.byteLength });
       }

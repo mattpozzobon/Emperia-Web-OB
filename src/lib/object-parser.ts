@@ -115,13 +115,10 @@ function emptyFlags(): ThingFlags {
     writable: false, writableOnce: false, fluidContainer: false, splash: false,
     notWalkable: false, notMoveable: false, blockProjectile: false,
     notPathable: false, pickupable: false, hangable: false, hookSouth: false,
-    hookEast: false, rotateable: false, hasLight: false, dontHide: false,
+    hookEast: false, rotateable: false, hasLight: false,
     translucent: false, hasDisplacement: false, hasElevation: false,
-    lyingCorpse: false, animateAlways: false, hasMinimapColor: false,
-    fullGround: false, look: false, cloth: false, hasMarket: false,
-    usable: false, wrapable: false, unwrapable: false, topEffect: false,
+    animateAlways: false, hasMinimapColor: false,
     renderBelowCreatures: false,
-    noMoveAnimation: false, chargeable: false,
   };
 }
 
@@ -147,11 +144,11 @@ function readFlags(packet: PacketReader, version: number): ThingFlags {
       case ATTR.ThingAttrMultiUse: flags.multiUse = true; break;
       case ATTR.ThingAttrWritable:
         flags.writable = true;
-        flags.writableMaxLen = packet.readUInt16();
+        packet.readUInt16();
         break;
       case ATTR.ThingAttrWritableOnce:
         flags.writableOnce = true;
-        flags.writableOnceMaxLen = packet.readUInt16();
+        packet.readUInt16();
         break;
       case ATTR.ThingAttrFluidContainer: flags.fluidContainer = true; break;
       case ATTR.ThingAttrSplash: flags.splash = true; break;
@@ -171,7 +168,7 @@ function readFlags(packet: PacketReader, version: number): ThingFlags {
         flags.lightColor = light.color;
         break;
       }
-      case ATTR.ThingAttrDontHide: flags.dontHide = true; break;
+      case ATTR.ThingAttrDontHide: break;
       case ATTR.ThingAttrTranslucent: flags.translucent = true; break;
       case ATTR.ThingAttrDisplacement: {
         flags.hasDisplacement = true;
@@ -185,43 +182,37 @@ function readFlags(packet: PacketReader, version: number): ThingFlags {
         flags.hasElevation = true;
         flags.elevation = packet.readUInt16();
         break;
-      case ATTR.ThingAttrLyingCorpse: flags.lyingCorpse = true; break;
+      case ATTR.ThingAttrLyingCorpse: break;
       case ATTR.ThingAttrAnimateAlways: flags.animateAlways = true; break;
       case ATTR.ThingAttrMinimapColor:
         flags.hasMinimapColor = true;
         flags.minimapColor = packet.readUInt16();
         break;
       case ATTR.ThingAttrLensHelp:
-        flags.lensHelp = packet.readUInt16();
+        packet.readUInt16();
         break;
-      case ATTR.ThingAttrFullGround: flags.fullGround = true; break;
-      case ATTR.ThingAttrLook: flags.look = true; break;
+      case ATTR.ThingAttrFullGround: break;
+      case ATTR.ThingAttrLook: break;
       case ATTR.ThingAttrCloth:
-        flags.cloth = true;
-        flags.clothSlot = packet.readUInt16();
+        packet.readUInt16();
         break;
       case ATTR.ThingAttrMarket:
-        flags.hasMarket = true;
-        flags.marketCategory = packet.readUInt16();
-        flags.marketTradeAs = packet.readUInt16();
-        flags.marketShowAs = packet.readUInt16();
-        flags.marketName = packet.readString();
-        flags.marketRestrictVocation = packet.readUInt16();
-        flags.marketRequiredLevel = packet.readUInt16();
+        packet.skip(6);
+        packet.readString();
+        packet.skip(4);
         break;
       case ATTR.ThingAttrUsable:
-        flags.usable = true;
-        flags.usableActionId = packet.readUInt16();
+        packet.readUInt16();
         break;
-      case ATTR.ThingAttrWrapable: flags.wrapable = true; break;
-      case ATTR.ThingAttrUnwrapable: flags.unwrapable = true; break;
-      case ATTR.ThingAttrTopEffect: flags.topEffect = true; break;
+      case ATTR.ThingAttrWrapable: break;
+      case ATTR.ThingAttrUnwrapable: break;
+      case ATTR.ThingAttrTopEffect: break;
       case ATTR.ThingAttrOpacity: break;
       case ATTR.ThingAttrNotPreWalkable: break;
       case ATTR.ThingAttrRenderBelowCreatures: flags.renderBelowCreatures = true; break;
       case ATTR.ThingAttrFloorChange: break;
-      case ATTR.ThingAttrNoMoveAnimation: flags.noMoveAnimation = true; break;
-      case ATTR.ThingAttrChargeable: flags.chargeable = true; break;
+      case ATTR.ThingAttrNoMoveAnimation: break;
+      case ATTR.ThingAttrChargeable: break;
       default:
         throw new Error(`Unknown flag 0x${flag.toString(16)} at offset ${packet.index}`);
     }

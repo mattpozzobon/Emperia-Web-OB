@@ -6,7 +6,7 @@ import type { ThingType, ThingCategory, ThingFlags, FrameGroup, ItemDefinition }
 import { parseObjectData } from '../lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from '../lib/sprite-decoder';
 import { maybeDecompress } from '../lib/emperia-format';
-import { syncOtbFromVisual, deriveGroup, deriveTopOrder } from '../lib/types';
+import { syncItemFlagsFromVisual, deriveGroup, deriveTopOrder } from '../lib/types';
 import type { OBState } from './store-types';
 import { shiftThingsDown, allocateThingId, remapSpriteIds } from './thing-helpers';
 import { createHairCatalogSlice } from './hair-catalog-slice';
@@ -14,6 +14,37 @@ import { createEquipmentCatalogSlice } from './equipment-catalog-slice';
 import { createCompactAtlasAction } from './compact-atlas';
 import { createSpriteGroupSlice } from './sprite-group-slice';
 import { createOutfitSlice } from './outfit-slice';
+
+const getSavedLibraryColumns = (): number => {
+  if (typeof localStorage === 'undefined') return 6;
+  const saved = Number(localStorage.getItem('emperia-ob-library-columns'));
+  return Number.isInteger(saved) && saved >= 2 && saved <= 6 ? saved : 6;
+};
+
+function registerPrimaryItemForAppearance(
+  appearanceMap: Map<number, number>,
+  definitions: Map<number, ItemDefinition>,
+  definition: ItemDefinition,
+): void {
+  const currentItemId = appearanceMap.get(definition.appearanceId);
+  if (currentItemId == null) {
+    appearanceMap.set(definition.appearanceId, definition.itemId);
+    return;
+  }
+
+  const current = definitions.get(currentItemId);
+  if (!current) {
+    appearanceMap.set(definition.appearanceId, definition.itemId);
+    return;
+  }
+
+  const candidateIsExact = definition.itemId === definition.appearanceId;
+  const currentIsExact = current.itemId === current.appearanceId;
+
+  if (candidateIsExact && !currentIsExact) {
+    appearanceMap.set(definition.appearanceId, definition.itemId);
+  }
+}
 
 export const useOBStore = create<OBState>((set, get) => ({
   objectData: null,
@@ -47,6 +78,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   selectedThingIds: new Set(),
   searchQuery: '',
   filterGroup: -1,
+  libraryColumns: getSavedLibraryColumns(),
   editVersion: 0,
   focusSpriteId: null,
   importTileWidth: 1,
@@ -82,10 +114,13 @@ export const useOBStore = create<OBState>((set, get) => ({
         for (const [itemId, definition] of currentState.itemDefinitions) {
           const appearanceId = objectData.itemAppearances.get(itemId);
           if (appearanceId == null) continue;
-          remappedDefinitions.set(itemId, { ...definition, appearanceId });
-          if (!remappedAppearanceToItem.has(appearanceId) || itemId === appearanceId) {
-            remappedAppearanceToItem.set(appearanceId, itemId);
-          }
+          const remappedDefinition = { ...definition, appearanceId };
+          remappedDefinitions.set(itemId, remappedDefinition);
+          registerPrimaryItemForAppearance(
+            remappedAppearanceToItem,
+            remappedDefinitions,
+            remappedDefinition,
+          );
         }
       }
       const embeddedHairDefinitions = Array.from(objectData.hairDefinitions.values())
@@ -132,18 +167,16 @@ export const useOBStore = create<OBState>((set, get) => ({
       if (isNaN(itemId)) continue;
       const appearanceId = embeddedAppearances?.get(itemId);
       if (appearanceId == null) continue;
-      defs.set(itemId, {
+      const definition: ItemDefinition = {
         itemId,
         appearanceId,
         flags: value.flags ?? 0,
         group: value.group ?? 0,
         ...(value.topOrder ? { topOrder: value.topOrder } : {}),
         properties: value.properties ? { ...value.properties } : null,
-      });
-      // Build appearanceId → itemId reverse lookup; prefer entry where itemId==appearanceId
-      if (!appearanceMap.has(appearanceId) || itemId === appearanceId) {
-        appearanceMap.set(appearanceId, itemId);
-      }
+      };
+      defs.set(itemId, definition);
+      registerPrimaryItemForAppearance(appearanceMap, defs, definition);
     }
     set({ itemDefinitions: defs, appearanceToItemIds: appearanceMap, definitionsLoaded: true });
   },
@@ -195,6 +228,11 @@ export const useOBStore = create<OBState>((set, get) => ({
   clearThingSelection: () => set({ selectedThingIds: new Set() }),
   setSearchQuery: (q) => set({ searchQuery: q }),
   setFilterGroup: (g) => set({ filterGroup: g }),
+  setLibraryColumns: (columns) => {
+    const next = Math.max(2, Math.min(6, Math.round(columns)));
+    localStorage.setItem('emperia-ob-library-columns', String(next));
+    set({ libraryColumns: next });
+  },
 
   reset: () => {
     clearSpriteCache();
@@ -282,8 +320,8 @@ export const useOBStore = create<OBState>((set, get) => ({
       }
 
       const existing = itemDefinitions.get(itemId);
-      const oldOtb = existing?.flags ?? 0;
-      const newOtb = syncOtbFromVisual(oldOtb, newFlags);
+      const oldItemFlags = existing?.flags ?? 0;
+      const newItemFlags = syncItemFlagsFromVisual(oldItemFlags, newFlags);
       const newGroup = deriveGroup(newFlags);
       // Sync friction property from groundSpeed
       const syncedProps: Record<string, unknown> = existing?.properties ? { ...existing.properties } : {};
@@ -296,7 +334,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       const updated: ItemDefinition = {
         itemId,
         appearanceId: existing?.appearanceId ?? id,
-        flags: newOtb,
+        flags: newItemFlags,
         group: newGroup,
         ...(newTopOrder ? { topOrder: newTopOrder } : {}),
         properties: Object.keys(syncedProps).length > 0 ? syncedProps as any : null,
@@ -339,7 +377,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         newDefs.set(itemId, {
           itemId,
           appearanceId: existing?.appearanceId ?? entry.thingId,
-          flags: syncOtbFromVisual(existing?.flags ?? 0, entry.oldFlags),
+          flags: syncItemFlagsFromVisual(existing?.flags ?? 0, entry.oldFlags),
           group: deriveGroup(entry.oldFlags),
           ...(undoTopOrder ? { topOrder: undoTopOrder } : {}),
           properties: existing?.properties ? { ...existing.properties } : null,
@@ -378,7 +416,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         newDefs.set(itemId, {
           itemId,
           appearanceId: existing?.appearanceId ?? entry.thingId,
-          flags: syncOtbFromVisual(existing?.flags ?? 0, entry.newFlags),
+          flags: syncItemFlagsFromVisual(existing?.flags ?? 0, entry.newFlags),
           group: deriveGroup(entry.newFlags),
           ...(redoTopOrder ? { topOrder: redoTopOrder } : {}),
           properties: existing?.properties ? { ...existing.properties } : null,
@@ -499,11 +537,10 @@ export const useOBStore = create<OBState>((set, get) => ({
       writable: false, writableOnce: false, fluidContainer: false, splash: false,
       notWalkable: false, notMoveable: false, blockProjectile: false, notPathable: false,
       pickupable: false, hangable: false, hookSouth: false, hookEast: false,
-      rotateable: false, hasLight: false, dontHide: false, translucent: false,
-      hasDisplacement: false, hasElevation: false, lyingCorpse: false,
-      animateAlways: false, hasMinimapColor: false, fullGround: false, look: false,
-      cloth: false, hasMarket: false, usable: false, wrapable: false,
-      unwrapable: false, topEffect: false, renderBelowCreatures: false, noMoveAnimation: false, chargeable: false,
+      rotateable: false, hasLight: false, translucent: false,
+      hasDisplacement: false, hasElevation: false,
+      animateAlways: false, hasMinimapColor: false,
+      renderBelowCreatures: false,
     };
 
     const defaultFrameGroup = {
@@ -623,11 +660,10 @@ export const useOBStore = create<OBState>((set, get) => ({
       writable: false, writableOnce: false, fluidContainer: false, splash: false,
       notWalkable: false, notMoveable: false, blockProjectile: false, notPathable: false,
       pickupable: false, hangable: false, hookSouth: false, hookEast: false,
-      rotateable: false, hasLight: false, dontHide: false, translucent: false,
-      hasDisplacement: false, hasElevation: false, lyingCorpse: false,
-      animateAlways: false, hasMinimapColor: false, fullGround: false, look: false,
-      cloth: false, hasMarket: false, usable: false, wrapable: false,
-      unwrapable: false, topEffect: false, renderBelowCreatures: false, noMoveAnimation: false, chargeable: false,
+      rotateable: false, hasLight: false, translucent: false,
+      hasDisplacement: false, hasElevation: false,
+      animateAlways: false, hasMinimapColor: false,
+      renderBelowCreatures: false,
     };
 
     const emptyFrameGroup = {

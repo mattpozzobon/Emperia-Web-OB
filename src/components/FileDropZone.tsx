@@ -182,6 +182,11 @@ export function FileDropZone() {
     <div className="h-full flex items-center justify-center bg-emperia-bg p-8">
       <div className="max-w-lg w-full">
         <div className="text-center mb-8">
+          <img
+            src="/emperia-icon-purple.svg"
+            alt="Emperia"
+            className="w-24 h-24 mx-auto mb-4"
+          />
           <h1 className="text-3xl font-bold text-emperia-text mb-2">
             Emperia Object Builder
           </h1>

@@ -10,7 +10,14 @@ import { Search, Plus, Trash2, X, ChevronDown } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { decodeSprite, getSpriteDataUrl } from '../lib/sprite-decoder';
 import { applyOutfitMask } from '../lib/outfit-colors';
-import type { EquipSlotFilter, EquipmentCatalogEntry, FrameGroup, ObjectData, SpriteData } from '../lib/types';
+import type {
+  EquipSlotFilter,
+  EquipmentCatalogEntry,
+  FrameGroup,
+  ObjectData,
+  SpriteData,
+  VisualEquipmentAppearance,
+} from '../lib/types';
 import { getEquipmentCatalogEntries } from '../lib/equipment-catalog';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -76,6 +83,55 @@ const outfitThumbCache = new Map<string, string>();
 
 /** Clear the outfit thumbnail cache (call when edit version bumps). */
 function clearOutfitThumbCache() { outfitThumbCache.clear(); }
+
+/**
+ * Crop transparent margins so small equipment sprites remain legible inside
+ * fixed-size catalog thumbnails.
+ */
+function cropTransparentCanvas(source: HTMLCanvasElement, padding = 1): HTMLCanvasElement {
+  const sourceContext = source.getContext('2d');
+  if (!sourceContext) return source;
+
+  const { width, height } = source;
+  const pixels = sourceContext.getImageData(0, 0, width, height).data;
+  let left = width;
+  let top = height;
+  let right = -1;
+  let bottom = -1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (pixels[(y * width + x) * 4 + 3] === 0) continue;
+      if (x < left) left = x;
+      if (x > right) right = x;
+      if (y < top) top = y;
+      if (y > bottom) bottom = y;
+    }
+  }
+
+  if (right < left || bottom < top) return source;
+
+  left = Math.max(0, left - padding);
+  top = Math.max(0, top - padding);
+  right = Math.min(width - 1, right + padding);
+  bottom = Math.min(height - 1, bottom + padding);
+
+  const cropped = document.createElement('canvas');
+  cropped.width = right - left + 1;
+  cropped.height = bottom - top + 1;
+  cropped.getContext('2d')?.drawImage(
+    source,
+    left,
+    top,
+    cropped.width,
+    cropped.height,
+    0,
+    0,
+    cropped.width,
+    cropped.height,
+  );
+  return cropped;
+}
 
 /**
  * Composite-render an outfit thing into a data URL thumbnail.
@@ -149,7 +205,7 @@ function renderOutfitThumb(
     }
   }
 
-  const url = canvas.toDataURL();
+  const url = cropTransparentCanvas(canvas).toDataURL();
   outfitThumbCache.set(cacheKey, url);
   return url;
 }
@@ -439,6 +495,185 @@ function AddEntryForm({ onAdd, onCancel }: { onAdd: (entry: EquipmentCatalogEntr
 
 // ─── Entry Row ───────────────────────────────────────────────────────────────
 
+type EquipmentVariant = 'default' | 'left' | 'right';
+
+function UnassignedEquipmentRow({
+  equipmentAppearanceId,
+  onAssign,
+}: {
+  equipmentAppearanceId: number;
+  onAssign: (equipmentAppearanceId: number, itemId: number, variant: EquipmentVariant, name: string) => void;
+}) {
+  const itemDefinitions = useOBStore((s) => s.itemDefinitions);
+  const [itemIdValue, setItemIdValue] = useState('');
+  const [variant, setVariant] = useState<EquipmentVariant>('default');
+  const [name, setName] = useState('');
+
+  const itemId = Number.parseInt(itemIdValue, 10);
+  const itemDefinition = Number.isNaN(itemId) ? undefined : itemDefinitions.get(itemId);
+  const itemName = itemDefinition?.properties?.name;
+  const canAssign = itemDefinition != null;
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 border-b border-amber-400/20 bg-amber-400/5">
+      <OutfitThumbnail equipmentAppearanceId={equipmentAppearanceId} size={40} />
+
+      <div className="w-20 shrink-0">
+        <span className="block text-[9px] uppercase tracking-wide text-amber-300/70">Unassigned</span>
+        <span className="text-[11px] text-cyan-400 font-mono" title="Equipment appearance ID">
+          #{equipmentAppearanceId}
+        </span>
+      </div>
+
+      <input
+        type="number"
+        min={1}
+        value={itemIdValue}
+        onChange={(event) => setItemIdValue(event.target.value)}
+        placeholder="Item ID"
+        className={`w-24 bg-emperia-bg border rounded px-2 py-1 text-xs text-emperia-text ${
+          itemIdValue && !canAssign ? 'border-red-400/60' : 'border-emperia-border'
+        }`}
+        title={itemIdValue && !canAssign ? 'This item ID does not exist in the loaded definitions.' : 'Public item ID'}
+      />
+
+      <select
+        value={variant}
+        onChange={(event) => setVariant(event.target.value as EquipmentVariant)}
+        className="bg-emperia-bg border border-emperia-border rounded px-2 py-1 text-xs text-emperia-text"
+        title="Equipment variant"
+      >
+        <option value="default">Default</option>
+        <option value="left">Left hand</option>
+        <option value="right">Right hand</option>
+      </select>
+
+      <div className="flex-1 min-w-0">
+        <input
+          type="text"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder={itemName ? `Name (currently ${itemName})` : 'Optional item name'}
+          className="w-full bg-emperia-bg border border-emperia-border rounded px-2 py-1 text-xs text-emperia-text"
+          title="Optional: also updates the item name in items.json"
+        />
+        {itemIdValue && !canAssign && (
+          <span className="block mt-0.5 text-[9px] text-red-400">Item ID not found.</span>
+        )}
+      </div>
+
+      <button
+        type="button"
+        disabled={!canAssign}
+        onClick={() => onAssign(equipmentAppearanceId, itemId, variant, name)}
+        className="px-2.5 py-1 rounded text-xs font-medium bg-amber-400/15 text-amber-300 hover:bg-amber-400/25 disabled:opacity-30 disabled:cursor-not-allowed"
+      >
+        Assign
+      </button>
+    </div>
+  );
+}
+
+function VisualEquipmentRow({
+  entry,
+  onAssign,
+}: {
+  entry: VisualEquipmentAppearance;
+  onAssign: (visualEquipmentId: number, itemId: number, variant: EquipmentVariant) => void;
+}) {
+  const itemDefinitions = useOBStore((s) => s.itemDefinitions);
+  const objectData = useOBStore((s) => s.objectData);
+  const [expanded, setExpanded] = useState(false);
+  const [itemIdValue, setItemIdValue] = useState('');
+  const [variant, setVariant] = useState<EquipmentVariant>('default');
+
+  const itemId = Number.parseInt(itemIdValue, 10);
+  const itemDefinition = Number.isNaN(itemId) ? undefined : itemDefinitions.get(itemId);
+  const existingVariant = itemDefinition
+    ? objectData?.equipmentAppearances.get(itemId)?.[variant]
+    : undefined;
+  const canAssign = itemDefinition != null;
+
+  return (
+    <div className="border-b border-emperia-border/30 bg-violet-500/5">
+      <button
+        type="button"
+        onClick={() => setExpanded((value) => !value)}
+        className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-violet-400/5"
+        aria-expanded={expanded}
+      >
+        <div className="w-10 h-10 checkerboard rounded border border-violet-400/30 flex items-center justify-center text-[9px] text-violet-300">
+          visual
+        </div>
+        <OutfitThumbnail equipmentAppearanceId={entry.equipmentAppearanceId} size={40} />
+        <div className="flex-1 min-w-0">
+          <span className="text-xs text-emperia-text truncate block">{entry.name}</span>
+          <span className="text-[9px] text-emperia-muted">
+            {expanded ? 'Choose an item to convert this visual equipment' : 'Click to assign an item'}
+          </span>
+        </div>
+        <span className="text-[10px] text-violet-300 font-mono" title="Stable visual ID">
+          {entry.visualEquipmentId}
+        </span>
+        <span className="text-[10px] text-cyan-400 font-mono w-12 text-right" title="Equipment appearance ID">
+          {entry.equipmentAppearanceId}
+        </span>
+        <ChevronDown className={`w-3.5 h-3.5 text-emperia-muted transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+
+      {expanded && (
+        <div className="flex items-start gap-2 px-14 pb-2">
+          <div>
+            <input
+              type="number"
+              min={1}
+              value={itemIdValue}
+              onChange={(event) => setItemIdValue(event.target.value)}
+              placeholder="Item ID"
+              className={`w-28 bg-emperia-bg border rounded px-2 py-1 text-xs text-emperia-text ${
+                itemIdValue && !canAssign ? 'border-red-400/60' : 'border-emperia-border'
+              }`}
+              autoFocus
+            />
+            {itemIdValue && !canAssign && (
+              <span className="block mt-0.5 text-[9px] text-red-400">Item ID not found.</span>
+            )}
+          </div>
+          <select
+            value={variant}
+            onChange={(event) => setVariant(event.target.value as EquipmentVariant)}
+            className="bg-emperia-bg border border-emperia-border rounded px-2 py-1 text-xs text-emperia-text"
+          >
+            <option value="default">Default</option>
+            <option value="left">Left hand</option>
+            <option value="right">Right hand</option>
+          </select>
+          <div className="flex-1 min-w-0 pt-1">
+            {itemDefinition && (
+              <span className="block text-[10px] text-emperia-muted truncate">
+                {itemDefinition.properties?.name || `Item ${itemId}`}
+              </span>
+            )}
+            {existingVariant != null && (
+              <span className="block text-[9px] text-amber-300">
+                This replaces appearance #{existingVariant} for the selected variant.
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            disabled={!canAssign}
+            onClick={() => onAssign(entry.visualEquipmentId, itemId, variant)}
+            className="px-2.5 py-1 rounded text-xs font-medium bg-violet-400/15 text-violet-300 hover:bg-violet-400/25 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            Assign item
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EntryRow({
   entry,
   index,
@@ -699,9 +934,11 @@ function WeaponGroupRow({
 export function EquipmentCatalogEditor() {
   const objectData = useOBStore((s) => s.objectData);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
+  const updateItemDefinition = useOBStore((s) => s.updateItemDefinition);
   const updateEquipmentCatalogEntry = useOBStore((s) => s.updateEquipmentCatalogEntry);
   const addEquipmentCatalogEntry = useOBStore((s) => s.addEquipmentCatalogEntry);
   const removeEquipmentCatalogEntry = useOBStore((s) => s.removeEquipmentCatalogEntry);
+  const assignVisualEquipmentToItem = useOBStore((s) => s.assignVisualEquipmentToItem);
   const editVersion = useOBStore((s) => s.editVersion);
   const catalogEntries = useMemo(
     () => getEquipmentCatalogEntries(objectData),
@@ -712,6 +949,31 @@ export function EquipmentCatalogEditor() {
       .sort((a, b) => a.visualEquipmentId - b.visualEquipmentId),
     [objectData, editVersion],
   );
+  const unassignedAppearanceIds = useMemo(() => {
+    if (!objectData) return [];
+
+    const assigned = new Set<number>();
+    for (const appearance of objectData.equipmentAppearances.values()) {
+      if (appearance.default != null) assigned.add(appearance.default);
+      if (appearance.left != null) assigned.add(appearance.left);
+      if (appearance.right != null) assigned.add(appearance.right);
+    }
+    for (const appearance of objectData.visualEquipmentAppearances.values()) {
+      assigned.add(appearance.equipmentAppearanceId);
+    }
+
+    const unassigned: number[] = [];
+    for (let appearanceId = 0; appearanceId < objectData.equipmentCount; appearanceId++) {
+      if (assigned.has(appearanceId)) continue;
+      const internalId = equipmentAppearanceIdToInternal(objectData, appearanceId);
+      const thing = objectData.things.get(internalId);
+      const hasSpriteReference = thing?.frameGroups.some((group) => (
+        group.sprites.some((spriteId) => spriteId > 0)
+      )) ?? false;
+      if (hasSpriteReference) unassigned.push(appearanceId);
+    }
+    return unassigned;
+  }, [objectData, editVersion]);
   const updateCatalogEntry = useCallback((index: number, entry: EquipmentCatalogEntry) => {
     const previous = catalogEntries[index];
     if (previous) updateEquipmentCatalogEntry(previous, entry);
@@ -720,10 +982,39 @@ export function EquipmentCatalogEditor() {
     const entry = catalogEntries[index];
     if (entry) removeEquipmentCatalogEntry(entry);
   }, [catalogEntries, removeEquipmentCatalogEntry]);
+  const assignAppearance = useCallback((
+    equipmentAppearanceId: number,
+    itemId: number,
+    variant: EquipmentVariant,
+    name: string,
+  ) => {
+    const definition = itemDefinitions.get(itemId);
+    if (!definition) return;
+
+    const trimmedName = name.trim();
+    const baseName = trimmedName || definition.properties?.name || `item ${itemId}`;
+    const entryName = variant === 'left'
+      ? `${baseName} left-hand`
+      : variant === 'right'
+        ? `${baseName} right-hand`
+        : baseName;
+
+    addEquipmentCatalogEntry({ name: entryName, itemId, equipmentAppearanceId });
+
+    if (trimmedName) {
+      updateItemDefinition(definition.appearanceId, {
+        properties: {
+          ...(definition.properties ?? {}),
+          name: trimmedName,
+        },
+      });
+    }
+  }, [addEquipmentCatalogEntry, itemDefinitions, updateItemDefinition]);
 
   const [slotFilter, setSlotFilter] = useState<EquipSlotFilter>('all');
   const [search, setSearch] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [catalogSection, setCatalogSection] = useState<'assigned' | 'visual'>('assigned');
   const [viewMode, setViewMode] = useState<'list' | 'weapons'>('list');
 
   // Get slot type from public item definitions for each entry.
@@ -752,6 +1043,22 @@ export function EquipmentCatalogEditor() {
         return true;
       });
   }, [catalogEntries, slotFilter, search, getSlotType]);
+  const filteredVisualEntries = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return visualEntries;
+    return visualEntries.filter((entry) => (
+      entry.name.toLowerCase().includes(q)
+      || entry.visualEquipmentId.toString().includes(q)
+      || entry.equipmentAppearanceId.toString().includes(q)
+    ));
+  }, [search, visualEntries]);
+  const filteredUnassignedAppearanceIds = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return unassignedAppearanceIds;
+    return unassignedAppearanceIds.filter((appearanceId) => (
+      appearanceId.toString().includes(q) || 'unassigned'.includes(q)
+    ));
+  }, [search, unassignedAppearanceIds]);
 
   // Group weapons by item ID for the weapon view
   const weaponGroups = useMemo((): WeaponGroup[] => {
@@ -799,8 +1106,33 @@ export function EquipmentCatalogEditor() {
     <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-3 py-1.5 border-b border-emperia-border shrink-0">
+        <div className="flex items-center gap-0.5 border border-emperia-border rounded overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setCatalogSection('assigned')}
+            className={`px-2 py-1 text-[10px] ${
+              catalogSection === 'assigned'
+                ? 'bg-emperia-accent/20 text-emperia-accent'
+                : 'text-emperia-muted hover:text-emperia-text'
+            }`}
+          >
+            Item-linked
+          </button>
+          <button
+            type="button"
+            onClick={() => setCatalogSection('visual')}
+            className={`px-2 py-1 text-[10px] ${
+              catalogSection === 'visual'
+                ? 'bg-violet-400/20 text-violet-300'
+                : 'text-emperia-muted hover:text-emperia-text'
+            }`}
+          >
+            Visual
+          </button>
+        </div>
+
         {/* Slot filter dropdown */}
-        <div className="relative">
+        {catalogSection === 'assigned' && <div className="relative">
           <select
             value={slotFilter}
             onChange={(e) => setSlotFilter(e.target.value as EquipSlotFilter)}
@@ -811,7 +1143,7 @@ export function EquipmentCatalogEditor() {
             ))}
           </select>
           <ChevronDown className="absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 text-emperia-muted pointer-events-none" />
-        </div>
+        </div>}
 
         {/* Search */}
         <div className="relative flex-1">
@@ -826,7 +1158,7 @@ export function EquipmentCatalogEditor() {
         </div>
 
         {/* View mode toggle */}
-        <div className="flex items-center gap-0.5 border border-emperia-border rounded overflow-hidden">
+        {catalogSection === 'assigned' && <div className="flex items-center gap-0.5 border border-emperia-border rounded overflow-hidden">
           <button
             onClick={() => setViewMode('list')}
             className={`px-2 py-1 text-[10px] ${viewMode === 'list' ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text'}`}
@@ -839,25 +1171,29 @@ export function EquipmentCatalogEditor() {
           >
             Weapons
           </button>
-        </div>
+        </div>}
 
         {/* Add button */}
-        <button
+        {catalogSection === 'assigned' && <button
           onClick={() => setShowAddForm(!showAddForm)}
           className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-emperia-accent/10 text-emperia-accent hover:bg-emperia-accent/20"
         >
           <Plus className="w-3 h-3" />
           Add
-        </button>
+        </button>}
 
         {/* Count */}
         <span className="text-[10px] text-emperia-muted shrink-0">
-          {filteredEntries.length} / {catalogEntries.length}
+          {catalogSection === 'visual'
+            ? `${filteredVisualEntries.length} / ${visualEntries.length}`
+            : `${filteredEntries.length + filteredUnassignedAppearanceIds.length} / ${
+              catalogEntries.length + unassignedAppearanceIds.length
+            }`}
         </span>
       </div>
 
       {/* Add form */}
-      {showAddForm && (
+      {catalogSection === 'assigned' && showAddForm && (
         <AddEntryForm
           onAdd={(entry) => { addEquipmentCatalogEntry(entry); setShowAddForm(false); }}
           onCancel={() => setShowAddForm(false)}
@@ -866,48 +1202,44 @@ export function EquipmentCatalogEditor() {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
-        {viewMode === 'list' && slotFilter === 'all' && visualEntries
-          .filter((entry) => {
-            const q = search.trim().toLowerCase();
-            return !q || entry.name.toLowerCase().includes(q)
-              || entry.visualEquipmentId.toString().includes(q)
-              || entry.equipmentAppearanceId.toString().includes(q);
-          })
-          .map((entry) => (
-            <div
-              key={`visual-${entry.visualEquipmentId}`}
-              className="flex items-center gap-2 px-3 py-1.5 border-b border-emperia-border/30 bg-violet-500/5"
-            >
-              <div className="w-10 h-10 checkerboard rounded border border-violet-400/30 flex items-center justify-center text-[9px] text-violet-300">
-                visual
-              </div>
-              <OutfitThumbnail equipmentAppearanceId={entry.equipmentAppearanceId} size={40} />
-              <div className="flex-1 min-w-0">
-                <span className="text-xs text-emperia-text truncate block">{entry.name}</span>
-                <span className="text-[9px] text-emperia-muted">Direct visual equipment</span>
-              </div>
-              <span className="text-[10px] text-violet-300 font-mono" title="Stable visual ID">
-                {entry.visualEquipmentId}
-              </span>
-              <span className="text-[10px] text-cyan-400 font-mono w-12 text-right" title="Equipment appearance ID">
-                {entry.equipmentAppearanceId}
-              </span>
-            </div>
-          ))}
-        {viewMode === 'list' ? (
-          filteredEntries.length === 0 ? (
-            <p className="text-center text-emperia-muted text-xs py-8">No entries match the current filter.</p>
+        {catalogSection === 'visual' ? (
+          filteredVisualEntries.length === 0 ? (
+            <p className="text-center text-emperia-muted text-xs py-8">
+              No visual equipment matches the current filter.
+            </p>
           ) : (
-            filteredEntries.map(({ entry, index }) => (
-              <EntryRow
-                key={`${index}-${entry.itemId}-${entry.equipmentAppearanceId}`}
+            filteredVisualEntries.map((entry) => (
+              <VisualEquipmentRow
+                key={entry.visualEquipmentId}
                 entry={entry}
-                index={index}
-                onUpdate={updateCatalogEntry}
-                onRemove={removeCatalogEntry}
+                onAssign={assignVisualEquipmentToItem}
               />
             ))
           )
+        ) : viewMode === 'list' ? (
+          filteredEntries.length === 0
+            && (slotFilter !== 'all' || filteredUnassignedAppearanceIds.length === 0) ? (
+              <p className="text-center text-emperia-muted text-xs py-8">No entries match the current filter.</p>
+            ) : (
+              <>
+                {slotFilter === 'all' && filteredUnassignedAppearanceIds.map((appearanceId) => (
+                  <UnassignedEquipmentRow
+                    key={`unassigned-${appearanceId}`}
+                    equipmentAppearanceId={appearanceId}
+                    onAssign={assignAppearance}
+                  />
+                ))}
+                {filteredEntries.map(({ entry, index }) => (
+                  <EntryRow
+                    key={`${index}-${entry.itemId}-${entry.equipmentAppearanceId}`}
+                    entry={entry}
+                    index={index}
+                    onUpdate={updateCatalogEntry}
+                    onRemove={removeCatalogEntry}
+                  />
+                ))}
+              </>
+            )
         ) : (
           weaponGroups.length === 0 ? (
             <p className="text-center text-emperia-muted text-xs py-8">

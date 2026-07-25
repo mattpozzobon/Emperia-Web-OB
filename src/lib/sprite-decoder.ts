@@ -171,4 +171,7 @@ export function compositeThingDataUrl(
 
 export function clearSpriteCacheId(id: number): void {
   spriteCache.delete(id);
+  // A composite may contain this sprite. Its cache key only contains IDs, so
+  // invalidate composed previews whenever an individual sprite changes.
+  compositeCache.clear();
 }

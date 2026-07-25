@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Package, Shirt, Sparkles, ArrowRight, Search, Plus, Minus, Download, Trash2, Swords, Scissors } from 'lucide-react';
+import { Search, Plus, Minus, Download, Trash2, Grid2X2 } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { exportSelectedSprites, exportSelectedOBD, type BatchExportFormat } from '../lib/export-sprites';
-import type { LibraryCategory } from '../lib/types';
 
 const GROUP_LABELS: Record<number, string> = {
   0: 'None',
@@ -19,20 +18,10 @@ const GROUP_LABELS: Record<number, string> = {
   12: 'Splash',
 };
 
-const CATEGORIES: { key: LibraryCategory; label: string; icon: typeof Package }[] = [
-  { key: 'item', label: 'Items', icon: Package },
-  { key: 'outfit', label: 'Outfits', icon: Shirt },
-  { key: 'effect', label: 'Effects', icon: Sparkles },
-  { key: 'distance', label: 'Distance', icon: ArrowRight },
-  { key: 'equipment', label: 'Equipment', icon: Swords },
-  { key: 'hair', label: 'Hair', icon: Scissors },
-];
-
 export function CategoryTabs() {
   const [exportFormat, setExportFormat] = useState<BatchExportFormat>('png');
   const activeCategory = useOBStore((s) => s.activeCategory);
   const activeLibrary = useOBStore((s) => s.activeLibrary);
-  const setActiveLibrary = useOBStore((s) => s.setActiveLibrary);
   const objectData = useOBStore((s) => s.objectData);
   const searchQuery = useOBStore((s) => s.searchQuery);
   const setSearchQuery = useOBStore((s) => s.setSearchQuery);
@@ -43,6 +32,8 @@ export function CategoryTabs() {
   const getCategoryRange = useOBStore((s) => s.getCategoryRange);
   const filterGroup = useOBStore((s) => s.filterGroup);
   const setFilterGroup = useOBStore((s) => s.setFilterGroup);
+  const libraryColumns = useOBStore((s) => s.libraryColumns);
+  const setLibraryColumns = useOBStore((s) => s.setLibraryColumns);
   const definitionsLoaded = useOBStore((s) => s.definitionsLoaded);
   const selectedThingIds = useOBStore((s) => s.selectedThingIds);
   const spriteData = useOBStore((s) => s.spriteData);
@@ -73,42 +64,23 @@ export function CategoryTabs() {
     await exportSelectedSprites(ids, exportCtx);
   };
 
-  const getCategoryCount = (cat: LibraryCategory) => {
-    if (!objectData) return 0;
-    switch (cat) {
-      case 'item': return objectData.itemCount - 99;
-      case 'outfit': return objectData.outfitCount;
-      case 'effect': return objectData.effectCount;
-      case 'distance': return objectData.distanceCount;
-      case 'equipment': return objectData.equipmentCount;
-      case 'hair': return objectData.hairCount;
-    }
-  };
-
   return (
     <div className="shrink-0">
-      <div className="grid grid-cols-3 border-b border-emperia-border">
-        {CATEGORIES.map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setActiveLibrary(key)}
-            className={`
-              flex-1 flex flex-col items-center gap-0.5 py-2 text-xs transition-colors
-              ${activeLibrary === key
-                ? 'text-emperia-accent border-b-2 border-emperia-accent bg-emperia-accent/5'
-                : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'
-              }
-            `}
-          >
-            <Icon className="w-4 h-4" />
-            <span>{label}</span>
-            <span className="text-[10px] opacity-60">{getCategoryCount(key)}</span>
-          </button>
-        ))}
-      </div>
-
       {/* Row 1: Search */}
       <div className="px-2 py-1.5 border-b border-emperia-border flex items-center gap-1">
+        {definitionsLoaded && activeLibrary === 'item' && (
+          <select
+            value={filterGroup}
+            onChange={(e) => setFilterGroup(parseInt(e.target.value, 10))}
+            className="text-[10px] bg-emperia-surface border border-emperia-border rounded px-1 py-1 text-emperia-text outline-none cursor-pointer max-w-[80px] shrink-0"
+            title="Filter by group"
+          >
+            <option value={-1}>All</option>
+            {Object.entries(GROUP_LABELS).map(([g, label]) => (
+              <option key={g} value={g}>{label}</option>
+            ))}
+          </select>
+        )}
         <div className="flex items-center gap-1.5 bg-emperia-surface rounded px-2 py-1 flex-1">
           <Search className="w-3.5 h-3.5 text-emperia-muted shrink-0" />
           <input
@@ -125,19 +97,29 @@ export function CategoryTabs() {
       </div>
       {/* Row 2: Actions */}
       <div className="px-2 py-1 border-b border-emperia-border flex items-center gap-1">
-        {definitionsLoaded && activeLibrary === 'item' && (
+        <label
+          className="flex items-center gap-1 rounded border border-emperia-border bg-emperia-surface px-1 text-emperia-muted"
+          title="Number of columns in the object library"
+        >
+          <Grid2X2 className="h-3.5 w-3.5 shrink-0" />
           <select
-            value={filterGroup}
-            onChange={(e) => setFilterGroup(parseInt(e.target.value, 10))}
-            className="text-[10px] bg-emperia-surface border border-emperia-border rounded px-1 py-1 text-emperia-text outline-none cursor-pointer max-w-[80px]"
-            title="Filter by group"
+            value={libraryColumns}
+            onChange={(e) => setLibraryColumns(Number(e.target.value))}
+            className="cursor-pointer bg-emperia-surface py-1 text-[10px] text-emperia-text outline-none"
+            style={{ colorScheme: 'dark' }}
+            aria-label="Library columns"
           >
-            <option value={-1}>All</option>
-            {Object.entries(GROUP_LABELS).map(([g, label]) => (
-              <option key={g} value={g}>{label}</option>
+            {[2, 3, 4, 5, 6].map((columns) => (
+              <option
+                key={columns}
+                value={columns}
+                className="bg-emperia-surface text-emperia-text"
+              >
+                {columns}
+              </option>
             ))}
           </select>
-        )}
+        </label>
         <select
           value={exportFormat}
           onChange={(e) => setExportFormat(e.target.value as BatchExportFormat)}

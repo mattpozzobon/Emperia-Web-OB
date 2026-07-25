@@ -81,6 +81,8 @@ export interface OBState {
   searchQuery: string;
   /** Filter items by group (-1 = all) */
   filterGroup: number;
+  /** Number of columns shown in the left object library. */
+  libraryColumns: number;
   /** Bumped on every edit to force re-render of dependent components */
   editVersion: number;
   /** Set by preview click to tell atlas to scroll to this sprite */
@@ -127,6 +129,7 @@ export interface OBState {
   clearThingSelection: () => void;
   setSearchQuery: (q: string) => void;
   setFilterGroup: (g: number) => void;
+  setLibraryColumns: (columns: number) => void;
   reset: () => void;
 
   // Edit actions
@@ -159,6 +162,11 @@ export interface OBState {
   updateEquipmentCatalogEntry: (previous: EquipmentCatalogEntry, entry: EquipmentCatalogEntry) => void;
   addEquipmentCatalogEntry: (entry: EquipmentCatalogEntry) => void;
   removeEquipmentCatalogEntry: (entry: EquipmentCatalogEntry) => void;
+  assignVisualEquipmentToItem: (
+    visualEquipmentId: number,
+    itemId: number,
+    variant: 'default' | 'left' | 'right',
+  ) => void;
 
   // Hair definitions embedded directly in EOBJ
   addHairDefinition: (hair: HairDefinition) => void;

@@ -147,49 +147,26 @@ function writeFlags(w: BWriter, f: ThingFlags) {
   if (f.stackable) w.u8(FLAG.STACKABLE);
   if (f.forceUse) w.u8(FLAG.FORCE_USE);
   if (f.multiUse) w.u8(FLAG.MULTI_USE);
-  if (f.writable) { w.u8(FLAG.WRITABLE); w.u16(f.writableMaxLen ?? 0); }
-  if (f.writableOnce) { w.u8(FLAG.WRITABLE_ONCE); w.u16(f.writableOnceMaxLen ?? 0); }
+  if (f.writable) { w.u8(FLAG.WRITABLE); w.u16(0); }
+  if (f.writableOnce) { w.u8(FLAG.WRITABLE_ONCE); w.u16(0); }
   if (f.fluidContainer) w.u8(FLAG.FLUID_CONTAINER);
   if (f.splash) w.u8(FLAG.FLUID);
   if (f.notWalkable) w.u8(FLAG.UNPASSABLE);
   if (f.notMoveable) w.u8(FLAG.UNMOVEABLE);
   if (f.blockProjectile) w.u8(FLAG.BLOCK_MISSILE);
   if (f.notPathable) w.u8(FLAG.BLOCK_PATHFIND);
-  if (f.noMoveAnimation) w.u8(FLAG.NO_MOVE_ANIMATION);
   if (f.pickupable) w.u8(FLAG.PICKUPABLE);
   if (f.hangable) w.u8(FLAG.HANGABLE);
   if (f.hookSouth) w.u8(FLAG.HOOK_SOUTH);
   if (f.hookEast) w.u8(FLAG.HOOK_EAST);
   if (f.rotateable) w.u8(FLAG.ROTATABLE);
   if (f.hasLight) { w.u8(FLAG.HAS_LIGHT); w.u16(f.lightLevel ?? 0); w.u16(f.lightColor ?? 0); }
-  if (f.dontHide) w.u8(FLAG.DONT_HIDE);
   if (f.translucent) w.u8(FLAG.TRANSLUCENT);
   if (f.hasDisplacement) { w.u8(FLAG.HAS_OFFSET); w.i16(f.displacementX ?? 0); w.i16(f.displacementY ?? 0); }
   if (f.hasElevation) { w.u8(FLAG.HAS_ELEVATION); w.u16(f.elevation ?? 0); }
-  if (f.lyingCorpse) w.u8(FLAG.LYING_OBJECT);
   if (f.animateAlways) w.u8(FLAG.ANIMATE_ALWAYS);
   if (f.hasMinimapColor) { w.u8(FLAG.MINI_MAP); w.u16(f.minimapColor ?? 0); }
-  if (f.lensHelp != null) { w.u8(FLAG.LENS_HELP); w.u16(f.lensHelp); }
-  if (f.fullGround) w.u8(FLAG.FULL_GROUND);
-  if (f.look) w.u8(FLAG.IGNORE_LOOK);
-  if (f.cloth) { w.u8(FLAG.CLOTH); w.u16(f.clothSlot ?? 0); }
-  if (f.hasMarket) {
-    w.u8(FLAG.MARKET_ITEM);
-    w.u16(f.marketCategory ?? 0);
-    w.u16(f.marketTradeAs ?? 0);
-    w.u16(f.marketShowAs ?? 0);
-    const name = f.marketName ?? '';
-    w.u16(name.length);
-    for (let i = 0; i < name.length; i++) w.u8(name.charCodeAt(i) & 0xFF);
-    w.u16(f.marketRestrictVocation ?? 0);
-    w.u16(f.marketRequiredLevel ?? 0);
-  }
-  if (f.usable) { w.u8(FLAG.DEFAULT_ACTION); w.u16(f.usableActionId ?? 0); }
-  if (f.wrapable) w.u8(FLAG.WRAPPABLE);
-  if (f.unwrapable) w.u8(FLAG.UNWRAPPABLE);
-  if (f.topEffect) w.u8(FLAG.TOP_EFFECT);
   if (f.renderBelowCreatures) w.u8(FLAG.RENDER_BELOW_CREATURES);
-  if (f.chargeable) w.u8(FLAG.HAS_CHARGES);
   w.u8(LAST_FLAG);
 }
 
@@ -200,11 +177,10 @@ function readFlags(r: BReader): ThingFlags {
     writable: false, writableOnce: false, fluidContainer: false, splash: false,
     notWalkable: false, notMoveable: false, blockProjectile: false, notPathable: false,
     pickupable: false, hangable: false, hookSouth: false, hookEast: false,
-    rotateable: false, hasLight: false, dontHide: false, translucent: false,
-    hasDisplacement: false, hasElevation: false, lyingCorpse: false,
-    animateAlways: false, hasMinimapColor: false, fullGround: false, look: false,
-    cloth: false, hasMarket: false, usable: false, wrapable: false,
-    unwrapable: false, topEffect: false, renderBelowCreatures: false, noMoveAnimation: false, chargeable: false,
+    rotateable: false, hasLight: false, translucent: false,
+    hasDisplacement: false, hasElevation: false,
+    animateAlways: false, hasMinimapColor: false,
+    renderBelowCreatures: false,
   };
 
   while (true) {
@@ -219,51 +195,50 @@ function readFlags(r: BReader): ThingFlags {
       case FLAG.STACKABLE: f.stackable = true; break;
       case FLAG.FORCE_USE: f.forceUse = true; break;
       case FLAG.MULTI_USE: f.multiUse = true; break;
-      case FLAG.WRITABLE: f.writable = true; f.writableMaxLen = r.u16(); break;
-      case FLAG.WRITABLE_ONCE: f.writableOnce = true; f.writableOnceMaxLen = r.u16(); break;
+      case FLAG.WRITABLE: f.writable = true; r.u16(); break;
+      case FLAG.WRITABLE_ONCE: f.writableOnce = true; r.u16(); break;
       case FLAG.FLUID_CONTAINER: f.fluidContainer = true; break;
       case FLAG.FLUID: f.splash = true; break;
       case FLAG.UNPASSABLE: f.notWalkable = true; break;
       case FLAG.UNMOVEABLE: f.notMoveable = true; break;
       case FLAG.BLOCK_MISSILE: f.blockProjectile = true; break;
       case FLAG.BLOCK_PATHFIND: f.notPathable = true; break;
-      case FLAG.NO_MOVE_ANIMATION: f.noMoveAnimation = true; break;
+      case FLAG.NO_MOVE_ANIMATION: break;
       case FLAG.PICKUPABLE: f.pickupable = true; break;
       case FLAG.HANGABLE: f.hangable = true; break;
       case FLAG.HOOK_SOUTH: f.hookSouth = true; break;
       case FLAG.HOOK_EAST: f.hookEast = true; break;
       case FLAG.ROTATABLE: f.rotateable = true; break;
       case FLAG.HAS_LIGHT: f.hasLight = true; f.lightLevel = r.u16(); f.lightColor = r.u16(); break;
-      case FLAG.DONT_HIDE: f.dontHide = true; break;
+      case FLAG.DONT_HIDE: break;
       case FLAG.TRANSLUCENT: f.translucent = true; break;
       case FLAG.HAS_OFFSET: f.hasDisplacement = true; f.displacementX = r.i16(); f.displacementY = r.i16(); break;
       case FLAG.HAS_ELEVATION: f.hasElevation = true; f.elevation = r.u16(); break;
-      case FLAG.LYING_OBJECT: f.lyingCorpse = true; break;
+      case FLAG.LYING_OBJECT: break;
       case FLAG.ANIMATE_ALWAYS: f.animateAlways = true; break;
       case FLAG.MINI_MAP: f.hasMinimapColor = true; f.minimapColor = r.u16(); break;
-      case FLAG.LENS_HELP: f.lensHelp = r.u16(); break;
-      case FLAG.FULL_GROUND: f.fullGround = true; break;
-      case FLAG.IGNORE_LOOK: f.look = true; break;
-      case FLAG.CLOTH: f.cloth = true; f.clothSlot = r.u16(); break;
+      case FLAG.LENS_HELP: r.u16(); break;
+      case FLAG.FULL_GROUND: break;
+      case FLAG.IGNORE_LOOK: break;
+      case FLAG.CLOTH: r.u16(); break;
       case FLAG.MARKET_ITEM: {
-        f.hasMarket = true;
-        f.marketCategory = r.u16();
-        f.marketTradeAs = r.u16();
-        f.marketShowAs = r.u16();
+        r.u16();
+        r.u16();
+        r.u16();
         const len = r.u16();
-        f.marketName = r.str(len);
-        f.marketRestrictVocation = r.u16();
-        f.marketRequiredLevel = r.u16();
+        r.str(len);
+        r.u16();
+        r.u16();
         break;
       }
-      case FLAG.DEFAULT_ACTION: f.usable = true; f.usableActionId = r.u16(); break;
-      case FLAG.HAS_CHARGES: f.chargeable = true; break;
+      case FLAG.DEFAULT_ACTION: r.u16(); break;
+      case FLAG.HAS_CHARGES: break;
       case FLAG.FLOOR_CHANGE: break; // floorChange not in our ThingFlags, skip
-      case FLAG.WRAPPABLE: f.wrapable = true; break;
-      case FLAG.UNWRAPPABLE: f.unwrapable = true; break;
-      case FLAG.TOP_EFFECT: f.topEffect = true; break;
+      case FLAG.WRAPPABLE: break;
+      case FLAG.UNWRAPPABLE: break;
+      case FLAG.TOP_EFFECT: break;
       case FLAG.RENDER_BELOW_CREATURES: f.renderBelowCreatures = true; break;
-      case FLAG.USABLE: f.usable = true; break;
+      case FLAG.USABLE: break;
       default: throw new Error(`Unknown OBD flag 0x${flag.toString(16)}`);
     }
   }

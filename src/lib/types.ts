@@ -34,9 +34,7 @@ export interface ThingFlags {
   forceUse: boolean;
   multiUse: boolean;
   writable: boolean;
-  writableMaxLen?: number;
   writableOnce: boolean;
-  writableOnceMaxLen?: number;
   fluidContainer: boolean;
   splash: boolean;
   notWalkable: boolean;
@@ -51,37 +49,16 @@ export interface ThingFlags {
   hasLight: boolean;
   lightLevel?: number;
   lightColor?: number;
-  dontHide: boolean;
   translucent: boolean;
   hasDisplacement: boolean;
   displacementX?: number;
   displacementY?: number;
   hasElevation: boolean;
   elevation?: number;
-  lyingCorpse: boolean;
   animateAlways: boolean;
   hasMinimapColor: boolean;
   minimapColor?: number;
-  fullGround: boolean;
-  look: boolean;
-  cloth: boolean;
-  clothSlot?: number;
-  lensHelp?: number;
-  hasMarket: boolean;
-  marketCategory?: number;
-  marketTradeAs?: number;
-  marketShowAs?: number;
-  marketName?: string;
-  marketRestrictVocation?: number;
-  marketRequiredLevel?: number;
-  usable: boolean;
-  usableActionId?: number;
-  wrapable: boolean;
-  unwrapable: boolean;
-  topEffect: boolean;
   renderBelowCreatures: boolean;
-  noMoveAnimation: boolean;
-  chargeable: boolean;
 }
 
 export interface ThingType {
@@ -142,50 +119,13 @@ export interface SpriteData {
 }
 
 /**
- * OTB bit-flag names in bit-position order (bit 0 = index 0).
- * Must match the server's OTBBitFlag definition exactly.
- */
-export const OTB_FLAG_NAMES = [
-  'FLAG_BLOCK_SOLID',        // 1
-  'FLAG_BLOCK_PROJECTILE',   // 2
-  'FLAG_BLOCK_PATHFIND',     // 4
-  'FLAG_HAS_HEIGHT',         // 8
-  'FLAG_USEABLE',            // 16
-  'FLAG_PICKUPABLE',         // 32
-  'FLAG_MOVEABLE',           // 64
-  'FLAG_STACKABLE',          // 128
-  'FLAG_FLOORCHANGEDOWN',    // 256
-  'FLAG_FLOORCHANGENORTH',   // 512
-  'FLAG_FLOORCHANGEEAST',    // 1024
-  'FLAG_FLOORCHANGESOUTH',   // 2048
-  'FLAG_FLOORCHANGEWEST',    // 4096
-  'FLAG_ALWAYSONTOP',        // 8192
-  'FLAG_READABLE',           // 16384
-  'FLAG_ROTATABLE',          // 32768
-  'FLAG_HANGABLE',           // 65536
-  'FLAG_VERTICAL',           // 131072
-  'FLAG_HORIZONTAL',         // 262144
-  'FLAG_CANNOTDECAY',        // 524288
-  'FLAG_ALLOWDISTREAD',      // 1048576
-  'FLAG_UNUSED',             // 2097152
-  'FLAG_CLIENTCHARGES',      // 4194304
-  'FLAG_LOOKTHROUGH',        // 8388608
-  'FLAG_ANIMATION',          // 16777216
-  'FLAG_FULLTILE',           // 33554432
-  'FLAG_FORCEUSE',           // 67108864
-] as const;
-
-/**
- * Bitmask of OTB flags that have a direct mapping from visual ThingFlags.
- * Only these bits are updated when visual flags change; all other OTB bits
- * (e.g. FLAG_FULLTILE, FLAG_CANNOTDECAY, FLAG_ALLOWDISTREAD) are preserved.
+ * Item-definition bits that still have a direct server/editor consumer.
  */
 const VISUAL_MAPPED_BITS =
   (1 << 0) |   // FLAG_BLOCK_SOLID      ← notWalkable
   (1 << 1) |   // FLAG_BLOCK_PROJECTILE ← blockProjectile
   (1 << 2) |   // FLAG_BLOCK_PATHFIND   ← notPathable
   (1 << 3) |   // FLAG_HAS_HEIGHT       ← hasElevation
-  (1 << 4) |   // FLAG_USEABLE          ← forceUse | multiUse
   (1 << 5) |   // FLAG_PICKUPABLE       ← pickupable
   (1 << 6) |   // FLAG_MOVEABLE         ← !notMoveable
   (1 << 7) |   // FLAG_STACKABLE        ← stackable
@@ -195,11 +135,17 @@ const VISUAL_MAPPED_BITS =
   (1 << 16) |  // FLAG_HANGABLE         ← hangable
   (1 << 17) |  // FLAG_VERTICAL         ← hookSouth
   (1 << 18) |  // FLAG_HORIZONTAL       ← hookEast
-  (1 << 22) |  // FLAG_CLIENTCHARGES    ← chargeable
-  (1 << 23) |  // FLAG_LOOKTHROUGH      ← translucent
-  (1 << 24) |  // FLAG_ANIMATION        ← animateAlways
-  (1 << 25) |  // FLAG_FULLTILE         ← fullGround
-  (1 << 26);   // FLAG_FORCEUSE         ← forceUse
+  (1 << 23);   // FLAG_LOOKTHROUGH      ← translucent
+
+export const RETIRED_ITEM_FLAG_MASK =
+  (1 << 4) |
+  (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12) |
+  (1 << 19) |
+  (1 << 21) |
+  (1 << 22) |
+  (1 << 24) |
+  (1 << 25) |
+  (1 << 26);
 
 /**
  * Compute the visual-mapped OTB bits from ThingFlags (only the mapped bits).
@@ -210,7 +156,6 @@ function visualToOtbBits(f: ThingFlags): number {
   if (f.blockProjectile)  bits |= (1 << 1);
   if (f.notPathable)      bits |= (1 << 2);
   if (f.hasElevation)     bits |= (1 << 3);
-  if (f.forceUse || f.multiUse) bits |= (1 << 4);
   if (f.pickupable)       bits |= (1 << 5);
   if (!f.notMoveable && !f.ground && !f.groundBorder) bits |= (1 << 6);
   if (f.stackable)        bits |= (1 << 7);
@@ -220,44 +165,19 @@ function visualToOtbBits(f: ThingFlags): number {
   if (f.hangable)         bits |= (1 << 16);
   if (f.hookSouth)        bits |= (1 << 17);
   if (f.hookEast)         bits |= (1 << 18);
-  if (f.chargeable)       bits |= (1 << 22);
   if (f.translucent)      bits |= (1 << 23);
-  if (f.animateAlways)    bits |= (1 << 24);
-  if (f.fullGround)       bits |= (1 << 25);
-  if (f.forceUse)         bits |= (1 << 26);
   return bits;
 }
 
 /**
- * Sync OTB flags from visual ThingFlags. Updates only the mapped bits,
- * preserving all OTB-only bits (FLAG_FULLTILE, FLAG_CANNOTDECAY, etc.).
+ * Sync the server/editor item flags derived from visual flags.
  */
-export function syncOtbFromVisual(existingOtb: number, f: ThingFlags): number {
-  return (existingOtb & ~VISUAL_MAPPED_BITS) | visualToOtbBits(f);
+export function syncItemFlagsFromVisual(existingFlags: number, f: ThingFlags): number {
+  return ((existingFlags & ~VISUAL_MAPPED_BITS & ~RETIRED_ITEM_FLAG_MASK) | visualToOtbBits(f)) >>> 0;
 }
 
-/**
- * Derive OTB flags for a brand-new item (no existing OTB data).
- */
-export function deriveOtbFlags(f: ThingFlags): number {
-  return visualToOtbBits(f);
-}
-
-/**
- * Merge floor-change property into OTB flags bitmask.
- */
-export function mergeFloorChangeFlags(bits: number, floorchange?: string): number {
-  // Clear existing floor change bits
-  bits &= ~((1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12));
-  if (!floorchange) return bits;
-  switch (floorchange) {
-    case 'down':  bits |= (1 << 8); break;   // FLAG_FLOORCHANGEDOWN
-    case 'north': bits |= (1 << 9); break;   // FLAG_FLOORCHANGENORTH
-    case 'east':  bits |= (1 << 10); break;  // FLAG_FLOORCHANGEEAST
-    case 'south': bits |= (1 << 11); break;  // FLAG_FLOORCHANGESOUTH
-    case 'west':  bits |= (1 << 12); break;  // FLAG_FLOORCHANGEWEST
-  }
-  return bits;
+export function stripRetiredItemFlags(flags: number): number {
+  return (flags & ~RETIRED_ITEM_FLAG_MASK) >>> 0;
 }
 
 /**

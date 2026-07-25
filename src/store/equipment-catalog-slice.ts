@@ -61,5 +61,34 @@ export function createEquipmentCatalogSlice(set: Set_, get: Get_) {
     removeEquipmentCatalogEntry: (entry: EquipmentCatalogEntry) => {
       mutateCatalog(set, get, (catalog) => removeVariant(catalog, entry));
     },
+    assignVisualEquipmentToItem: (
+      visualEquipmentId: number,
+      itemId: number,
+      variant: Variant,
+    ) => {
+      const state = get();
+      if (!state.objectData) return;
+      const visual = state.objectData.visualEquipmentAppearances.get(visualEquipmentId);
+      if (!visual) return;
+
+      const equipmentAppearances = new Map(state.objectData.equipmentAppearances);
+      equipmentAppearances.set(itemId, {
+        ...(equipmentAppearances.get(itemId) ?? {}),
+        [variant]: visual.equipmentAppearanceId,
+      });
+
+      const visualEquipmentAppearances = new Map(state.objectData.visualEquipmentAppearances);
+      visualEquipmentAppearances.delete(visualEquipmentId);
+
+      set({
+        objectData: {
+          ...state.objectData,
+          equipmentAppearances,
+          visualEquipmentAppearances,
+        },
+        dirty: true,
+        editVersion: state.editVersion + 1,
+      });
+    },
   };
 }
