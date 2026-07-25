@@ -72,7 +72,7 @@ export interface OBState {
   };
 
   // UI state
-  centerTab: 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits';
+  centerTab: 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits' | 'poseLab';
   activeCategory: ThingCategory;
   activeLibrary: LibraryCategory;
   selectedThingId: number | null;

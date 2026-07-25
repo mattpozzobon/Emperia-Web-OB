@@ -12,8 +12,9 @@ import { LayerPanel } from './components/LayerPanel';
 import { EquipmentCatalogEditor } from './components/EquipmentCatalogEditor';
 import { HairEditor } from './components/HairEditor';
 import { OutfitEditor } from './components/OutfitEditor';
+import { PoseLab } from './components/PoseLab';
 
-type CenterTab = 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits';
+type CenterTab = 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits' | 'poseLab';
 
 const TAB_LABELS: Record<CenterTab, string> = {
   texture: 'Texture',
@@ -21,6 +22,7 @@ const TAB_LABELS: Record<CenterTab, string> = {
   equipment: 'Equipment',
   hair: 'Hair',
   outfits: 'Outfits',
+  poseLab: 'Pose Lab',
 } as const;
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -163,7 +165,7 @@ export default function App() {
         {/* Center: Texture / Properties / Attributes */}
         <div className="flex-1 flex flex-col bg-emperia-bg overflow-hidden">
           <div className="flex items-center border-b border-emperia-border shrink-0">
-            {(['texture', 'properties', 'equipment', 'hair', 'outfits'] as CenterTab[]).map((tab) => (
+            {(['texture', 'properties', 'equipment', 'hair', 'outfits', 'poseLab'] as CenterTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -191,6 +193,7 @@ export default function App() {
             {centerTab === 'equipment' && <EquipmentCatalogEditor />}
             {centerTab === 'hair' && <HairEditor />}
             {centerTab === 'outfits' && <OutfitEditor />}
+            {centerTab === 'poseLab' && <PoseLab />}
           </div>
         </div>
 
