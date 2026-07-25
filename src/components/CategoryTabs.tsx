@@ -80,11 +80,10 @@ export function CategoryTabs() {
       case 'outfit': return objectData.outfitCount;
       case 'effect': return objectData.effectCount;
       case 'distance': return objectData.distanceCount;
-      case 'equipment': return objectData?.equipmentAppearances.size ?? 0;
-      case 'hair': return objectData?.hairDefinitions.size ?? 0;
+      case 'equipment': return objectData.equipmentCount;
+      case 'hair': return objectData.hairCount;
     }
   };
-  const isVirtualCategory = activeLibrary === 'equipment' || activeLibrary === 'hair';
 
   return (
     <div className="shrink-0">
@@ -156,7 +155,7 @@ export function CategoryTabs() {
         >
           <Download className="w-3.5 h-3.5" />
         </button>
-        {!isVirtualCategory && (
+        {(
           <>
             <button
               onClick={() => addThing(activeCategory)}

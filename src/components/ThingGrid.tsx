@@ -28,37 +28,12 @@ export function ThingGrid() {
   );
   const setSelectedHairId = useOBStore((s) => s.setSelectedHairId);
 
-  // Build a set of outfit display IDs referenced by the equipment catalog.
-  const equipOutfitIds = useMemo(() => {
-    const ids = new Set<number>();
-    for (const appearance of objectData?.equipmentAppearances.values() ?? []) {
-      if (appearance.default != null) ids.add(appearance.default);
-      if (appearance.left != null) ids.add(appearance.left);
-      if (appearance.right != null) ids.add(appearance.right);
-    }
-    return ids;
-  }, [objectData, editVersion]);
-
-  const hairOutfitIds = useMemo(
-    () => new Set(hairDefinitions.map((hair) => hair.outfitId)),
-    [hairDefinitions],
-  );
-
   const tooltip = useSpriteTooltip(spriteData, spriteOverrides);
 
   const things = useMemo(
-    () => {
-      const base = getThingsForCategory(objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds);
-      if (activeLibrary === 'equipment') {
-        return base.filter((thing) => objectData && equipOutfitIds.has(getDisplayId(objectData, thing.id)));
-      }
-      if (activeLibrary === 'hair') {
-        return base.filter((thing) => objectData && hairOutfitIds.has(getDisplayId(objectData, thing.id)));
-      }
-      return base;
-    },
+    () => getThingsForCategory(objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [objectData, activeCategory, activeLibrary, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds, editVersion, equipOutfitIds, hairOutfitIds],
+    [objectData, activeCategory, activeLibrary, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds, editVersion],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -161,8 +136,6 @@ export function ThingGrid() {
             const tipText = itemName ? `#${publicId} — ${itemName}` : `#${publicId}`;
 
             const isMultiSelected = selectedIds.has(thing.id);
-            const isInEquipMap = (activeLibrary === 'outfit' || activeLibrary === 'equipment') && equipOutfitIds.has(displayId);
-
             return (
               <button
                 key={thing.id}
@@ -181,7 +154,7 @@ export function ThingGrid() {
                   } else {
                     setSelectedId(thing.id);
                     if (activeLibrary === 'hair' && objectData) {
-                      const hair = hairDefinitions.find((entry) => entry.outfitId === getDisplayId(objectData, thing.id));
+                      const hair = hairDefinitions.find((entry) => entry.appearanceId === getDisplayId(objectData, thing.id));
                       if (hair) setSelectedHairId(hair.hairId);
                     }
                   }
@@ -193,9 +166,7 @@ export function ThingGrid() {
                     ? 'bg-emperia-accent/20 border-emperia-accent'
                     : isMultiSelected
                       ? 'bg-emperia-accent/10 border-emperia-accent/50'
-                      : isInEquipMap
-                        ? 'border-emerald-500/60 bg-emerald-500/5 hover:bg-emerald-500/10'
-                        : 'border-transparent hover:bg-emperia-hover'
+                      : 'border-transparent hover:bg-emperia-hover'
                   }
                 `}
                 style={{ width: CELL_SIZE, height: CELL_SIZE }}

@@ -122,8 +122,9 @@ function drawOutfitLayer(
 
 /** Check whether an outfit sprite in the .eobj has a mask layer (layers >= 2). */
 function outfitHasMask(objectData: ObjectData, outfitDisplayId: number): boolean {
-  if (outfitDisplayId <= 0) return false;
-  const internalId = objectData.itemCount + outfitDisplayId;
+  const appearanceId = objectData.outfitAppearances.get(outfitDisplayId);
+  if (appearanceId == null) return false;
+  const internalId = objectData.itemCount + 1 + appearanceId;
   const thing = objectData.things.get(internalId);
   if (!thing) return false;
   const fg = thing.frameGroups[0];
@@ -138,7 +139,9 @@ function renderComposite(
   const cached = thumbCache.get(key);
   if (cached) return cached;
 
-  const baseId = objectData.itemCount + outfit.id;
+  const baseAppearanceId = objectData.outfitAppearances.get(outfit.id);
+  if (baseAppearanceId == null) return null;
+  const baseId = objectData.itemCount + 1 + baseAppearanceId;
   const baseThing = objectData.things.get(baseId);
   const fg0 = baseThing?.frameGroups[0];
   const w = fg0 ? fg0.width * 32 : 64;
@@ -155,7 +158,11 @@ function renderComposite(
   for (let slot = 0; slot < SLOT_COUNT; slot++) {
     const s = outfit.sprites[slot];
     if (!s || s.id <= 0) continue;
-    drawOutfitLayer(ctx, objectData, spriteData, spriteOverrides, objectData.itemCount + s.id, direction,
+    const localAppearanceId = s.id - 1;
+    const internalId = slot === 0
+      ? objectData.itemCount + objectData.outfitCount + objectData.equipmentCount + 1 + localAppearanceId
+      : objectData.itemCount + objectData.outfitCount + 1 + localAppearanceId;
+    drawOutfitLayer(ctx, objectData, spriteData, spriteOverrides, internalId, direction,
       { yellow: s.colors?.yellow ?? 0, red: s.colors?.red ?? 0, green: s.colors?.green ?? 0, blue: s.colors?.blue ?? 0 });
   }
 
@@ -236,7 +243,8 @@ function PreviewCanvas({ outfit }: { outfit: OutfitDefinition }) {
   }
 
   const urls = [0, 1, 2, 3].map((d) => renderComposite(objectData, spriteData, spriteOverrides, outfit, d));
-  const baseId = objectData.itemCount + outfit.id;
+  const baseAppearanceId = objectData.outfitAppearances.get(outfit.id);
+  const baseId = baseAppearanceId == null ? -1 : objectData.itemCount + 1 + baseAppearanceId;
   const fg0 = objectData.things.get(baseId)?.frameGroups[0];
   const nw = (fg0?.width ?? 2) * 32;
   const nh = (fg0?.height ?? 2) * 32;
@@ -300,9 +308,9 @@ function PresetBar({ outfit, onUpdate }: { outfit: OutfitDefinition; onUpdate: (
     onUpdate({ id: skinId });
   };
 
-  const selectHair = (outfitId: number) => {
+  const selectHair = (appearanceId: number | null) => {
     const newSprites = [...outfit.sprites];
-    newSprites[0] = { ...newSprites[0], id: outfitId };
+    newSprites[0] = { ...newSprites[0], id: appearanceId == null ? 0 : appearanceId + 1 };
     onUpdate({ sprites: newSprites });
   };
 
@@ -352,23 +360,24 @@ function PresetBar({ outfit, onUpdate }: { outfit: OutfitDefinition; onUpdate: (
         <span className="text-[9px] text-emperia-muted w-8 shrink-0">Hair</span>
         <div className="flex gap-0.5 flex-wrap">
           {/* None option */}
-          <button onClick={() => selectHair(0)}
+          <button onClick={() => selectHair(null)}
             className={`rounded border transition-all ${(outfit.sprites[0]?.id ?? 0) === 0 ? 'border-emperia-accent ring-1 ring-emperia-accent' : 'border-emperia-border/50 hover:border-emperia-accent/40'}`}
             title="No hair">
             <div className="checkerboard rounded overflow-hidden flex items-center justify-center text-[7px] text-emperia-muted/40" style={{ width: 24, height: 24 }}>—</div>
           </button>
           {filteredHairs.map((hair) => {
-            const isCurrent = outfit.sprites[0]?.id === hair.outfitId;
+            const runtimeId = hair.appearanceId + 1;
+            const isCurrent = outfit.sprites[0]?.id === runtimeId;
             if (!objectData || !spriteData) return null;
             const tmpOutfit: OutfitDefinition = {
               ...outfit,
-              sprites: outfit.sprites.map((s, i) => i === 0 ? { ...s, id: hair.outfitId } : { id: 0 }),
+              sprites: outfit.sprites.map((s, i) => i === 0 ? { ...s, id: runtimeId } : { id: 0 }),
             };
             const url = renderComposite(objectData, spriteData, spriteOverrides, tmpOutfit, 2);
             return (
-              <button key={hair.hairId} onClick={() => selectHair(hair.outfitId)}
+              <button key={hair.hairId} onClick={() => selectHair(hair.appearanceId)}
                 className={`rounded border transition-all ${isCurrent ? 'border-emperia-accent ring-1 ring-emperia-accent' : 'border-emperia-border/50 hover:border-emperia-accent/40'}`}
-                title={`${hair.name} (#${hair.outfitId})`}>
+                title={`${hair.name} (#${hair.appearanceId})`}>
                 <div className="checkerboard rounded overflow-hidden" style={{ width: 24, height: 24 }}>
                   {url && <img src={url} className="pixelated w-full h-full" style={{ imageRendering: 'pixelated' }} draggable={false} />}
                 </div>
@@ -452,9 +461,9 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return equipmentCatalogEntries.filter((e) => {
-      const s = inferEquipSlot(e, getSlotType(e.id));
+      const s = inferEquipSlot(e, getSlotType(e.itemId));
       if (s !== slotFilter) return false;
-      if (q && !e.name.toLowerCase().includes(q) && !e.sprite_id.toString().includes(q)) return false;
+      if (q && !e.name.toLowerCase().includes(q) && !e.equipmentId.toString().includes(q)) return false;
       return true;
     });
   }, [equipmentCatalogEntries, slotFilter, search, getSlotType]);
@@ -480,8 +489,8 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
           </button>
           {filtered.map((entry, i) => {
             let thumbUrl: string | null = null;
-            if (objectData && spriteData && entry.sprite_id > 0) {
-              const intId = objectData.itemCount + entry.sprite_id;
+            if (objectData && spriteData && entry.equipmentId >= 0) {
+              const intId = objectData.itemCount + objectData.outfitCount + 1 + entry.equipmentId;
               const thing = objectData.things.get(intId);
               if (thing) {
                 const key = `equip-pick:${intId}`;
@@ -505,13 +514,13 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
               }
             }
             return (
-              <button key={`${entry.sprite_id}-${i}`} onClick={() => onSelect(entry.sprite_id)}
+              <button key={`${entry.equipmentId}-${i}`} onClick={() => onSelect(entry.equipmentId + 1)}
                 className="w-full flex items-center gap-2 px-2 py-0.5 text-left hover:bg-emperia-hover/50 border-b border-emperia-border/10 transition-colors">
                 <div className="w-6 h-6 checkerboard rounded border border-emperia-border/30 overflow-hidden flex items-center justify-center shrink-0">
                   {thumbUrl ? <img src={thumbUrl} className="pixelated w-full h-full" style={{ imageRendering: 'pixelated' }} draggable={false} /> : <span className="text-[7px] text-emperia-muted/30">?</span>}
                 </div>
                 <span className="text-[9px] text-emperia-text truncate flex-1">{entry.name}</span>
-                <span className="text-[8px] text-emperia-muted font-mono shrink-0">{entry.sprite_id}</span>
+                <span className="text-[8px] text-emperia-muted font-mono shrink-0">{entry.equipmentId}</span>
               </button>
             );
           })}

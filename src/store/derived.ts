@@ -3,12 +3,25 @@
  */
 import type { ObjectData, ThingType, ThingCategory, ItemDefinition } from '../lib/types';
 
-/** Convert internal map ID to display ID (1-based for outfits/effects/distances). */
+/** Convert an internal map ID to its category-local display ID. */
 export function getDisplayId(objectData: ObjectData, internalId: number): number {
   if (internalId <= objectData.itemCount) return internalId; // items stay as-is (100+)
-  if (internalId <= objectData.itemCount + objectData.outfitCount) return internalId - objectData.itemCount;
-  if (internalId <= objectData.itemCount + objectData.outfitCount + objectData.effectCount) return internalId - objectData.itemCount - objectData.outfitCount;
-  return internalId - objectData.itemCount - objectData.outfitCount - objectData.effectCount;
+  let start = objectData.itemCount + 1;
+  if (internalId < start + objectData.outfitCount) {
+    const localAppearanceId = internalId - start;
+    for (const [outfitId, appearanceId] of objectData.outfitAppearances) {
+      if (appearanceId === localAppearanceId) return outfitId;
+    }
+    return localAppearanceId;
+  }
+  start += objectData.outfitCount;
+  if (internalId < start + objectData.equipmentCount) return internalId - start;
+  start += objectData.equipmentCount;
+  if (internalId < start + objectData.hairCount) return internalId - start;
+  start += objectData.hairCount;
+  if (internalId < start + objectData.effectCount) return internalId - start + 1;
+  start += objectData.effectCount;
+  return internalId - start + 1;
 }
 
 /** Derive filtered things list outside the store (safe for useMemo). */

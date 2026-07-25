@@ -32,18 +32,18 @@ function mutateCatalog(
 }
 
 function removeVariant(catalog: Map<number, EquipmentAppearance>, entry: EquipmentCatalogEntry) {
-  const current = catalog.get(entry.id);
+  const current = catalog.get(entry.itemId);
   if (!current) return;
   const next = { ...current };
   delete next[variantOf(entry)];
-  if (next.default == null && next.left == null && next.right == null) catalog.delete(entry.id);
-  else catalog.set(entry.id, next);
+  if (next.default == null && next.left == null && next.right == null) catalog.delete(entry.itemId);
+  else catalog.set(entry.itemId, next);
 }
 
 function addVariant(catalog: Map<number, EquipmentAppearance>, entry: EquipmentCatalogEntry) {
-  catalog.set(entry.id, {
-    ...(catalog.get(entry.id) ?? {}),
-    [variantOf(entry)]: entry.sprite_id,
+  catalog.set(entry.itemId, {
+    ...(catalog.get(entry.itemId) ?? {}),
+    [variantOf(entry)]: entry.equipmentId,
   });
 }
 

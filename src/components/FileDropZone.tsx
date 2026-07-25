@@ -170,7 +170,7 @@ export function FileDropZone() {
     }
 
     // EOBJ owns the public ID -> appearance mapping, so it must be loaded
-    // before server definitions can be associated with appearances.
+    // before public item definitions can be associated with appearances.
     loadFiles(objBuf, sprBuf);
     if (defBuf) {
       try {

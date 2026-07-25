@@ -155,11 +155,10 @@ function renderOutfitThumb(
 }
 
 /**
- * Convert a stored outfit ID (1-based) to internal thing ID.
- * The desktop OB uses 1-based outfit numbering, so sprite_id=1 → internal=itemCount+1.
+ * Convert a zero-based equipment appearance ID to the internal thing ID.
  */
-function outfitIdToInternal(objectData: ObjectData, outfitId: number): number {
-  return objectData.itemCount + outfitId;
+function equipmentIdToInternal(objectData: ObjectData, equipmentId: number): number {
+  return objectData.itemCount + objectData.outfitCount + 1 + equipmentId;
 }
 
 // ─── Outfit Sprite Picker Modal ──────────────────────────────────────────────
@@ -168,7 +167,7 @@ function OutfitSpritePicker({
   onSelect,
   onClose,
 }: {
-  onSelect: (outfitDisplayId: number) => void;
+  onSelect: (equipmentId: number) => void;
   onClose: () => void;
 }) {
   const objectData = useOBStore((s) => s.objectData);
@@ -179,7 +178,7 @@ function OutfitSpritePicker({
   const [direction, setDirection] = useState(2); // 0=N,1=E,2=S,3=W
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const outfitRange = getCategoryRange('outfit');
+  const outfitRange = getCategoryRange('equipment');
 
   const outfits = useMemo(() => {
     if (!objectData || !outfitRange) return [];
@@ -211,7 +210,7 @@ function OutfitSpritePicker({
       <div ref={containerRef} className="bg-emperia-surface border border-emperia-border rounded-lg shadow-2xl w-[520px] max-h-[80vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-2 px-3 py-2 border-b border-emperia-border shrink-0">
-          <h3 className="text-sm font-semibold text-emperia-text flex-1">Select Outfit Sprite</h3>
+          <h3 className="text-sm font-semibold text-emperia-text flex-1">Select Equipment Appearance</h3>
           <div className="flex items-center gap-1 text-[10px] text-emperia-muted">
             {['N', 'E', 'S', 'W'].map((d, i) => (
               <button
@@ -235,7 +234,7 @@ function OutfitSpritePicker({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search outfit ID..."
+              placeholder="Search equipment ID..."
               className="w-full pl-7 pr-2 py-1 bg-emperia-bg border border-emperia-border rounded text-xs text-emperia-text"
               autoFocus
             />
@@ -253,7 +252,7 @@ function OutfitSpritePicker({
                   key={id}
                   onClick={() => onSelect(displayId)}
                   className="flex flex-col items-center gap-0.5 p-1 rounded hover:bg-emperia-hover border border-transparent hover:border-emperia-accent/40 transition-colors"
-                  title={`Outfit #${displayId}`}
+                  title={`Equipment #${displayId}`}
                 >
                   <div className="w-10 h-10 checkerboard rounded flex items-center justify-center overflow-hidden">
                     {url ? (
@@ -268,7 +267,7 @@ function OutfitSpritePicker({
             })}
           </div>
           {outfits.length === 0 && (
-            <p className="text-center text-emperia-muted text-xs py-8">No outfits found.</p>
+            <p className="text-center text-emperia-muted text-xs py-8">No equipment appearances found.</p>
           )}
         </div>
       </div>
@@ -291,7 +290,7 @@ function OutfitThumbnail({ outfitDisplayId, size = 32, direction = 2 }: { outfit
   // Clear cache when edits happen
   useEffect(() => { clearOutfitThumbCache(); }, [editVersion]);
 
-  if (!objectData || !spriteData || outfitDisplayId <= 0) {
+  if (!objectData || !spriteData || outfitDisplayId < 0) {
     return (
       <div
         className="checkerboard rounded border border-emperia-border/50 flex items-center justify-center text-emperia-muted/30 text-[9px]"
@@ -302,13 +301,13 @@ function OutfitThumbnail({ outfitDisplayId, size = 32, direction = 2 }: { outfit
     );
   }
 
-  const internalId = outfitIdToInternal(objectData, outfitDisplayId);
+  const internalId = equipmentIdToInternal(objectData, outfitDisplayId);
   const url = renderOutfitThumb(objectData, spriteData, spriteOverrides, internalId, direction);
 
   return (
     <div className="checkerboard rounded border border-emperia-border/50 overflow-hidden flex items-center justify-center" style={{ width: size, height: size }}>
       {url ? (
-        <img src={url} alt={`outfit#${outfitDisplayId}`} className="pixelated max-w-full max-h-full" style={{ imageRendering: 'pixelated' }} draggable={false} />
+        <img src={url} alt={`equipment#${outfitDisplayId}`} className="pixelated max-w-full max-h-full" style={{ imageRendering: 'pixelated' }} draggable={false} />
       ) : (
         <div className="flex items-center justify-center text-emperia-muted/30 text-[9px]" style={{ width: size, height: size }}>?</div>
       )}
@@ -326,7 +325,6 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
   const objectData = useOBStore((s) => s.objectData);
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
-  const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   useOBStore((s) => s.editVersion);
 
   if (!objectData || !spriteData || itemId <= 0) {
@@ -341,9 +339,8 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
   }
 
   // Resolve the public item ID to its internal EOBJ appearance.
-  const def = itemDefinitions.get(itemId);
-  const appearanceId = def?.appearanceId ?? itemId;
-  const thing = objectData.things.get(appearanceId);
+  const appearanceId = objectData.itemAppearances.get(itemId);
+  const thing = appearanceId == null ? undefined : objectData.things.get(appearanceId);
   const sprId = thing?.frameGroups[0]?.sprites[0] ?? 0;
   const url = sprId > 0 ? getSpriteDataUrl(spriteData, sprId, spriteOverrides) : null;
 
@@ -354,7 +351,7 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
     if (useOBStore.getState().activeCategory !== 'item') {
       useOBStore.setState({ activeCategory: 'item', activeLibrary: 'item', searchQuery: '', filterGroup: -1 });
     }
-    setSelectedThingId(appearanceId);
+    setSelectedThingId(appearanceId!);
     setCenterTab('texture');
   };
 
@@ -363,7 +360,7 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
       onClick={handleClick}
       className="checkerboard rounded border border-emperia-border/50 overflow-hidden flex items-center justify-center hover:border-emperia-accent/60 transition-colors cursor-pointer shrink-0"
       style={{ width: size, height: size }}
-      title={`Go to item #${appearanceId}`}
+      title={appearanceId == null ? `Item #${itemId} has no appearance mapping` : `Go to item #${itemId} (appearance #${appearanceId})`}
     >
       {url ? (
         <img src={url} alt={`item#${itemId}`} className="pixelated" style={{ width: size, height: size, imageRendering: 'pixelated' }} draggable={false} />
@@ -383,10 +380,10 @@ function AddEntryForm({ onAdd, onCancel }: { onAdd: (entry: EquipmentCatalogEntr
   const [showPicker, setShowPicker] = useState(false);
 
   const handleSubmit = () => {
-    const id = parseInt(itemId, 10);
-    const sid = parseInt(spriteId, 10);
-    if (!name.trim() || isNaN(id) || isNaN(sid)) return;
-    onAdd({ name: name.trim(), id, sprite_id: sid });
+    const parsedItemId = parseInt(itemId, 10);
+    const equipmentId = parseInt(spriteId, 10);
+    if (!name.trim() || isNaN(parsedItemId) || isNaN(equipmentId)) return;
+    onAdd({ name: name.trim(), itemId: parsedItemId, equipmentId });
   };
 
   return (
@@ -457,12 +454,12 @@ function EntryRow({
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(entry.name);
   const [editingItemId, setEditingItemId] = useState(false);
-  const [itemIdValue, setItemIdValue] = useState(entry.id.toString());
+  const [itemIdValue, setItemIdValue] = useState(entry.itemId.toString());
 
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
 
-  // Look up server definition for this item ID
-  const def = itemDefinitions.get(entry.id);
+  // Look up the public item definition.
+  const def = itemDefinitions.get(entry.itemId);
   const serverName = def?.properties?.name;
 
   const handleNameBlur = () => {
@@ -475,8 +472,8 @@ function EntryRow({
   return (
     <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-emperia-hover/50 group border-b border-emperia-border/30">
       {/* Item + Outfit sprite preview */}
-      <ItemThumbnail itemId={entry.id} size={40} />
-      <OutfitThumbnail outfitDisplayId={entry.sprite_id} size={40} />
+      <ItemThumbnail itemId={entry.itemId} size={40} />
+      <OutfitThumbnail outfitDisplayId={entry.equipmentId} size={40} />
 
       {/* Name */}
       <div className="flex-1 min-w-0">
@@ -513,31 +510,31 @@ function EntryRow({
           onBlur={() => {
             setEditingItemId(false);
             const parsed = parseInt(itemIdValue, 10);
-            if (!isNaN(parsed) && parsed !== entry.id) {
-              onUpdate(index, { ...entry, id: parsed });
+            if (!isNaN(parsed) && parsed !== entry.itemId) {
+              onUpdate(index, { ...entry, itemId: parsed });
             }
           }}
           onKeyDown={(e) => {
             if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-            if (e.key === 'Escape') { setEditingItemId(false); setItemIdValue(entry.id.toString()); }
+            if (e.key === 'Escape') { setEditingItemId(false); setItemIdValue(entry.itemId.toString()); }
           }}
           className="w-16 bg-emperia-bg border border-emperia-border rounded px-1.5 py-0.5 text-[10px] text-amber-400 font-mono text-right shrink-0"
           autoFocus
         />
       ) : (
         <button
-          onClick={() => { setEditingItemId(true); setItemIdValue(entry.id.toString()); }}
+          onClick={() => { setEditingItemId(true); setItemIdValue(entry.itemId.toString()); }}
           className="text-[10px] text-amber-400 font-mono w-12 text-right shrink-0 hover:underline cursor-pointer"
           title="Click to change Item ID"
         >
-          {entry.id}
+          {entry.itemId}
         </button>
       )}
 
       {/* Sprite ID + change button */}
       <div className="flex items-center gap-1 shrink-0">
         <span className="text-[10px] text-cyan-400 font-mono w-12 text-right" title="Outfit Sprite ID">
-          {entry.sprite_id}
+          {entry.equipmentId}
         </span>
         <button
           onClick={() => setShowPicker(true)}
@@ -559,7 +556,7 @@ function EntryRow({
       {showPicker && (
         <OutfitSpritePicker
           onSelect={(displayId) => {
-            onUpdate(index, { ...entry, sprite_id: displayId });
+            onUpdate(index, { ...entry, equipmentId: displayId });
             setShowPicker(false);
           }}
           onClose={() => setShowPicker(false)}
@@ -608,8 +605,8 @@ function WeaponGroupRow({
           <span className="text-[9px] text-emperia-muted w-8">Left</span>
           {group.leftEntry ? (
             <>
-              <OutfitThumbnail outfitDisplayId={group.leftEntry.entry.sprite_id} size={36} />
-              <span className="text-[10px] text-cyan-400 font-mono">{group.leftEntry.entry.sprite_id}</span>
+              <OutfitThumbnail outfitDisplayId={group.leftEntry.entry.equipmentId} size={36} />
+              <span className="text-[10px] text-cyan-400 font-mono">{group.leftEntry.entry.equipmentId}</span>
               <button
                 onClick={() => setShowPickerFor('left')}
                 className="px-1 py-0.5 rounded text-[9px] bg-emperia-accent/10 text-emperia-accent hover:bg-emperia-accent/20 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -640,8 +637,8 @@ function WeaponGroupRow({
           <span className="text-[9px] text-emperia-muted w-8">Right</span>
           {group.rightEntry ? (
             <>
-              <OutfitThumbnail outfitDisplayId={group.rightEntry.entry.sprite_id} size={36} />
-              <span className="text-[10px] text-cyan-400 font-mono">{group.rightEntry.entry.sprite_id}</span>
+              <OutfitThumbnail outfitDisplayId={group.rightEntry.entry.equipmentId} size={36} />
+              <span className="text-[10px] text-cyan-400 font-mono">{group.rightEntry.entry.equipmentId}</span>
               <button
                 onClick={() => setShowPickerFor('right')}
                 className="px-1 py-0.5 rounded text-[9px] bg-emperia-accent/10 text-emperia-accent hover:bg-emperia-accent/20 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -670,23 +667,23 @@ function WeaponGroupRow({
       {group.otherEntries.map(({ entry, index }) => (
         <div key={index} className="flex items-center gap-2 pl-2 mt-1">
           <span className="text-[9px] text-emperia-muted w-8 truncate">{entry.name}</span>
-          <OutfitThumbnail outfitDisplayId={entry.sprite_id} size={32} />
-          <span className="text-[10px] text-cyan-400 font-mono">{entry.sprite_id}</span>
+          <OutfitThumbnail outfitDisplayId={entry.equipmentId} size={32} />
+          <span className="text-[10px] text-cyan-400 font-mono">{entry.equipmentId}</span>
         </div>
       ))}
 
       {showPickerFor && (
         <OutfitSpritePicker
           onSelect={(displayId) => {
-            const addSpriteMapEntry = useOBStore.getState().addEquipmentCatalogEntry;
-            const updateSpriteMapEntry = useOBStore.getState().updateEquipmentCatalogEntry;
+            const addCatalogEntry = useOBStore.getState().addEquipmentCatalogEntry;
+            const updateCatalogEntry = useOBStore.getState().updateEquipmentCatalogEntry;
             const hand = showPickerFor === 'left' ? 'Left-Hand' : 'Right-Hand';
             if (showPickerFor === 'left' && group.leftEntry) {
-              updateSpriteMapEntry(group.leftEntry.entry, { ...group.leftEntry.entry, sprite_id: displayId });
+              updateCatalogEntry(group.leftEntry.entry, { ...group.leftEntry.entry, equipmentId: displayId });
             } else if (showPickerFor === 'right' && group.rightEntry) {
-              updateSpriteMapEntry(group.rightEntry.entry, { ...group.rightEntry.entry, sprite_id: displayId });
+              updateCatalogEntry(group.rightEntry.entry, { ...group.rightEntry.entry, equipmentId: displayId });
             } else {
-              addSpriteMapEntry({ name: `${hand} (${group.baseName})`, id: group.itemId, sprite_id: displayId });
+              addCatalogEntry({ name: `${hand} (${group.baseName})`, itemId: group.itemId, equipmentId: displayId });
             }
             setShowPickerFor(null);
           }}
@@ -703,18 +700,23 @@ export function EquipmentCatalogEditor() {
   const objectData = useOBStore((s) => s.objectData);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const updateEquipmentCatalogEntry = useOBStore((s) => s.updateEquipmentCatalogEntry);
-  const addSpriteMapEntry = useOBStore((s) => s.addEquipmentCatalogEntry);
+  const addEquipmentCatalogEntry = useOBStore((s) => s.addEquipmentCatalogEntry);
   const removeEquipmentCatalogEntry = useOBStore((s) => s.removeEquipmentCatalogEntry);
   const editVersion = useOBStore((s) => s.editVersion);
   const catalogEntries = useMemo(
     () => getEquipmentCatalogEntries(objectData),
     [objectData, editVersion],
   );
-  const updateSpriteMapEntry = useCallback((index: number, entry: EquipmentCatalogEntry) => {
+  const visualEntries = useMemo(
+    () => Array.from(objectData?.visualEquipmentAppearances.values() ?? [])
+      .sort((a, b) => a.visualId - b.visualId),
+    [objectData, editVersion],
+  );
+  const updateCatalogEntry = useCallback((index: number, entry: EquipmentCatalogEntry) => {
     const previous = catalogEntries[index];
     if (previous) updateEquipmentCatalogEntry(previous, entry);
   }, [catalogEntries, updateEquipmentCatalogEntry]);
-  const removeSpriteMapEntry = useCallback((index: number) => {
+  const removeCatalogEntry = useCallback((index: number) => {
     const entry = catalogEntries[index];
     if (entry) removeEquipmentCatalogEntry(entry);
   }, [catalogEntries, removeEquipmentCatalogEntry]);
@@ -724,7 +726,7 @@ export function EquipmentCatalogEditor() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [viewMode, setViewMode] = useState<'list' | 'weapons'>('list');
 
-  // Get slot type from server definitions for each entry
+  // Get slot type from public item definitions for each entry.
   const getSlotType = useCallback((itemId: number): string | undefined => {
     return itemDefinitions.get(itemId)?.properties?.slotType;
   }, [itemDefinitions]);
@@ -737,14 +739,14 @@ export function EquipmentCatalogEditor() {
       .filter(({ entry }) => {
         // Slot filter
         if (slotFilter !== 'all') {
-          const slot = inferSlot(entry, getSlotType(entry.id));
+          const slot = inferSlot(entry, getSlotType(entry.itemId));
           if (slot !== slotFilter) return false;
         }
         // Search filter
         if (q) {
           const nameMatch = entry.name.toLowerCase().includes(q);
-          const idMatch = entry.id.toString().includes(q);
-          const spriteMatch = entry.sprite_id.toString().includes(q);
+          const idMatch = entry.itemId.toString().includes(q);
+          const spriteMatch = entry.equipmentId.toString().includes(q);
           if (!nameMatch && !idMatch && !spriteMatch) return false;
         }
         return true;
@@ -763,17 +765,17 @@ export function EquipmentCatalogEditor() {
 
       if (!isLeft && !isRight) continue;
 
-      if (!groups.has(entry.id)) {
+      if (!groups.has(entry.itemId)) {
         // Derive base name from the entry name
         let baseName = entry.name
           .replace(/left-hand|lefthand|left hand|right-hand|righthand|right hand/gi, '')
           .replace(/\(|\)/g, '')
           .trim();
-        if (!baseName) baseName = `Item ${entry.id}`;
-        groups.set(entry.id, { itemId: entry.id, baseName, leftEntry: null, rightEntry: null, otherEntries: [] });
+        if (!baseName) baseName = `Item ${entry.itemId}`;
+        groups.set(entry.itemId, { itemId: entry.itemId, baseName, leftEntry: null, rightEntry: null, otherEntries: [] });
       }
 
-      const g = groups.get(entry.id)!;
+      const g = groups.get(entry.itemId)!;
       if (isLeft && !g.leftEntry) g.leftEntry = { entry, index };
       else if (isRight && !g.rightEntry) g.rightEntry = { entry, index };
       else g.otherEntries.push({ entry, index });
@@ -787,7 +789,7 @@ export function EquipmentCatalogEditor() {
       <div className="flex flex-col items-center justify-center h-full text-emperia-muted text-sm p-8 gap-3">
         <p>No equipment catalog loaded.</p>
         <p className="text-[10px] text-emperia-muted/50">
-          Open an EOBJ v4 file containing the equipment catalog.
+          Open an EOBJ v6 file containing the equipment catalog.
         </p>
       </div>
     );
@@ -857,24 +859,52 @@ export function EquipmentCatalogEditor() {
       {/* Add form */}
       {showAddForm && (
         <AddEntryForm
-          onAdd={(entry) => { addSpriteMapEntry(entry); setShowAddForm(false); }}
+          onAdd={(entry) => { addEquipmentCatalogEntry(entry); setShowAddForm(false); }}
           onCancel={() => setShowAddForm(false)}
         />
       )}
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
+        {viewMode === 'list' && slotFilter === 'all' && visualEntries
+          .filter((entry) => {
+            const q = search.trim().toLowerCase();
+            return !q || entry.name.toLowerCase().includes(q)
+              || entry.visualId.toString().includes(q)
+              || entry.appearanceId.toString().includes(q);
+          })
+          .map((entry) => (
+            <div
+              key={`visual-${entry.visualId}`}
+              className="flex items-center gap-2 px-3 py-1.5 border-b border-emperia-border/30 bg-violet-500/5"
+            >
+              <div className="w-10 h-10 checkerboard rounded border border-violet-400/30 flex items-center justify-center text-[9px] text-violet-300">
+                visual
+              </div>
+              <OutfitThumbnail outfitDisplayId={entry.appearanceId} size={40} />
+              <div className="flex-1 min-w-0">
+                <span className="text-xs text-emperia-text truncate block">{entry.name}</span>
+                <span className="text-[9px] text-emperia-muted">Direct visual equipment</span>
+              </div>
+              <span className="text-[10px] text-violet-300 font-mono" title="Stable visual ID">
+                {entry.visualId}
+              </span>
+              <span className="text-[10px] text-cyan-400 font-mono w-12 text-right" title="Equipment appearance ID">
+                {entry.appearanceId}
+              </span>
+            </div>
+          ))}
         {viewMode === 'list' ? (
           filteredEntries.length === 0 ? (
             <p className="text-center text-emperia-muted text-xs py-8">No entries match the current filter.</p>
           ) : (
             filteredEntries.map(({ entry, index }) => (
               <EntryRow
-                key={`${index}-${entry.id}-${entry.sprite_id}`}
+                key={`${index}-${entry.itemId}-${entry.equipmentId}`}
                 entry={entry}
                 index={index}
-                onUpdate={updateSpriteMapEntry}
-                onRemove={removeSpriteMapEntry}
+                onUpdate={updateCatalogEntry}
+                onRemove={removeCatalogEntry}
               />
             ))
           )
@@ -888,8 +918,8 @@ export function EquipmentCatalogEditor() {
               <WeaponGroupRow
                 key={group.itemId}
                 group={group}
-                onUpdate={updateSpriteMapEntry}
-                onRemove={removeSpriteMapEntry}
+                onUpdate={updateCatalogEntry}
+                onRemove={removeCatalogEntry}
               />
             ))
           )

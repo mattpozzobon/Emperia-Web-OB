@@ -38,8 +38,8 @@ const OBD_VERSION = 300;
 const LAST_FLAG = 0xFF;
 const SPRITE_PIXEL_SIZE = 4096; // 32 * 32 * 4
 
-const CATEGORY_MAP: Record<ThingCategory, number> = { item: 1, outfit: 2, effect: 3, distance: 4 };
-const CATEGORY_REVERSE: Record<number, ThingCategory> = { 1: 'item', 2: 'outfit', 3: 'effect', 4: 'distance' };
+const CATEGORY_MAP: Record<ThingCategory, number> = { item: 1, outfit: 2, effect: 3, distance: 4, equipment: 5, hair: 6 };
+const CATEGORY_REVERSE: Record<number, ThingCategory> = { 1: 'item', 2: 'outfit', 3: 'effect', 4: 'distance', 5: 'equipment', 6: 'hair' };
 
 // ── Flag constants (matching original OB OBDEncoder) ─────────────────────
 const FLAG = {

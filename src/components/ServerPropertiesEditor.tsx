@@ -267,8 +267,8 @@ export function ServerPropertiesEditor() {
 
   const setProperty = useCallback((key: string, value: string | number | boolean | undefined) => {
     if (selectedId == null) return;
-    const sid = appearanceToItemIds.get(selectedId);
-    const current = sid != null ? itemDefinitions.get(sid) : undefined;
+    const itemId = appearanceToItemIds.get(selectedId);
+    const current = itemId != null ? itemDefinitions.get(itemId) : undefined;
     const currentProps = current?.properties ? { ...current.properties } : {};
     if (value === undefined || value === '' || value === false) {
       delete currentProps[key];
@@ -280,8 +280,8 @@ export function ServerPropertiesEditor() {
 
   const setExclusiveSlots = useCallback((slots: ExclusiveSlotDef[] | undefined) => {
     if (selectedId == null) return;
-    const sid = appearanceToItemIds.get(selectedId);
-    const current = sid != null ? itemDefinitions.get(sid) : undefined;
+    const itemId = appearanceToItemIds.get(selectedId);
+    const current = itemId != null ? itemDefinitions.get(itemId) : undefined;
     const currentProps = current?.properties ? { ...current.properties } : {};
     if (!slots || slots.length === 0) {
       delete currentProps.exclusiveSlots;

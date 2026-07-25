@@ -53,7 +53,7 @@ export function OutputDirsPanel() {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // v4 embeds equipment and hair in emperia.eobj. Remove destinations saved
+  // EOBJ embeds equipment and hair. Remove destinations saved
   // by older Builder versions from both the header and IndexedDB.
   useEffect(() => {
     const migrated = outputDirs.filter(

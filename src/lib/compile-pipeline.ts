@@ -398,7 +398,7 @@ export async function runCompile(
 
   if (!await runStep(0, async () => {
     if (itemAppearances.size === 0) {
-      throw new Error('EOBJ has no public item mappings. Open a valid v4 asset with items.json loaded.');
+      throw new Error('EOBJ has no public item mappings. Open a valid asset with items.json loaded.');
     }
     const buf = compileObjectData(
       od,
@@ -409,8 +409,8 @@ export async function runCompile(
       hairDefinitions,
     );
     reparsedObject = parseObjectData(buf);
-    if (reparsedObject.formatVersion !== 4) {
-      throw new Error(`Generated EOBJ v${reparsedObject.formatVersion}; expected v4.`);
+    if (reparsedObject.formatVersion !== 6) {
+      throw new Error(`Generated EOBJ v${reparsedObject.formatVersion}; expected v6.`);
     }
     if (reparsedObject.itemAppearances.size !== itemAppearances.size) {
       throw new Error('Generated EOBJ item mapping is incomplete.');

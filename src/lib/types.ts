@@ -3,8 +3,8 @@
  * Standalone — no game dependencies.
  */
 
-export type ThingCategory = 'item' | 'outfit' | 'effect' | 'distance';
-export type LibraryCategory = ThingCategory | 'equipment' | 'hair';
+export type ThingCategory = 'item' | 'outfit' | 'equipment' | 'hair' | 'effect' | 'distance';
+export type LibraryCategory = ThingCategory;
 
 export interface FrameGroup {
   type: number;
@@ -99,15 +99,21 @@ export interface ObjectData {
   version: number;
   itemCount: number;
   outfitCount: number;
+  equipmentCount: number;
+  hairCount: number;
   effectCount: number;
   distanceCount: number;
-  /** Public item ID -> internal sequential appearance ID, embedded in EOBJ v2. */
+  /** Public item ID -> internal sequential appearance ID, embedded in EOBJ. */
   itemAppearances: Map<number, number>;
-  /** Public item ID -> compact slot/category metadata, embedded in EOBJ v4. */
+  /** Stable public outfit ID -> zero-based outfit appearance ID. */
+  outfitAppearances: Map<number, number>;
+  /** Public item ID -> compact slot/category metadata, embedded in EOBJ. */
   itemSlotTypes: Map<number, string>;
-  /** Public item ID -> worn outfit appearances, embedded in EOBJ v4. */
+  /** Public item ID -> zero-based equipment appearances, embedded in EOBJ. */
   equipmentAppearances: Map<number, EquipmentAppearance>;
-  /** Stable hair ID -> visual outfit and eligibility metadata, embedded in EOBJ v4. */
+  /** Stable visual equipment ID -> zero-based equipment appearance, without an item. */
+  visualEquipmentAppearances: Map<number, VisualEquipmentAppearance>;
+  /** Stable hair ID -> zero-based hair appearance and eligibility metadata. */
   hairDefinitions: Map<number, HairDefinition>;
   things: Map<number, ThingType>;
   /** The entire original file buffer for lossless round-trip */
@@ -118,6 +124,12 @@ export interface EquipmentAppearance {
   default?: number;
   left?: number;
   right?: number;
+}
+
+export interface VisualEquipmentAppearance {
+  visualId: number;
+  appearanceId: number;
+  name: string;
 }
 
 export interface SpriteData {
@@ -276,8 +288,8 @@ export function deriveGroup(f: ThingFlags): number {
 /** UI view of one equipment appearance variant embedded in EOBJ. */
 export interface EquipmentCatalogEntry {
   name: string;
-  id: number;
-  sprite_id: number;
+  itemId: number;
+  equipmentId: number;
 }
 
 /** Equipment slot filter keys used in the UI. */
@@ -467,8 +479,8 @@ export interface HairDefinition {
   hairId: number;
   /** Display name shown in UI and character creator. */
   name: string;
-  /** Outfit sprite ID used by the renderer for the hair layer. */
-  outfitId: number;
+  /** Zero-based appearance ID in the dedicated hair section. */
+  appearanceId: number;
   /** Bitmask of allowed races (HairRace flags). */
   races: number;
   /** Bitmask of allowed genders (HairGender flags). */

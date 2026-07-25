@@ -11,9 +11,10 @@
  *   0x10  4B  Reserved
  *   0x14  --  Payload
  *
- * Object definitions format v2:
- *   8B category counts, UInt32 mapping count, then repeated
- *   { UInt16 publicItemId, UInt16 appearanceId }, followed by object records.
+ * Object definitions format v6:
+ *   six category counts, public item/outfit mappings, compact item slot types,
+ *   item equipment bindings, direct visual equipment, hair definitions,
+ *   then object records.
  */
 
 export const EMPERIA_MAGIC = new Uint8Array([0x45, 0x4D, 0x50, 0x45, 0x52, 0x49, 0x41, 0x00]); // "EMPERIA\0"

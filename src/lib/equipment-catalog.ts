@@ -6,13 +6,13 @@ export function getEquipmentCatalogEntries(objectData: ObjectData | null): Equip
   return Array.from(objectData.equipmentAppearances.entries()).flatMap(([itemId, appearance]) => {
     const entries: EquipmentCatalogEntry[] = [];
     if (appearance.default != null) {
-      entries.push({ name: `item ${itemId}`, id: itemId, sprite_id: appearance.default });
+      entries.push({ name: `item ${itemId}`, itemId, equipmentId: appearance.default });
     }
     if (appearance.left != null) {
-      entries.push({ name: `item ${itemId} left-hand`, id: itemId, sprite_id: appearance.left });
+      entries.push({ name: `item ${itemId} left-hand`, itemId, equipmentId: appearance.left });
     }
     if (appearance.right != null) {
-      entries.push({ name: `item ${itemId} right-hand`, id: itemId, sprite_id: appearance.right });
+      entries.push({ name: `item ${itemId} right-hand`, itemId, equipmentId: appearance.right });
     }
     return entries;
   });

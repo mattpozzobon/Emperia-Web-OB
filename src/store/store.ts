@@ -81,7 +81,8 @@ export const useOBStore = create<OBState>((set, get) => ({
         remappedDefinitions = new Map();
         remappedAppearanceToItem = new Map();
         for (const [itemId, definition] of currentState.itemDefinitions) {
-          const appearanceId = objectData.itemAppearances.get(itemId) ?? itemId;
+          const appearanceId = objectData.itemAppearances.get(itemId);
+          if (appearanceId == null) continue;
           remappedDefinitions.set(itemId, { ...definition, appearanceId });
           if (!remappedAppearanceToItem.has(appearanceId) || itemId === appearanceId) {
             remappedAppearanceToItem.set(appearanceId, itemId);
@@ -108,7 +109,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         editVersion: 0,
         focusSpriteId: null,
         copiedThing: null,
-        // Preserve server definitions, but always use the catalogs embedded in
+        // Preserve public item definitions, but always use the catalogs embedded in
         // the EOBJ that was just opened.
         ...(currentState.definitionsLoaded
           ? { itemDefinitions: remappedDefinitions, appearanceToItemIds: remappedAppearanceToItem }
@@ -189,20 +190,8 @@ export const useOBStore = create<OBState>((set, get) => ({
   },
 
   setActiveLibrary: (cat) => {
-    if (cat === 'equipment' || cat === 'hair') {
-      const range = get().getCategoryRange('outfit');
-      set({
-        activeLibrary: cat,
-        activeCategory: 'outfit',
-        centerTab: cat,
-        selectedThingId: range ? range.start : null,
-        selectedThingIds: new Set(),
-        searchQuery: '',
-        filterGroup: -1,
-      });
-      return;
-    }
     get().setActiveCategory(cat);
+    if (cat === 'equipment' || cat === 'hair') set({ centerTab: cat });
   },
 
   setSelectedThingId: (id) => set({ selectedThingId: id, selectedThingIds: new Set() }),
@@ -296,11 +285,11 @@ export const useOBStore = create<OBState>((set, get) => ({
       const newDefs = new Map(itemDefinitions);
       let newAppearanceMap: Map<number, number> | undefined;
 
-      // Auto-create a server definition if this item doesn't have one yet
+      // Auto-create a public item definition if this appearance doesn't have one yet.
       if (itemId == null) {
         let maxItemId = 0;
-        for (const sid of itemDefinitions.keys()) {
-          if (sid > maxItemId) maxItemId = sid;
+        for (const existingItemId of itemDefinitions.keys()) {
+          if (existingItemId > maxItemId) maxItemId = existingItemId;
         }
         itemId = maxItemId + 1;
         newAppearanceMap = new Map(appearanceToItemIds);
@@ -358,12 +347,12 @@ export const useOBStore = create<OBState>((set, get) => ({
       // Sync OTB flags for items
       if (thing.category === 'item') {
         const { appearanceToItemIds } = get();
-        const sid = appearanceToItemIds.get(entry.thingId) ?? entry.thingId;
-        const existing = itemDefinitions.get(sid);
+        const itemId = appearanceToItemIds.get(entry.thingId) ?? entry.thingId;
+        const existing = itemDefinitions.get(itemId);
         const newDefs = new Map(itemDefinitions);
         const undoTopOrder = deriveTopOrder(entry.oldFlags);
-        newDefs.set(sid, {
-          itemId: sid,
+        newDefs.set(itemId, {
+          itemId,
           appearanceId: existing?.appearanceId ?? entry.thingId,
           flags: syncOtbFromVisual(existing?.flags ?? 0, entry.oldFlags),
           group: deriveGroup(entry.oldFlags),
@@ -397,12 +386,12 @@ export const useOBStore = create<OBState>((set, get) => ({
       // Sync OTB flags for items
       if (thing.category === 'item') {
         const { appearanceToItemIds } = get();
-        const sid = appearanceToItemIds.get(entry.thingId) ?? entry.thingId;
-        const existing = itemDefinitions.get(sid);
+        const itemId = appearanceToItemIds.get(entry.thingId) ?? entry.thingId;
+        const existing = itemDefinitions.get(itemId);
         const newDefs = new Map(itemDefinitions);
         const redoTopOrder = deriveTopOrder(entry.newFlags);
-        newDefs.set(sid, {
-          itemId: sid,
+        newDefs.set(itemId, {
+          itemId,
           appearanceId: existing?.appearanceId ?? entry.thingId,
           flags: syncOtbFromVisual(existing?.flags ?? 0, entry.newFlags),
           group: deriveGroup(entry.newFlags),
@@ -550,7 +539,7 @@ export const useOBStore = create<OBState>((set, get) => ({
     objectData.things.set(insertId, newThing);
     newDirtyIds.add(insertId);
 
-    // Auto-create a server definition for new items so the appearanceId matches the .eobj position
+    // Auto-create a public item definition so appearanceId matches the EOBJ position.
     const stateUpdate: Partial<OBState> = {
       dirty: true,
       dirtyIds: newDirtyIds,
@@ -560,13 +549,13 @@ export const useOBStore = create<OBState>((set, get) => ({
 
     if (cat === 'item' && get().definitionsLoaded) {
       const { itemDefinitions, appearanceToItemIds } = get();
-      // Always create a new server definition for new items.
+      // Always create a new public item definition for new items.
       // Even if appearanceMap already maps this appearanceId to an old itemId, the new .eobj
       // entry needs its own definition so the server can reference it correctly.
       // Allocate next available itemId (max existing + 1)
       let maxItemId = 0;
-      for (const sid of itemDefinitions.keys()) {
-        if (sid > maxItemId) maxItemId = sid;
+      for (const existingItemId of itemDefinitions.keys()) {
+        if (existingItemId > maxItemId) maxItemId = existingItemId;
       }
       const newItemId = maxItemId + 1;
 
@@ -607,13 +596,16 @@ export const useOBStore = create<OBState>((set, get) => ({
     const lastId = range.end;
     if (id !== lastId) return;
 
-    const oldTotal = objectData.itemCount + objectData.outfitCount + objectData.effectCount + objectData.distanceCount;
+    const oldTotal = objectData.itemCount + objectData.outfitCount + objectData.equipmentCount
+      + objectData.hairCount + objectData.effectCount + objectData.distanceCount;
 
     objectData.things.delete(id);
 
     switch (activeCategory) {
       case 'item': objectData.itemCount--; break;
       case 'outfit': objectData.outfitCount--; break;
+      case 'equipment': objectData.equipmentCount--; break;
+      case 'hair': objectData.hairCount--; break;
       case 'effect': objectData.effectCount--; break;
       case 'distance': objectData.distanceCount--; break;
     }
@@ -674,7 +666,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       editVersion: editVersion + 1,
     };
 
-    // Also clear the server definition properties for items
+    // Also clear public item definition properties.
     if (thing.category === 'item' && get().definitionsLoaded) {
       const { itemDefinitions, appearanceToItemIds } = get();
       const itemId = appearanceToItemIds.get(id);
@@ -722,12 +714,12 @@ export const useOBStore = create<OBState>((set, get) => ({
       editVersion: editVersion + 1,
     };
 
-    // Auto-create a server definition for imported items
+    // Auto-create a public item definition for imported items.
     if (cat === 'item' && get().definitionsLoaded) {
       const { itemDefinitions, appearanceToItemIds } = get();
       let maxItemId = 0;
-      for (const sid of itemDefinitions.keys()) {
-        if (sid > maxItemId) maxItemId = sid;
+      for (const existingItemId of itemDefinitions.keys()) {
+        if (existingItemId > maxItemId) maxItemId = existingItemId;
       }
       const newItemId = maxItemId + 1;
 
@@ -788,13 +780,13 @@ export const useOBStore = create<OBState>((set, get) => ({
       editVersion: editVersion + 1,
     };
 
-    // Ensure a server definition exists for replaced items
+    // Ensure a public item definition exists for replaced items.
     if (existing.category === 'item' && get().definitionsLoaded) {
       const { itemDefinitions, appearanceToItemIds } = get();
       if (!appearanceToItemIds.has(targetId)) {
         let maxItemId = 0;
-        for (const sid of itemDefinitions.keys()) {
-          if (sid > maxItemId) maxItemId = sid;
+        for (const existingItemId of itemDefinitions.keys()) {
+          if (existingItemId > maxItemId) maxItemId = existingItemId;
         }
         const newItemId = maxItemId + 1;
 
@@ -843,10 +835,26 @@ export const useOBStore = create<OBState>((set, get) => ({
         return { start: 100, end: od.itemCount };
       case 'outfit':
         return { start: od.itemCount + 1, end: od.itemCount + od.outfitCount };
+      case 'equipment':
+        return {
+          start: od.itemCount + od.outfitCount + 1,
+          end: od.itemCount + od.outfitCount + od.equipmentCount,
+        };
+      case 'hair':
+        return {
+          start: od.itemCount + od.outfitCount + od.equipmentCount + 1,
+          end: od.itemCount + od.outfitCount + od.equipmentCount + od.hairCount,
+        };
       case 'effect':
-        return { start: od.itemCount + od.outfitCount + 1, end: od.itemCount + od.outfitCount + od.effectCount };
+        return {
+          start: od.itemCount + od.outfitCount + od.equipmentCount + od.hairCount + 1,
+          end: od.itemCount + od.outfitCount + od.equipmentCount + od.hairCount + od.effectCount,
+        };
       case 'distance':
-        return { start: od.itemCount + od.outfitCount + od.effectCount + 1, end: od.itemCount + od.outfitCount + od.effectCount + od.distanceCount };
+        return {
+          start: od.itemCount + od.outfitCount + od.equipmentCount + od.hairCount + od.effectCount + 1,
+          end: od.itemCount + od.outfitCount + od.equipmentCount + od.hairCount + od.effectCount + od.distanceCount,
+        };
     }
   },
 

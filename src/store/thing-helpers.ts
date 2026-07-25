@@ -90,7 +90,7 @@ export function remapSpriteIds(
  * Returns { insertId, dirtyIds } with the new thing's ID and updated dirty set.
  */
 export function allocateThingId(od: ObjectData, cat: ThingCategory, dirtyIds: Set<number>): { insertId: number; dirtyIds: Set<number> } {
-  const oldTotal = od.itemCount + od.outfitCount + od.effectCount + od.distanceCount;
+  const oldTotal = od.itemCount + od.outfitCount + od.equipmentCount + od.hairCount + od.effectCount + od.distanceCount;
   let insertId: number;
   let shiftFrom: number;
 
@@ -105,14 +105,24 @@ export function allocateThingId(od: ObjectData, cat: ThingCategory, dirtyIds: Se
       insertId = od.itemCount + od.outfitCount;
       shiftFrom = insertId;
       break;
+    case 'equipment':
+      od.equipmentCount++;
+      insertId = od.itemCount + od.outfitCount + od.equipmentCount;
+      shiftFrom = insertId;
+      break;
+    case 'hair':
+      od.hairCount++;
+      insertId = od.itemCount + od.outfitCount + od.equipmentCount + od.hairCount;
+      shiftFrom = insertId;
+      break;
     case 'effect':
       od.effectCount++;
-      insertId = od.itemCount + od.outfitCount + od.effectCount;
+      insertId = od.itemCount + od.outfitCount + od.equipmentCount + od.hairCount + od.effectCount;
       shiftFrom = insertId;
       break;
     case 'distance':
       od.distanceCount++;
-      insertId = od.itemCount + od.outfitCount + od.effectCount + od.distanceCount;
+      insertId = od.itemCount + od.outfitCount + od.equipmentCount + od.hairCount + od.effectCount + od.distanceCount;
       shiftFrom = insertId + 1; // last category, nothing to shift
       break;
   }

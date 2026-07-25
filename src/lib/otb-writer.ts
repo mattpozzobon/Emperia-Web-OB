@@ -2,7 +2,9 @@
  * Generates an items.otb binary file from the server's item definitions.
  *
  * The OTB format is a node-based binary tree used by the map editor (RME)
- * to map server IDs → client IDs with item group and flag metadata.
+ * to map public item IDs to appearance IDs with item group and flag metadata.
+ * OTB calls those fields SERVERID and CLIENTID; those names belong to the
+ * external file format and are not Emperia runtime identifiers.
  *
  * Format overview:
  *   - 4-byte identifier (zeroes for "OTBI")
@@ -139,14 +141,14 @@ function buildRootNodeData(): Uint8Array {
  *
  * Strategy:
  *  1. Emit all definitions from itemDefinitions (keyed by itemId).
- *  2. For every client ID in 100…objectData.itemCount that was NOT
+ *  2. For every appearance ID in 100…objectData.itemCount that was NOT
  *     already covered by a definition, emit a passthrough entry
  *     (itemId = appearanceId, group = 0, flags = 0).
  *
  * This guarantees every .eobj item has an OTB entry and every
- * server-side item definition is present — with zero duplicates.
+ * public item definition is present — with zero duplicates.
  *
- * @param itemDefinitions Map of server ID → ItemDefinition
+ * @param itemDefinitions Map of public item ID to ItemDefinition
  * @param objectData      The loaded .eobj data (provides total item count)
  * @returns ArrayBuffer containing the OTB file
  */
@@ -167,7 +169,7 @@ export function compileItemsOtb(
   const coveredAppearanceIds = new Set<number>();
   const emittedItemIds = new Set<number>();
 
-  // Collect all definitions sorted by server ID
+  // Collect all definitions sorted by public item ID.
   const sortedDefs = Array.from(itemDefinitions.values())
     .filter((d) => d.group !== 14) // skip deprecated
     .sort((a, b) => a.itemId - b.itemId);
@@ -187,7 +189,7 @@ export function compileItemsOtb(
     emittedItemIds.add(def.itemId);
   }
 
-  // Phase 2: Fill passthrough entries for client IDs not already covered
+  // Phase 2: Fill passthrough entries for appearance IDs not already covered.
   const maxAppearanceId = 99 + objectData.itemCount; // items start at 100
   for (let appearanceId = 100; appearanceId <= maxAppearanceId; appearanceId++) {
     if (coveredAppearanceIds.has(appearanceId)) continue;

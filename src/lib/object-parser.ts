@@ -13,6 +13,21 @@ const LEGACY_SIGNATURES: Record<string, number> = {
   "42A3": 1098,
 };
 
+const LEGACY_VISUAL_EQUIPMENT = [
+  [800, 'Belt Health Potion'],
+  [801, 'Belt Mana Potion'],
+  [802, 'Belt Stamina Potion'],
+  [803, 'Belt Pouch'],
+  [919, 'Sword'],
+  [936, 'Sword'],
+  [949, 'Apron'],
+  [950, 'Shirt'],
+  [951, 'Cook Hat'],
+  [953, 'Red Skull'],
+  [954, 'White Skull'],
+  [960, 'Prisoner Outfit'],
+] as const;
+
 const ATTR = {
   ThingAttrGround: 0,
   ThingAttrGroundBorder: 1,
@@ -281,6 +296,8 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
 
   const itemCount = packet.readUInt16();
   const outfitCount = packet.readUInt16();
+  const equipmentCount = formatVersion >= 5 ? packet.readUInt16() : 0;
+  const hairCount = formatVersion >= 5 ? packet.readUInt16() : 0;
   const effectCount = packet.readUInt16();
   const distanceCount = packet.readUInt16();
   const itemAppearances = new Map<number, number>();
@@ -288,6 +305,13 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
     const mappingCount = packet.readUInt32();
     for (let index = 0; index < mappingCount; index++) {
       itemAppearances.set(packet.readUInt16(), packet.readUInt16());
+    }
+  }
+  const outfitAppearances = new Map<number, number>();
+  if (formatVersion >= 5) {
+    const mappingCount = packet.readUInt32();
+    for (let index = 0; index < mappingCount; index++) {
+      outfitAppearances.set(packet.readUInt16(), packet.readUInt16());
     }
   }
   const itemSlotTypes = new Map<number, string>();
@@ -298,6 +322,7 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
     }
   }
   const equipmentAppearances = new Map<number, import('./types').EquipmentAppearance>();
+  const visualEquipmentAppearances = new Map<number, import('./types').VisualEquipmentAppearance>();
   const hairDefinitions = new Map<number, import('./types').HairDefinition>();
   if (formatVersion >= 4) {
     const equipmentCount = packet.readUInt32();
@@ -311,12 +336,24 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
       equipmentAppearances.set(itemId, appearance);
     }
 
-    const hairCount = packet.readUInt16();
-    for (let index = 0; index < hairCount; index++) {
+    if (formatVersion >= 6) {
+      const visualCount = packet.readUInt16();
+      for (let index = 0; index < visualCount; index++) {
+        const visualId = packet.readUInt16();
+        visualEquipmentAppearances.set(visualId, {
+          visualId,
+          appearanceId: packet.readUInt16(),
+          name: packet.readString(),
+        });
+      }
+    }
+
+    const definitionCount = packet.readUInt16();
+    for (let index = 0; index < definitionCount; index++) {
       const hairId = packet.readUInt16();
       hairDefinitions.set(hairId, {
         hairId,
-        outfitId: packet.readUInt16(),
+        appearanceId: packet.readUInt16(),
         races: packet.readUInt8(),
         genders: packet.readUInt8(),
         tiers: packet.readUInt8(),
@@ -325,7 +362,7 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
       });
     }
   }
-  const totalCount = itemCount + outfitCount + effectCount + distanceCount;
+  const totalCount = itemCount + outfitCount + equipmentCount + hairCount + effectCount + distanceCount;
 
   const things = new Map<number, ThingType>();
 
@@ -334,8 +371,12 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
 
     const flags = readFlags(packet, version);
 
-    const isOutfit = id > itemCount && id <= itemCount + outfitCount;
-    const hasFrameGroups = version >= 1050 && isOutfit;
+    const outfitEnd = itemCount + outfitCount;
+    const equipmentEnd = outfitEnd + equipmentCount;
+    const hairEnd = equipmentEnd + hairCount;
+    const effectEnd = hairEnd + effectCount;
+    const isLayeredAppearance = id > itemCount && id <= hairEnd;
+    const hasFrameGroups = version >= 1050 && isLayeredAppearance;
     const groupCount = hasFrameGroups ? packet.readUInt8() : 1;
 
     const frameGroups: FrameGroup[] = [];
@@ -348,25 +389,196 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
 
     let category: ThingCategory;
     if (id <= itemCount) category = 'item';
-    else if (id <= itemCount + outfitCount) category = 'outfit';
-    else if (id <= itemCount + outfitCount + effectCount) category = 'effect';
+    else if (id <= outfitEnd) category = 'outfit';
+    else if (id <= equipmentEnd) category = 'equipment';
+    else if (id <= hairEnd) category = 'hair';
+    else if (id <= effectEnd) category = 'effect';
     else category = 'distance';
 
     things.set(id, { id, category, flags, frameGroups, rawBytes });
   }
 
-  return {
+  const parsed: ObjectData = {
     formatVersion,
     version,
     itemCount,
     outfitCount,
+    equipmentCount,
+    hairCount,
     effectCount,
     distanceCount,
     itemAppearances,
+    outfitAppearances,
     itemSlotTypes,
     equipmentAppearances,
+    visualEquipmentAppearances,
     hairDefinitions,
     things,
     originalBuffer: buffer,
+  };
+
+  if (formatVersion >= 6) return parsed;
+  if (formatVersion === 5) return migrateVisualEquipment(parsed);
+
+  // EOBJ v4 stored equipment and hair visuals inside the outfit section.
+  // Convert that layout in memory so every subsequent compile emits v5.
+  const equipmentOutfitIds = Array.from(new Set(
+    Array.from(equipmentAppearances.values()).flatMap((appearance) =>
+      [appearance.default, appearance.left, appearance.right].filter((id): id is number => id != null),
+    ),
+  )).sort((a, b) => a - b);
+  const hairOutfitIds = Array.from(new Set(
+    Array.from(hairDefinitions.values()).map((hair) => hair.appearanceId),
+  )).sort((a, b) => a - b);
+  const extracted = new Set([...equipmentOutfitIds, ...hairOutfitIds]);
+  const retainedOutfitIds = Array.from({ length: outfitCount }, (_, index) => index + 1)
+    .filter((id) => !extracted.has(id));
+  const equipmentIdByOldOutfit = new Map(equipmentOutfitIds.map((id, index) => [id, index]));
+  const hairIdByOldOutfit = new Map(hairOutfitIds.map((id, index) => [id, index]));
+  const migratedThings = new Map<number, ThingType>();
+  for (let id = 100; id <= itemCount; id++) {
+    const thing = things.get(id);
+    if (thing) migratedThings.set(id, { ...thing, id, category: 'item' });
+  }
+  let nextId = itemCount + 1;
+  const copyOutfit = (oldOutfitId: number, category: ThingCategory) => {
+    if (oldOutfitId === 0) {
+      const templateId = hairOutfitIds.find((id) => id > 0) ?? equipmentOutfitIds[0];
+      const template = templateId == null ? undefined : things.get(itemCount + templateId);
+      if (!template) throw new Error('EOBJ v4 has no layered appearance available for the empty hair entry.');
+      migratedThings.set(nextId, {
+        ...template,
+        id: nextId,
+        category,
+        rawBytes: undefined,
+        frameGroups: template.frameGroups.map((group) => ({
+          ...group,
+          sprites: group.sprites.map(() => 0),
+          animationLengths: group.animationLengths.map((duration) => ({ ...duration })),
+        })),
+      });
+      nextId++;
+      return;
+    }
+    const source = things.get(itemCount + oldOutfitId);
+    if (!source) throw new Error(`EOBJ v4 references missing outfit appearance ${oldOutfitId}.`);
+    migratedThings.set(nextId, { ...source, id: nextId, category });
+    nextId++;
+  };
+  retainedOutfitIds.forEach((id, index) => {
+    outfitAppearances.set(id, index);
+    copyOutfit(id, 'outfit');
+  });
+  equipmentOutfitIds.forEach((id) => copyOutfit(id, 'equipment'));
+  hairOutfitIds.forEach((id) => copyOutfit(id, 'hair'));
+  for (let index = 1; index <= effectCount; index++) {
+    const source = things.get(itemCount + outfitCount + index);
+    if (source) migratedThings.set(nextId, { ...source, id: nextId, category: 'effect' });
+    nextId++;
+  }
+  for (let index = 1; index <= distanceCount; index++) {
+    const source = things.get(itemCount + outfitCount + effectCount + index);
+    if (source) migratedThings.set(nextId, { ...source, id: nextId, category: 'distance' });
+    nextId++;
+  }
+  for (const appearance of equipmentAppearances.values()) {
+    if (appearance.default != null) appearance.default = equipmentIdByOldOutfit.get(appearance.default);
+    if (appearance.left != null) appearance.left = equipmentIdByOldOutfit.get(appearance.left);
+    if (appearance.right != null) appearance.right = equipmentIdByOldOutfit.get(appearance.right);
+  }
+  for (const hair of hairDefinitions.values()) {
+    const migratedId = hairIdByOldOutfit.get(hair.appearanceId);
+    if (migratedId == null) throw new Error(`Could not migrate hair ${hair.hairId} appearance.`);
+    hair.appearanceId = migratedId;
+  }
+
+  return migrateVisualEquipment({
+    ...parsed,
+    formatVersion: 5,
+    outfitCount: retainedOutfitIds.length,
+    equipmentCount: equipmentOutfitIds.length,
+    hairCount: hairOutfitIds.length,
+    things: migratedThings,
+  });
+}
+
+function migrateVisualEquipment(data: ObjectData): ObjectData {
+  const migrated: Array<{ visualId: number; name: string; outfitAppearanceId: number }> = LEGACY_VISUAL_EQUIPMENT
+    .flatMap(([visualId, name]) => {
+      const outfitAppearanceId = data.outfitAppearances.get(visualId);
+      return outfitAppearanceId == null ? [] : [{ visualId, name, outfitAppearanceId }];
+    })
+    .sort((a, b) => a.outfitAppearanceId - b.outfitAppearanceId);
+
+  if (migrated.length === 0) {
+    return { ...data, formatVersion: 6 };
+  }
+
+  const movedOutfitAppearances = new Set(migrated.map((entry) => entry.outfitAppearanceId));
+  const retainedOutfitAppearances = Array.from({ length: data.outfitCount }, (_, index) => index)
+    .filter((appearanceId) => !movedOutfitAppearances.has(appearanceId));
+  const newOutfitAppearanceByOld = new Map(
+    retainedOutfitAppearances.map((oldAppearanceId, newAppearanceId) => [oldAppearanceId, newAppearanceId]),
+  );
+  const things = new Map<number, ThingType>();
+  for (let id = 100; id <= data.itemCount; id++) {
+    const thing = data.things.get(id);
+    if (thing) things.set(id, { ...thing, id, category: 'item' });
+  }
+
+  let nextId = data.itemCount + 1;
+  const copyLocalAppearance = (
+    category: ThingCategory,
+    localAppearanceId: number,
+    categoryStart: number,
+  ) => {
+    const source = data.things.get(categoryStart + localAppearanceId);
+    if (!source) throw new Error(`Missing ${category} appearance ${localAppearanceId} during EOBJ v6 migration.`);
+    things.set(nextId, { ...source, id: nextId, category });
+    nextId++;
+  };
+
+  const outfitStart = data.itemCount + 1;
+  const equipmentStart = outfitStart + data.outfitCount;
+  const hairStart = equipmentStart + data.equipmentCount;
+  const effectStart = hairStart + data.hairCount;
+  const distanceStart = effectStart + data.effectCount;
+
+  retainedOutfitAppearances.forEach((appearanceId) => copyLocalAppearance('outfit', appearanceId, outfitStart));
+  for (let appearanceId = 0; appearanceId < data.equipmentCount; appearanceId++) {
+    copyLocalAppearance('equipment', appearanceId, equipmentStart);
+  }
+
+  const visualEquipmentAppearances = new Map(data.visualEquipmentAppearances);
+  migrated.forEach(({ visualId, name, outfitAppearanceId }, index) => {
+    const appearanceId = data.equipmentCount + index;
+    copyLocalAppearance('equipment', outfitAppearanceId, outfitStart);
+    visualEquipmentAppearances.set(visualId, { visualId, appearanceId, name });
+  });
+
+  for (let appearanceId = 0; appearanceId < data.hairCount; appearanceId++) {
+    copyLocalAppearance('hair', appearanceId, hairStart);
+  }
+  for (let appearanceId = 0; appearanceId < data.effectCount; appearanceId++) {
+    copyLocalAppearance('effect', appearanceId, effectStart);
+  }
+  for (let appearanceId = 0; appearanceId < data.distanceCount; appearanceId++) {
+    copyLocalAppearance('distance', appearanceId, distanceStart);
+  }
+
+  const outfitAppearances = new Map<number, number>();
+  for (const [outfitId, oldAppearanceId] of data.outfitAppearances) {
+    const appearanceId = newOutfitAppearanceByOld.get(oldAppearanceId);
+    if (appearanceId != null) outfitAppearances.set(outfitId, appearanceId);
+  }
+
+  return {
+    ...data,
+    formatVersion: 6,
+    outfitCount: retainedOutfitAppearances.length,
+    equipmentCount: data.equipmentCount + migrated.length,
+    outfitAppearances,
+    visualEquipmentAppearances,
+    things,
   };
 }

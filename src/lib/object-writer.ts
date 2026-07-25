@@ -7,7 +7,7 @@ import { EMPERIA_MAGIC, EmperiaFileType } from './emperia-format';
 import type { ObjectData, ThingFlags, FrameGroup, EquipmentAppearance, HairDefinition } from './types';
 import { encodeItemSlotType } from './item-slot-types';
 
-const EOBJ_FORMAT_VERSION = 4;
+const EOBJ_FORMAT_VERSION = 6;
 
 const ATTR = {
   ThingAttrGround: 0,
@@ -224,6 +224,8 @@ export function compileObjectData(
   w.writeUInt32(0);
   w.writeUInt16(data.itemCount);
   w.writeUInt16(data.outfitCount);
+  w.writeUInt16(data.equipmentCount);
+  w.writeUInt16(data.hairCount);
   w.writeUInt16(data.effectCount);
   w.writeUInt16(data.distanceCount);
 
@@ -237,6 +239,19 @@ export function compileObjectData(
       throw new Error(`Item ${itemId} references invalid EOBJ appearance ${appearanceId}`);
     }
     w.writeUInt16(itemId);
+    w.writeUInt16(appearanceId);
+  }
+
+  const outfitMappings = Array.from(data.outfitAppearances.entries()).sort(([a], [b]) => a - b);
+  w.writeUInt32(outfitMappings.length);
+  for (const [outfitId, appearanceId] of outfitMappings) {
+    if (!Number.isInteger(outfitId) || outfitId <= 0 || outfitId > 0xFFFF) {
+      throw new Error(`Public outfit ID ${outfitId} is outside the UInt16 protocol range`);
+    }
+    if (!Number.isInteger(appearanceId) || appearanceId < 0 || appearanceId >= data.outfitCount) {
+      throw new Error(`Outfit ${outfitId} references invalid local appearance ${appearanceId}`);
+    }
+    w.writeUInt16(outfitId);
     w.writeUInt16(appearanceId);
   }
 
@@ -257,15 +272,40 @@ export function compileObjectData(
       throw new Error(`Equipment item ID ${itemId} is outside the UInt16 protocol range`);
     }
     let mask = 0;
-    if (appearance.default) mask |= 0x01;
-    if (appearance.left) mask |= 0x02;
-    if (appearance.right) mask |= 0x04;
+    if (appearance.default != null) mask |= 0x01;
+    if (appearance.left != null) mask |= 0x02;
+    if (appearance.right != null) mask |= 0x04;
     if (mask === 0) throw new Error(`Equipment item ${itemId} has no worn appearance`);
     w.writeUInt16(itemId);
     w.writeUInt8(mask);
-    if (appearance.default) w.writeUInt16(appearance.default);
-    if (appearance.left) w.writeUInt16(appearance.left);
-    if (appearance.right) w.writeUInt16(appearance.right);
+    if (appearance.default != null) {
+      if (appearance.default < 0 || appearance.default >= data.equipmentCount) throw new Error(`Equipment item ${itemId} references invalid appearance ${appearance.default}`);
+      w.writeUInt16(appearance.default);
+    }
+    if (appearance.left != null) {
+      if (appearance.left < 0 || appearance.left >= data.equipmentCount) throw new Error(`Equipment item ${itemId} references invalid left appearance ${appearance.left}`);
+      w.writeUInt16(appearance.left);
+    }
+    if (appearance.right != null) {
+      if (appearance.right < 0 || appearance.right >= data.equipmentCount) throw new Error(`Equipment item ${itemId} references invalid right appearance ${appearance.right}`);
+      w.writeUInt16(appearance.right);
+    }
+  }
+
+  const visualEquipment = Array.from(data.visualEquipmentAppearances.values())
+    .sort((a, b) => a.visualId - b.visualId);
+  if (visualEquipment.length > 0xFFFF) throw new Error('Visual equipment catalog exceeds the UInt16 entry limit');
+  w.writeUInt16(visualEquipment.length);
+  for (const visual of visualEquipment) {
+    if (!Number.isInteger(visual.visualId) || visual.visualId <= 0 || visual.visualId > 0xFFFF) {
+      throw new Error(`Visual equipment ID ${visual.visualId} is outside the UInt16 protocol range`);
+    }
+    if (!Number.isInteger(visual.appearanceId) || visual.appearanceId < 0 || visual.appearanceId >= data.equipmentCount) {
+      throw new Error(`Visual equipment ${visual.visualId} references invalid appearance ${visual.appearanceId}`);
+    }
+    w.writeUInt16(visual.visualId);
+    w.writeUInt16(visual.appearanceId);
+    w.writeString(visual.name);
   }
 
   const hairs = Array.from(hairDefinitions.values()).sort((a, b) => a.hairId - b.hairId);
@@ -273,7 +313,10 @@ export function compileObjectData(
   w.writeUInt16(hairs.length);
   for (const hair of hairs) {
     w.writeUInt16(hair.hairId);
-    w.writeUInt16(hair.outfitId);
+    if (hair.appearanceId < 0 || hair.appearanceId >= data.hairCount) {
+      throw new Error(`Hair ${hair.hairId} references invalid appearance ${hair.appearanceId}`);
+    }
+    w.writeUInt16(hair.appearanceId);
     w.writeUInt8(hair.races);
     w.writeUInt8(hair.genders);
     w.writeUInt8(hair.tiers);
@@ -281,7 +324,8 @@ export function compileObjectData(
     w.writeString(hair.name);
   }
 
-  const totalCount = data.itemCount + data.outfitCount + data.effectCount + data.distanceCount;
+  const totalCount = data.itemCount + data.outfitCount + data.equipmentCount
+    + data.hairCount + data.effectCount + data.distanceCount;
 
   for (let id = 100; id <= totalCount; id++) {
     const thing = data.things.get(id);
@@ -307,8 +351,8 @@ export function compileObjectData(
     // Re-serialize from parsed data for edited things
     writeFlags(w, thing.flags, data.version);
 
-    const isOutfit = thing.category === 'outfit';
-    const hasFrameGroups = data.version >= 1050 && isOutfit;
+    const isLayeredAppearance = thing.category === 'outfit' || thing.category === 'equipment' || thing.category === 'hair';
+    const hasFrameGroups = data.version >= 1050 && isLayeredAppearance;
 
     if (hasFrameGroups) {
       w.writeUInt8(thing.frameGroups.length);
