@@ -5,16 +5,6 @@ import type { ObjectData, SpriteData, ThingType, ThingCategory, LibraryCategory,
 import type { OutfitDefinition } from './outfit-slice';
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 
-/** A user-configured extra output directory that receives copies of compiled files. */
-export interface OutputDir {
-  /** User-provided label (e.g. "Client", "Map Editor", "Server") */
-  label: string;
-  /** Directory handle with readwrite permission */
-  handle: FileSystemDirectoryHandle;
-  /** If set, only copy files whose names are in this list. Empty/undefined = all files. */
-  files?: string[];
-}
-
 export interface UndoEntry {
   thingId: number;
   oldFlags: ThingFlags;
@@ -81,9 +71,6 @@ export interface OBState {
     def?: FileSystemFileHandle | null;
   };
 
-  /** Extra directories that receive copies of all compiled files */
-  outputDirs: OutputDir[];
-
   // UI state
   centerTab: 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits';
   activeCategory: ThingCategory;
@@ -132,9 +119,6 @@ export interface OBState {
   loadDefinitions: (json: Record<string, Partial<ItemDefinition> & { id?: number }>) => void;
   setSourceDir: (dir: FileSystemDirectoryHandle, names: OBState['sourceNames']) => void;
   setSourceHandles: (handles: Partial<OBState['sourceHandles']>) => void;
-  addOutputDir: (label: string, handle: FileSystemDirectoryHandle, files?: string[]) => void;
-  removeOutputDir: (index: number) => void;
-  setOutputDirs: (dirs: OutputDir[]) => void;
   setCenterTab: (tab: OBState['centerTab']) => void;
   setActiveCategory: (cat: ThingCategory) => void;
   setActiveLibrary: (cat: LibraryCategory) => void;

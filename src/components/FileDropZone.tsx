@@ -6,7 +6,6 @@ import {
   loadLastDirHandle,
   saveSessionHandles,
   loadSessionHandles,
-  loadOutputDirs,
   verifyPermission,
   type SessionHandles,
 } from '../lib/dir-handle-store';
@@ -18,7 +17,6 @@ export function FileDropZone() {
   const loadDefinitions = useOBStore((s) => s.loadDefinitions);
   const setSourceDir = useOBStore((s) => s.setSourceDir);
   const setSourceHandles = useOBStore((s) => s.setSourceHandles);
-  const setOutputDirs = useOBStore((s) => s.setOutputDirs);
   const objRef = useRef<ArrayBuffer | null>(null);
   const sprRef = useRef<ArrayBuffer | null>(null);
 
@@ -40,26 +38,12 @@ export function FileDropZone() {
     });
   }, []);
 
-  // Restore persisted output dirs on mount
-  useEffect(() => {
-    loadOutputDirs().then(async (dirs) => {
-      if (dirs.length === 0) return;
-      const valid = [];
-      for (const d of dirs) {
-        if (await verifyPermission(d.handle, 'readwrite').catch(() => false)) {
-          valid.push(d);
-        }
-      }
-      if (valid.length > 0) setOutputDirs(valid);
-    });
-  }, [setOutputDirs]);
-
   // Helper: persist session handles to IndexedDB after a successful load
   const persistSession = useCallback((handles: SessionHandles) => {
     saveSessionHandles(handles);
   }, []);
 
-  const tryAutoLoad = useCallback(() => {
+  const tryAutoLoad = useCallback(async () => {
     if (!objRef.current || !sprRef.current) return;
     let definitions: unknown = null;
     if (pendingJsonRef.current) {
@@ -71,7 +55,7 @@ export function FileDropZone() {
       }
       pendingJsonRef.current = null;
     }
-    loadFiles(objRef.current, sprRef.current);
+    await loadFiles(objRef.current, sprRef.current);
     if (definitions) loadDefinitions(definitions as Record<string, any>);
 
     // Persist whatever handles we collected so far
@@ -123,7 +107,7 @@ export function FileDropZone() {
       lastDirRef.current = dirHandle;
       saveLastDirHandle(dirHandle);
 
-      tryAutoLoad();
+      await tryAutoLoad();
     } catch { /* user cancelled */ }
   }, [tryAutoLoad, setSourceDir]);
 
@@ -171,7 +155,7 @@ export function FileDropZone() {
 
     // EOBJ owns the public ID -> appearance mapping, so it must be loaded
     // before public item definitions can be associated with appearances.
-    loadFiles(objBuf, sprBuf);
+    await loadFiles(objBuf, sprBuf);
     if (defBuf) {
       try {
         const text = new TextDecoder().decode(defBuf);
@@ -217,7 +201,7 @@ export function FileDropZone() {
                 className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emperia-accent/10 border border-emperia-accent/30 text-emperia-accent hover:bg-emperia-accent/20 transition-colors text-sm font-medium"
               >
                 <FolderOpen className="w-4 h-4" />
-                Open Folder
+                Open Asset Package
               </button>
               {hasSavedSession && (
                 <button
@@ -230,7 +214,7 @@ export function FileDropZone() {
               )}
             </div>
             <p className="text-emperia-muted/50 text-[10px] text-center">
-              Auto-detects files &amp; saves directly back on compile
+              Opens one canonical package and saves every compiled artifact together
             </p>
             {reloadError && (
               <p className="text-red-400 text-[10px] text-center">{reloadError}</p>

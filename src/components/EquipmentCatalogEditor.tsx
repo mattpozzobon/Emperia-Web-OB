@@ -157,8 +157,8 @@ function renderOutfitThumb(
 /**
  * Convert a zero-based equipment appearance ID to the internal thing ID.
  */
-function equipmentIdToInternal(objectData: ObjectData, equipmentId: number): number {
-  return objectData.itemCount + objectData.outfitCount + 1 + equipmentId;
+function equipmentAppearanceIdToInternal(objectData: ObjectData, equipmentAppearanceId: number): number {
+  return objectData.itemCount + objectData.outfitCount + 1 + equipmentAppearanceId;
 }
 
 // ─── Outfit Sprite Picker Modal ──────────────────────────────────────────────
@@ -167,7 +167,7 @@ function OutfitSpritePicker({
   onSelect,
   onClose,
 }: {
-  onSelect: (equipmentId: number) => void;
+  onSelect: (equipmentAppearanceId: number) => void;
   onClose: () => void;
 }) {
   const objectData = useOBStore((s) => s.objectData);
@@ -281,7 +281,7 @@ function OutfitSpritePicker({
  * Renders a composite outfit thumbnail for an EOBJ equipment outfit ID.
  * Handles multi-tile outfits with outfit mask coloring.
  */
-function OutfitThumbnail({ outfitDisplayId, size = 32, direction = 2 }: { outfitDisplayId: number; size?: number; direction?: number }) {
+function OutfitThumbnail({ equipmentAppearanceId, size = 32, direction = 2 }: { equipmentAppearanceId: number; size?: number; direction?: number }) {
   const objectData = useOBStore((s) => s.objectData);
   const spriteData = useOBStore((s) => s.spriteData);
   const spriteOverrides = useOBStore((s) => s.spriteOverrides);
@@ -290,7 +290,7 @@ function OutfitThumbnail({ outfitDisplayId, size = 32, direction = 2 }: { outfit
   // Clear cache when edits happen
   useEffect(() => { clearOutfitThumbCache(); }, [editVersion]);
 
-  if (!objectData || !spriteData || outfitDisplayId < 0) {
+  if (!objectData || !spriteData || equipmentAppearanceId < 0) {
     return (
       <div
         className="checkerboard rounded border border-emperia-border/50 flex items-center justify-center text-emperia-muted/30 text-[9px]"
@@ -301,13 +301,13 @@ function OutfitThumbnail({ outfitDisplayId, size = 32, direction = 2 }: { outfit
     );
   }
 
-  const internalId = equipmentIdToInternal(objectData, outfitDisplayId);
+  const internalId = equipmentAppearanceIdToInternal(objectData, equipmentAppearanceId);
   const url = renderOutfitThumb(objectData, spriteData, spriteOverrides, internalId, direction);
 
   return (
     <div className="checkerboard rounded border border-emperia-border/50 overflow-hidden flex items-center justify-center" style={{ width: size, height: size }}>
       {url ? (
-        <img src={url} alt={`equipment#${outfitDisplayId}`} className="pixelated max-w-full max-h-full" style={{ imageRendering: 'pixelated' }} draggable={false} />
+        <img src={url} alt={`equipment#${equipmentAppearanceId}`} className="pixelated max-w-full max-h-full" style={{ imageRendering: 'pixelated' }} draggable={false} />
       ) : (
         <div className="flex items-center justify-center text-emperia-muted/30 text-[9px]" style={{ width: size, height: size }}>?</div>
       )}
@@ -376,14 +376,14 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
 function AddEntryForm({ onAdd, onCancel }: { onAdd: (entry: EquipmentCatalogEntry) => void; onCancel: () => void }) {
   const [name, setName] = useState('');
   const [itemId, setItemId] = useState('');
-  const [spriteId, setSpriteId] = useState('');
+  const [equipmentAppearanceId, setEquipmentAppearanceId] = useState('');
   const [showPicker, setShowPicker] = useState(false);
 
   const handleSubmit = () => {
     const parsedItemId = parseInt(itemId, 10);
-    const equipmentId = parseInt(spriteId, 10);
-    if (!name.trim() || isNaN(parsedItemId) || isNaN(equipmentId)) return;
-    onAdd({ name: name.trim(), itemId: parsedItemId, equipmentId });
+    const parsedEquipmentAppearanceId = parseInt(equipmentAppearanceId, 10);
+    if (!name.trim() || isNaN(parsedItemId) || isNaN(parsedEquipmentAppearanceId)) return;
+    onAdd({ name: name.trim(), itemId: parsedItemId, equipmentAppearanceId: parsedEquipmentAppearanceId });
   };
 
   return (
@@ -405,9 +405,9 @@ function AddEntryForm({ onAdd, onCancel }: { onAdd: (entry: EquipmentCatalogEntr
       <div className="flex items-center gap-1">
         <input
           type="number"
-          value={spriteId}
-          onChange={(e) => setSpriteId(e.target.value)}
-          placeholder="Sprite ID"
+          value={equipmentAppearanceId}
+          onChange={(e) => setEquipmentAppearanceId(e.target.value)}
+          placeholder="Equipment ID"
           className="w-20 bg-emperia-bg border border-emperia-border rounded px-2 py-1 text-xs text-emperia-text"
         />
         <button
@@ -429,7 +429,7 @@ function AddEntryForm({ onAdd, onCancel }: { onAdd: (entry: EquipmentCatalogEntr
       </button>
       {showPicker && (
         <OutfitSpritePicker
-          onSelect={(displayId) => { setSpriteId(displayId.toString()); setShowPicker(false); }}
+          onSelect={(displayId) => { setEquipmentAppearanceId(displayId.toString()); setShowPicker(false); }}
           onClose={() => setShowPicker(false)}
         />
       )}
@@ -473,7 +473,7 @@ function EntryRow({
     <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-emperia-hover/50 group border-b border-emperia-border/30">
       {/* Item + Outfit sprite preview */}
       <ItemThumbnail itemId={entry.itemId} size={40} />
-      <OutfitThumbnail outfitDisplayId={entry.equipmentId} size={40} />
+      <OutfitThumbnail equipmentAppearanceId={entry.equipmentAppearanceId} size={40} />
 
       {/* Name */}
       <div className="flex-1 min-w-0">
@@ -534,7 +534,7 @@ function EntryRow({
       {/* Sprite ID + change button */}
       <div className="flex items-center gap-1 shrink-0">
         <span className="text-[10px] text-cyan-400 font-mono w-12 text-right" title="Outfit Sprite ID">
-          {entry.equipmentId}
+          {entry.equipmentAppearanceId}
         </span>
         <button
           onClick={() => setShowPicker(true)}
@@ -556,7 +556,7 @@ function EntryRow({
       {showPicker && (
         <OutfitSpritePicker
           onSelect={(displayId) => {
-            onUpdate(index, { ...entry, equipmentId: displayId });
+            onUpdate(index, { ...entry, equipmentAppearanceId: displayId });
             setShowPicker(false);
           }}
           onClose={() => setShowPicker(false)}
@@ -605,8 +605,8 @@ function WeaponGroupRow({
           <span className="text-[9px] text-emperia-muted w-8">Left</span>
           {group.leftEntry ? (
             <>
-              <OutfitThumbnail outfitDisplayId={group.leftEntry.entry.equipmentId} size={36} />
-              <span className="text-[10px] text-cyan-400 font-mono">{group.leftEntry.entry.equipmentId}</span>
+              <OutfitThumbnail equipmentAppearanceId={group.leftEntry.entry.equipmentAppearanceId} size={36} />
+              <span className="text-[10px] text-cyan-400 font-mono">{group.leftEntry.entry.equipmentAppearanceId}</span>
               <button
                 onClick={() => setShowPickerFor('left')}
                 className="px-1 py-0.5 rounded text-[9px] bg-emperia-accent/10 text-emperia-accent hover:bg-emperia-accent/20 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -637,8 +637,8 @@ function WeaponGroupRow({
           <span className="text-[9px] text-emperia-muted w-8">Right</span>
           {group.rightEntry ? (
             <>
-              <OutfitThumbnail outfitDisplayId={group.rightEntry.entry.equipmentId} size={36} />
-              <span className="text-[10px] text-cyan-400 font-mono">{group.rightEntry.entry.equipmentId}</span>
+              <OutfitThumbnail equipmentAppearanceId={group.rightEntry.entry.equipmentAppearanceId} size={36} />
+              <span className="text-[10px] text-cyan-400 font-mono">{group.rightEntry.entry.equipmentAppearanceId}</span>
               <button
                 onClick={() => setShowPickerFor('right')}
                 className="px-1 py-0.5 rounded text-[9px] bg-emperia-accent/10 text-emperia-accent hover:bg-emperia-accent/20 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -667,8 +667,8 @@ function WeaponGroupRow({
       {group.otherEntries.map(({ entry, index }) => (
         <div key={index} className="flex items-center gap-2 pl-2 mt-1">
           <span className="text-[9px] text-emperia-muted w-8 truncate">{entry.name}</span>
-          <OutfitThumbnail outfitDisplayId={entry.equipmentId} size={32} />
-          <span className="text-[10px] text-cyan-400 font-mono">{entry.equipmentId}</span>
+          <OutfitThumbnail equipmentAppearanceId={entry.equipmentAppearanceId} size={32} />
+          <span className="text-[10px] text-cyan-400 font-mono">{entry.equipmentAppearanceId}</span>
         </div>
       ))}
 
@@ -679,11 +679,11 @@ function WeaponGroupRow({
             const updateCatalogEntry = useOBStore.getState().updateEquipmentCatalogEntry;
             const hand = showPickerFor === 'left' ? 'Left-Hand' : 'Right-Hand';
             if (showPickerFor === 'left' && group.leftEntry) {
-              updateCatalogEntry(group.leftEntry.entry, { ...group.leftEntry.entry, equipmentId: displayId });
+              updateCatalogEntry(group.leftEntry.entry, { ...group.leftEntry.entry, equipmentAppearanceId: displayId });
             } else if (showPickerFor === 'right' && group.rightEntry) {
-              updateCatalogEntry(group.rightEntry.entry, { ...group.rightEntry.entry, equipmentId: displayId });
+              updateCatalogEntry(group.rightEntry.entry, { ...group.rightEntry.entry, equipmentAppearanceId: displayId });
             } else {
-              addCatalogEntry({ name: `${hand} (${group.baseName})`, itemId: group.itemId, equipmentId: displayId });
+              addCatalogEntry({ name: `${hand} (${group.baseName})`, itemId: group.itemId, equipmentAppearanceId: displayId });
             }
             setShowPickerFor(null);
           }}
@@ -709,7 +709,7 @@ export function EquipmentCatalogEditor() {
   );
   const visualEntries = useMemo(
     () => Array.from(objectData?.visualEquipmentAppearances.values() ?? [])
-      .sort((a, b) => a.visualId - b.visualId),
+      .sort((a, b) => a.visualEquipmentId - b.visualEquipmentId),
     [objectData, editVersion],
   );
   const updateCatalogEntry = useCallback((index: number, entry: EquipmentCatalogEntry) => {
@@ -746,7 +746,7 @@ export function EquipmentCatalogEditor() {
         if (q) {
           const nameMatch = entry.name.toLowerCase().includes(q);
           const idMatch = entry.itemId.toString().includes(q);
-          const spriteMatch = entry.equipmentId.toString().includes(q);
+          const spriteMatch = entry.equipmentAppearanceId.toString().includes(q);
           if (!nameMatch && !idMatch && !spriteMatch) return false;
         }
         return true;
@@ -870,27 +870,27 @@ export function EquipmentCatalogEditor() {
           .filter((entry) => {
             const q = search.trim().toLowerCase();
             return !q || entry.name.toLowerCase().includes(q)
-              || entry.visualId.toString().includes(q)
-              || entry.appearanceId.toString().includes(q);
+              || entry.visualEquipmentId.toString().includes(q)
+              || entry.equipmentAppearanceId.toString().includes(q);
           })
           .map((entry) => (
             <div
-              key={`visual-${entry.visualId}`}
+              key={`visual-${entry.visualEquipmentId}`}
               className="flex items-center gap-2 px-3 py-1.5 border-b border-emperia-border/30 bg-violet-500/5"
             >
               <div className="w-10 h-10 checkerboard rounded border border-violet-400/30 flex items-center justify-center text-[9px] text-violet-300">
                 visual
               </div>
-              <OutfitThumbnail outfitDisplayId={entry.appearanceId} size={40} />
+              <OutfitThumbnail equipmentAppearanceId={entry.equipmentAppearanceId} size={40} />
               <div className="flex-1 min-w-0">
                 <span className="text-xs text-emperia-text truncate block">{entry.name}</span>
                 <span className="text-[9px] text-emperia-muted">Direct visual equipment</span>
               </div>
               <span className="text-[10px] text-violet-300 font-mono" title="Stable visual ID">
-                {entry.visualId}
+                {entry.visualEquipmentId}
               </span>
               <span className="text-[10px] text-cyan-400 font-mono w-12 text-right" title="Equipment appearance ID">
-                {entry.appearanceId}
+                {entry.equipmentAppearanceId}
               </span>
             </div>
           ))}
@@ -900,7 +900,7 @@ export function EquipmentCatalogEditor() {
           ) : (
             filteredEntries.map(({ entry, index }) => (
               <EntryRow
-                key={`${index}-${entry.itemId}-${entry.equipmentId}`}
+                key={`${index}-${entry.itemId}-${entry.equipmentAppearanceId}`}
                 entry={entry}
                 index={index}
                 onUpdate={updateCatalogEntry}

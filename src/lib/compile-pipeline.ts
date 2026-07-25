@@ -40,10 +40,10 @@ export interface CompileState {
 export const STEP_LABELS = [
   'Objects (.eobj)',
   'Sprites (.espr)',
-  'Version Manifest',
   'Definitions (.json)',
   'Items OTB (.otb)',
   'Items XML (.xml)',
+  'Asset Package Manifest',
   'Validate & Save',
 ] as const;
 
@@ -55,6 +55,19 @@ export const INITIAL_COMPILE_STATE: CompileState = {
   startTime: 0,
   totalElapsed: 0,
 };
+
+/**
+ * These fields belong to EOBJ/ESPR or are retired ID aliases. They must never
+ * leak into the server gameplay projection (`items.json`).
+ */
+const SERVER_ITEM_EXCLUDED_PROPERTIES = new Set([
+  'lightLevel',
+  'lightColor',
+  'appearanceId',
+  'spriteId',
+  'clientId',
+  'serverId',
+]);
 
 type ArtifactRole = 'obj' | 'spr' | 'def' | 'generated';
 
@@ -70,6 +83,12 @@ interface StagedFile {
   previous: ArrayBuffer | null;
 }
 
+interface StagedHandleFile {
+  artifact: CompiledArtifact;
+  handle: FileSystemFileHandle;
+  previous: ArrayBuffer;
+}
+
 export function formatMs(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
@@ -81,21 +100,33 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function buildAssetVersion(): string {
-  const now = new Date();
-  const pad = (value: number) => String(value).padStart(2, '0');
-  return `1.0.${[
-    String(now.getUTCFullYear()).slice(-2),
-    pad(now.getUTCMonth() + 1),
-    pad(now.getUTCDate()),
-    pad(now.getUTCHours()),
-    pad(now.getUTCMinutes()),
-    pad(now.getUTCSeconds()),
-  ].join('')}`;
-}
-
 function encodeText(value: string): ArrayBuffer {
   return new TextEncoder().encode(value).buffer as ArrayBuffer;
+}
+
+async function sha256(buf: ArrayBuffer): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function compilePackageManifest(artifacts: CompiledArtifact[]): Promise<ArrayBuffer> {
+  const files: Record<string, { sha256: string; size: number }> = {};
+  for (const artifact of [...artifacts].sort((a, b) => a.name.localeCompare(b.name))) {
+    files[artifact.name] = {
+      sha256: await sha256(artifact.buf),
+      size: artifact.buf.byteLength,
+    };
+  }
+  const identity = Object.entries(files)
+    .map(([name, file]) => `${name}:${file.sha256}:${file.size}`)
+    .join('\n');
+  const packageId = await sha256(encodeText(identity));
+  return encodeText(JSON.stringify({
+    schemaVersion: 1,
+    packageId,
+    generatedAt: new Date().toISOString(),
+    files,
+  }, null, 2));
 }
 
 function validateJson(buf: ArrayBuffer, label: string): void {
@@ -128,6 +159,26 @@ async function writeAndVerify(
   const saved = await handle.getFile();
   if (saved.size !== buf.byteLength) {
     throw new Error(`Write verification failed for ${handle.name}: expected ${buf.byteLength}, got ${saved.size}.`);
+  }
+  const expected = new Uint8Array(buf);
+  const reader = saved.stream().getReader();
+  let offset = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      for (let index = 0; index < value.length; index++) {
+        if (value[index] !== expected[offset + index]) {
+          throw new Error(`Content verification failed for ${handle.name} at byte ${offset + index}.`);
+        }
+      }
+      offset += value.length;
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (offset !== expected.length) {
+    throw new Error(`Content verification failed for ${handle.name}: expected ${expected.length} bytes, read ${offset}.`);
   }
 }
 
@@ -189,10 +240,12 @@ async function writeRotatingBackup(
   if (files.length === 0) return;
 
   const backupDir = await sourceDir.getDirectoryHandle('backup', { create: true });
-  for (const { artifact, previous } of files) {
-    const backupHandle = await backupDir.getFileHandle(artifact.name, { create: true });
-    await writeAndVerify(backupHandle, previous!);
-  }
+  const backupArtifacts: CompiledArtifact[] = files.map(({ artifact, previous }) => ({
+    role: artifact.role,
+    name: artifact.name,
+    buf: previous!,
+  }));
+  await saveDirectoryBatch(backupDir, backupArtifacts, false);
 }
 
 async function commitDirectory(
@@ -245,6 +298,34 @@ async function saveDirectoryBatch(
   }
 }
 
+async function saveHandleBatch(files: StagedHandleFile[]): Promise<void> {
+  try {
+    for (const { artifact, handle } of files) {
+      try {
+        await writeAndVerify(handle, artifact.buf);
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new Error(`Could not replace "${handle.name}": ${detail}`);
+      }
+    }
+  } catch (error) {
+    const restoreFailures: string[] = [];
+    for (const { handle, previous } of files) {
+      try {
+        await writeAndVerify(handle, previous);
+      } catch {
+        restoreFailures.push(handle.name);
+      }
+    }
+    if (restoreFailures.length > 0) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)} Rollback failed for: ${restoreFailures.join(', ')}.`,
+      );
+    }
+    throw error;
+  }
+}
+
 const downloadQueue: { buffer: ArrayBuffer; filename: string }[] = [];
 let downloadTimer: number | null = null;
 
@@ -283,7 +364,6 @@ export async function runCompile(
     sourceDir,
     sourceNames,
     sourceHandles,
-    outputDirs,
   } = state;
   if (!od || !sd) return;
 
@@ -298,10 +378,6 @@ export async function runCompile(
   const sourcePermission = sourceDir
     ? verifyPermission(sourceDir, 'readwrite').catch(() => false)
     : Promise.resolve(true);
-  const outputPermissions = outputDirs.map((dir) => ({
-    dir,
-    allowed: verifyPermission(dir.handle, 'readwrite').catch(() => false),
-  }));
 
   setCompile({
     active: true,
@@ -397,6 +473,12 @@ export async function runCompile(
   const hairDefinitions = new Map<number, HairDefinition>(od.hairDefinitions);
 
   if (!await runStep(0, async () => {
+    if (sourceNames.def && (!state.definitionsLoaded || itemDefinitions.size === 0)) {
+      throw new Error(
+        `${sourceNames.def} was found in the asset package but was not loaded. `
+        + 'Reopen the package before compiling.',
+      );
+    }
     if (itemAppearances.size === 0) {
       throw new Error('EOBJ has no public item mappings. Open a valid asset with items.json loaded.');
     }
@@ -442,18 +524,8 @@ export async function runCompile(
     return;
   }
 
-  if (!await runStep(2, async () => {
-    const buf = encodeText(JSON.stringify({ version: buildAssetVersion() }, null, 2));
-    validateJson(buf, 'version.json');
-    artifacts.push({ role: 'generated', name: 'version.json', buf });
-    return buf.byteLength;
-  })) {
-    abortGeneration(2);
-    return;
-  }
-
   if (state.definitionsLoaded && itemDefinitions.size > 0) {
-    if (!await runStep(3, async () => {
+    if (!await runStep(2, async () => {
     const definitions: Record<string, unknown> = {};
     for (const itemId of Array.from(itemDefinitions.keys()).sort((a, b) => a - b)) {
       const definition = itemDefinitions.get(itemId)!;
@@ -461,7 +533,13 @@ export async function runCompile(
       if (definition.properties) {
         properties = {};
         for (const [key, value] of Object.entries(definition.properties)) {
-          if (value !== undefined && value !== null && value !== '' && !(key === 'article' && value === 'a')) {
+          if (
+            !SERVER_ITEM_EXCLUDED_PROPERTIES.has(key)
+            && value !== undefined
+            && value !== null
+            && value !== ''
+            && !(key === 'article' && value === 'a')
+          ) {
             properties[key] = value;
           }
         }
@@ -480,12 +558,6 @@ export async function runCompile(
         }
       }
 
-      if (properties) {
-        delete properties.lightLevel;
-        delete properties.lightColor;
-        if (Object.keys(properties).length === 0) properties = null;
-      }
-
       const entry: Record<string, unknown> = {};
       if (definition.flags !== 0) entry.flags = definition.flags;
       if (definition.group !== 0) entry.group = definition.group;
@@ -499,15 +571,15 @@ export async function runCompile(
     artifacts.push({ role: 'def', name: sourceNames.def || 'items.json', buf });
     return buf.byteLength;
     })) {
-      abortGeneration(3);
+      abortGeneration(2);
       return;
     }
   } else {
-    skipStep(3);
+    skipStep(2);
   }
 
   if (state.definitionsLoaded && itemDefinitions.size > 0) {
-    if (!await runStep(4, async () => {
+    if (!await runStep(3, async () => {
       const buf = compileItemsOtb(itemDefinitions, od);
       const bytes = new Uint8Array(buf);
       if (bytes.length < 8 || bytes[0] !== 0 || bytes[1] !== 0 || bytes[2] !== 0 || bytes[3] !== 0) {
@@ -516,22 +588,32 @@ export async function runCompile(
       artifacts.push({ role: 'generated', name: 'items.otb', buf });
       return buf.byteLength;
     })) {
-      abortGeneration(4);
+      abortGeneration(3);
       return;
     }
 
-    if (!await runStep(5, async () => {
+    if (!await runStep(4, async () => {
       const buf = compileItemsXml(itemDefinitions, od);
       validateXml(buf);
       artifacts.push({ role: 'generated', name: 'items.xml', buf });
       return buf.byteLength;
     })) {
-      abortGeneration(5);
+      abortGeneration(4);
       return;
     }
   } else {
+    skipStep(3);
     skipStep(4);
-    skipStep(5);
+  }
+
+  if (!await runStep(5, async () => {
+    const buf = await compilePackageManifest(artifacts);
+    validateJson(buf, 'asset-package.json');
+    artifacts.push({ role: 'generated', name: 'asset-package.json', buf });
+    return buf.byteLength;
+  })) {
+    abortGeneration(5);
+    return;
   }
 
   let primarySaved = false;
@@ -550,38 +632,30 @@ export async function runCompile(
         spr: sourceHandles.spr,
         def: sourceHandles.def,
       };
+      const handleFiles: StagedHandleFile[] = [];
+      const downloads: CompiledArtifact[] = [];
       for (const artifact of artifacts) {
         const handle = handleByRole[artifact.role];
         if (handle) {
-          await writeAndVerify(handle, artifact.buf);
-          outputs.push({ name: artifact.name, destination: 'original file', size: artifact.buf.byteLength });
+          handleFiles.push({
+            artifact,
+            handle,
+            previous: await (await handle.getFile()).arrayBuffer(),
+          });
         } else {
-          downloadFile(artifact.buf, artifact.name);
-          outputs.push({ name: artifact.name, destination: 'Downloads', size: artifact.buf.byteLength });
+          downloads.push(artifact);
         }
+      }
+      await saveHandleBatch(handleFiles);
+      for (const { artifact } of handleFiles) {
+        outputs.push({ name: artifact.name, destination: 'original file', size: artifact.buf.byteLength });
+      }
+      for (const artifact of downloads) {
+        downloadFile(artifact.buf, artifact.name);
+        outputs.push({ name: artifact.name, destination: 'Downloads', size: artifact.buf.byteLength });
       }
     }
     primarySaved = true;
-
-    for (const outputDir of outputDirs) {
-      const selected = outputDir.files?.length
-        ? artifacts.filter((artifact) => outputDir.files!.includes(artifact.name))
-        : artifacts;
-      if (selected.length === 0) continue;
-      const permission = outputPermissions.find((entry) => entry.dir === outputDir);
-      if (!permission || !await permission.allowed) {
-        throw new Error(`Write permission was not granted for output "${outputDir.label}". Remove and add this destination again.`);
-      }
-      try {
-        await saveDirectoryBatch(outputDir.handle, selected, false);
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        throw new Error(`Output "${outputDir.label}" failed: ${detail}`);
-      }
-      for (const artifact of selected) {
-        outputs.push({ name: artifact.name, destination: outputDir.label, size: artifact.buf.byteLength });
-      }
-    }
 
     return outputs.reduce((total, output) => total + output.size, 0);
   });

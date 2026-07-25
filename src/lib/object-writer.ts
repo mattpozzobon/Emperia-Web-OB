@@ -293,18 +293,18 @@ export function compileObjectData(
   }
 
   const visualEquipment = Array.from(data.visualEquipmentAppearances.values())
-    .sort((a, b) => a.visualId - b.visualId);
+    .sort((a, b) => a.visualEquipmentId - b.visualEquipmentId);
   if (visualEquipment.length > 0xFFFF) throw new Error('Visual equipment catalog exceeds the UInt16 entry limit');
   w.writeUInt16(visualEquipment.length);
   for (const visual of visualEquipment) {
-    if (!Number.isInteger(visual.visualId) || visual.visualId <= 0 || visual.visualId > 0xFFFF) {
-      throw new Error(`Visual equipment ID ${visual.visualId} is outside the UInt16 protocol range`);
+    if (!Number.isInteger(visual.visualEquipmentId) || visual.visualEquipmentId <= 0 || visual.visualEquipmentId > 0xFFFF) {
+      throw new Error(`Visual equipment ID ${visual.visualEquipmentId} is outside the UInt16 protocol range`);
     }
-    if (!Number.isInteger(visual.appearanceId) || visual.appearanceId < 0 || visual.appearanceId >= data.equipmentCount) {
-      throw new Error(`Visual equipment ${visual.visualId} references invalid appearance ${visual.appearanceId}`);
+    if (!Number.isInteger(visual.equipmentAppearanceId) || visual.equipmentAppearanceId < 0 || visual.equipmentAppearanceId >= data.equipmentCount) {
+      throw new Error(`Visual equipment ${visual.visualEquipmentId} references invalid appearance ${visual.equipmentAppearanceId}`);
     }
-    w.writeUInt16(visual.visualId);
-    w.writeUInt16(visual.appearanceId);
+    w.writeUInt16(visual.visualEquipmentId);
+    w.writeUInt16(visual.equipmentAppearanceId);
     w.writeString(visual.name);
   }
 

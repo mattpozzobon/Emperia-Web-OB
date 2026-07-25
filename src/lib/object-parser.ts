@@ -339,10 +339,10 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
     if (formatVersion >= 6) {
       const visualCount = packet.readUInt16();
       for (let index = 0; index < visualCount; index++) {
-        const visualId = packet.readUInt16();
-        visualEquipmentAppearances.set(visualId, {
-          visualId,
-          appearanceId: packet.readUInt16(),
+        const visualEquipmentId = packet.readUInt16();
+        visualEquipmentAppearances.set(visualEquipmentId, {
+          visualEquipmentId,
+          equipmentAppearanceId: packet.readUInt16(),
           name: packet.readString(),
         });
       }
@@ -503,10 +503,10 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
 }
 
 function migrateVisualEquipment(data: ObjectData): ObjectData {
-  const migrated: Array<{ visualId: number; name: string; outfitAppearanceId: number }> = LEGACY_VISUAL_EQUIPMENT
-    .flatMap(([visualId, name]) => {
-      const outfitAppearanceId = data.outfitAppearances.get(visualId);
-      return outfitAppearanceId == null ? [] : [{ visualId, name, outfitAppearanceId }];
+  const migrated: Array<{ visualEquipmentId: number; name: string; outfitAppearanceId: number }> = LEGACY_VISUAL_EQUIPMENT
+    .flatMap(([visualEquipmentId, name]) => {
+      const outfitAppearanceId = data.outfitAppearances.get(visualEquipmentId);
+      return outfitAppearanceId == null ? [] : [{ visualEquipmentId, name, outfitAppearanceId }];
     })
     .sort((a, b) => a.outfitAppearanceId - b.outfitAppearanceId);
 
@@ -550,10 +550,10 @@ function migrateVisualEquipment(data: ObjectData): ObjectData {
   }
 
   const visualEquipmentAppearances = new Map(data.visualEquipmentAppearances);
-  migrated.forEach(({ visualId, name, outfitAppearanceId }, index) => {
-    const appearanceId = data.equipmentCount + index;
+  migrated.forEach(({ visualEquipmentId, name, outfitAppearanceId }, index) => {
+    const equipmentAppearanceId = data.equipmentCount + index;
     copyLocalAppearance('equipment', outfitAppearanceId, outfitStart);
-    visualEquipmentAppearances.set(visualId, { visualId, appearanceId, name });
+    visualEquipmentAppearances.set(visualEquipmentId, { visualEquipmentId, equipmentAppearanceId, name });
   });
 
   for (let appearanceId = 0; appearanceId < data.hairCount; appearanceId++) {

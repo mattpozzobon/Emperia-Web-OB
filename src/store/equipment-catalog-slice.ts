@@ -43,7 +43,7 @@ function removeVariant(catalog: Map<number, EquipmentAppearance>, entry: Equipme
 function addVariant(catalog: Map<number, EquipmentAppearance>, entry: EquipmentCatalogEntry) {
   catalog.set(entry.itemId, {
     ...(catalog.get(entry.itemId) ?? {}),
-    [variantOf(entry)]: entry.equipmentId,
+    [variantOf(entry)]: entry.equipmentAppearanceId,
   });
 }
 

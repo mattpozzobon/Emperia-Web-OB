@@ -4,7 +4,6 @@ import { useOBStore } from '../store';
 import { INITIAL_COMPILE_STATE, runCompile } from '../lib/compile-pipeline';
 import type { CompileState } from '../lib/compile-pipeline';
 import { CompileModal } from './CompileModal';
-import { OutputDirsPanel } from './OutputDirsPanel';
 
 export function Header() {
   const objectData = useOBStore((state) => state.objectData);
@@ -102,10 +101,6 @@ export function Header() {
               <span>Content v{objectData.version}</span>
               <span>{objectData.things.size} objects</span>
             </div>
-
-            <OutputDirsPanel />
-
-            <div className="w-px h-5 bg-emperia-border mx-1" />
 
             <button
               onClick={undo}

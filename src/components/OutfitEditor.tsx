@@ -463,7 +463,7 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
     return equipmentCatalogEntries.filter((e) => {
       const s = inferEquipSlot(e, getSlotType(e.itemId));
       if (s !== slotFilter) return false;
-      if (q && !e.name.toLowerCase().includes(q) && !e.equipmentId.toString().includes(q)) return false;
+      if (q && !e.name.toLowerCase().includes(q) && !e.equipmentAppearanceId.toString().includes(q)) return false;
       return true;
     });
   }, [equipmentCatalogEntries, slotFilter, search, getSlotType]);
@@ -489,8 +489,8 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
           </button>
           {filtered.map((entry, i) => {
             let thumbUrl: string | null = null;
-            if (objectData && spriteData && entry.equipmentId >= 0) {
-              const intId = objectData.itemCount + objectData.outfitCount + 1 + entry.equipmentId;
+            if (objectData && spriteData && entry.equipmentAppearanceId >= 0) {
+              const intId = objectData.itemCount + objectData.outfitCount + 1 + entry.equipmentAppearanceId;
               const thing = objectData.things.get(intId);
               if (thing) {
                 const key = `equip-pick:${intId}`;
@@ -514,13 +514,13 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
               }
             }
             return (
-              <button key={`${entry.equipmentId}-${i}`} onClick={() => onSelect(entry.equipmentId + 1)}
+              <button key={`${entry.equipmentAppearanceId}-${i}`} onClick={() => onSelect(entry.equipmentAppearanceId + 1)}
                 className="w-full flex items-center gap-2 px-2 py-0.5 text-left hover:bg-emperia-hover/50 border-b border-emperia-border/10 transition-colors">
                 <div className="w-6 h-6 checkerboard rounded border border-emperia-border/30 overflow-hidden flex items-center justify-center shrink-0">
                   {thumbUrl ? <img src={thumbUrl} className="pixelated w-full h-full" style={{ imageRendering: 'pixelated' }} draggable={false} /> : <span className="text-[7px] text-emperia-muted/30">?</span>}
                 </div>
                 <span className="text-[9px] text-emperia-text truncate flex-1">{entry.name}</span>
-                <span className="text-[8px] text-emperia-muted font-mono shrink-0">{entry.equipmentId}</span>
+                <span className="text-[8px] text-emperia-muted font-mono shrink-0">{entry.equipmentAppearanceId}</span>
               </button>
             );
           })}

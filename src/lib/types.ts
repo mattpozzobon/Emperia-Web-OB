@@ -127,8 +127,8 @@ export interface EquipmentAppearance {
 }
 
 export interface VisualEquipmentAppearance {
-  visualId: number;
-  appearanceId: number;
+  visualEquipmentId: number;
+  equipmentAppearanceId: number;
   name: string;
 }
 
@@ -289,7 +289,7 @@ export function deriveGroup(f: ThingFlags): number {
 export interface EquipmentCatalogEntry {
   name: string;
   itemId: number;
-  equipmentId: number;
+  equipmentAppearanceId: number;
 }
 
 /** Equipment slot filter keys used in the UI. */
