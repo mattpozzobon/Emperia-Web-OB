@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "emperia-object-builder-translation",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-07-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ALLOWED_ORIGINS": "http://localhost:5173"
+  },
+  "secrets": {
+    "required": [
+      "GOOGLE_TRANSLATE_API_KEY",
+      "TRANSLATION_ACCESS_TOKEN"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

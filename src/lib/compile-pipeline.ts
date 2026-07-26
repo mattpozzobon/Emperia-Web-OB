@@ -16,6 +16,8 @@ import {
   stripRetiredItemFlags,
   syncItemFlagsFromVisual,
 } from './types';
+import { ITEM_LOCALES } from './types';
+import { serializeItemCatalog, sourceHash } from './item-localization';
 
 export interface CompileStep {
   label: string;
@@ -45,6 +47,7 @@ export const STEP_LABELS = [
   'Objects (.eobj)',
   'Sprites (.espr)',
   'Definitions (.json)',
+  'Item Localizations',
   'Asset Package Manifest',
   'Validate & Save',
 ] as const;
@@ -82,7 +85,7 @@ const SERVER_PROPERTY_ALIASES: Readonly<Record<string, string>> = {
   armor: 'physicalDefense',
 };
 
-type ArtifactRole = 'obj' | 'spr' | 'def' | 'generated';
+type ArtifactRole = 'obj' | 'spr' | 'def' | 'localization' | 'generated';
 
 interface CompiledArtifact {
   role: ArtifactRole;
@@ -379,6 +382,7 @@ export async function runCompile(
     dirtyIds,
     spriteOverrides,
     itemDefinitions,
+    itemLocalizations,
     sourceDir,
     sourceNames,
     sourceHandles,
@@ -658,17 +662,56 @@ export async function runCompile(
   }
 
   if (!await runStep(3, async () => {
-    const buf = await compilePackageManifest(artifacts);
-    validateJson(buf, 'asset-package.json');
-    artifacts.push({ role: 'generated', name: 'asset-package.json', buf });
-    return buf.byteLength;
+    let totalSize = 0;
+    for (const locale of ITEM_LOCALES) {
+      const entries = new Map(itemLocalizations[locale]);
+      for (const itemId of entries.keys()) {
+        if (!itemDefinitions.has(itemId)) {
+          throw new Error(`${locale} item catalog contains orphan item ID ${itemId}.`);
+        }
+        if (locale !== 'en' && !itemLocalizations.en.has(itemId)) {
+          throw new Error(`${locale} item catalog contains item ID ${itemId} without an English source.`);
+        }
+      }
+      if (locale !== 'en') {
+        for (const [itemId, entry] of entries) {
+          const source = itemLocalizations.en.get(itemId);
+          if (!source) continue;
+          const currentHash = sourceHash(source);
+          const effectiveHash = entry.sourceHash ?? currentHash;
+          entries.set(itemId, {
+            ...entry,
+            sourceHash: effectiveHash,
+            status: effectiveHash === currentHash
+              ? (entry.status ?? 'draft')
+              : 'stale',
+          });
+        }
+      }
+      const filename = `item-catalog.${locale}.json`;
+      const buf = encodeText(`${JSON.stringify(serializeItemCatalog(locale, entries))}\n`);
+      validateJson(buf, filename);
+      artifacts.push({ role: 'localization', name: filename, buf });
+      totalSize += buf.byteLength;
+    }
+    return totalSize;
   })) {
     abortGeneration(3);
     return;
   }
 
+  if (!await runStep(4, async () => {
+    const buf = await compilePackageManifest(artifacts);
+    validateJson(buf, 'asset-package.json');
+    artifacts.push({ role: 'generated', name: 'asset-package.json', buf });
+    return buf.byteLength;
+  })) {
+    abortGeneration(4);
+    return;
+  }
+
   let primarySaved = false;
-  const saveSucceeded = await runStep(4, async () => {
+  const saveSucceeded = await runStep(5, async () => {
     if (sourceDir) {
       if (!await sourcePermission) {
         throw new Error(`Write permission was not granted for source folder "${sourceDir.name}".`);

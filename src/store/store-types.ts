@@ -1,7 +1,7 @@
 /**
  * Shared types for the OB Zustand store.
  */
-import type { ObjectData, SpriteData, ThingType, ThingCategory, LibraryCategory, ThingFlags, FrameGroup, ItemDefinition, EquipmentCatalogEntry, HairDefinition, ItemSeatDefinition, SeatPoseProfile, PoseAction } from '../lib/types';
+import type { ObjectData, SpriteData, ThingType, ThingCategory, LibraryCategory, ThingFlags, FrameGroup, ItemDefinition, EquipmentCatalogEntry, HairDefinition, ItemSeatDefinition, SeatPoseProfile, PoseAction, ItemLocale, ItemLocalizedText, ItemCatalogFile } from '../lib/types';
 import type { OutfitDefinition } from './outfit-slice';
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 
@@ -50,6 +50,7 @@ export interface OBState {
   /** Map of appearanceId → primary public itemId for UI lookups. */
   appearanceToItemIds: Map<number, number>;
   definitionsLoaded: boolean;
+  itemLocalizations: Record<ItemLocale, Map<number, ItemLocalizedText>>;
 
   /** Currently selected hair ID in the Hair tab */
   selectedHairId: number | null;
@@ -72,7 +73,7 @@ export interface OBState {
   };
 
   // UI state
-  centerTab: 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits' | 'poseLab';
+  centerTab: 'texture' | 'properties' | 'localization' | 'equipment' | 'hair' | 'outfits' | 'poseLab';
   activeCategory: ThingCategory;
   activeLibrary: LibraryCategory;
   selectedThingId: number | null;
@@ -119,6 +120,7 @@ export interface OBState {
   // Actions
   loadFiles: (objBuffer: ArrayBuffer, sprBuffer: ArrayBuffer) => Promise<void>;
   loadDefinitions: (json: Record<string, Partial<ItemDefinition> & { id?: number }>) => void;
+  loadItemCatalogs: (catalogs: Partial<Record<ItemLocale, ItemCatalogFile>>) => void;
   setSourceDir: (dir: FileSystemDirectoryHandle, names: OBState['sourceNames']) => void;
   setSourceHandles: (handles: Partial<OBState['sourceHandles']>) => void;
   setCenterTab: (tab: OBState['centerTab']) => void;
@@ -149,6 +151,9 @@ export interface OBState {
 
   // Server definitions actions
   updateItemDefinition: (appearanceId: number, data: Partial<ItemDefinition>) => void;
+  updateItemLocalization: (itemId: number, locale: ItemLocale, text: ItemLocalizedText | null) => void;
+  markItemTranslationReviewed: (itemId: number, locale: Exclude<ItemLocale, 'en'>) => void;
+  resetItemTranslationReviews: (locale?: Exclude<ItemLocale, 'en'>) => number;
   // Client-only seating metadata embedded in EOBJ
   updateItemSeatDefinition: (appearanceId: number, definition: ItemSeatDefinition | null) => void;
   updateSeatPoseProfile: (profile: SeatPoseProfile) => void;

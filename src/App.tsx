@@ -13,12 +13,14 @@ import { EquipmentCatalogEditor } from './components/EquipmentCatalogEditor';
 import { HairEditor } from './components/HairEditor';
 import { OutfitEditor } from './components/OutfitEditor';
 import { PoseLab } from './components/PoseLab';
+import { LocalizationEditor } from './components/LocalizationEditor';
 
-type CenterTab = 'texture' | 'properties' | 'equipment' | 'hair' | 'outfits' | 'poseLab';
+type CenterTab = 'texture' | 'properties' | 'localization' | 'equipment' | 'hair' | 'outfits' | 'poseLab';
 
 const TAB_LABELS: Record<CenterTab, string> = {
   texture: 'Texture',
   properties: 'Properties',
+  localization: 'Localization',
   equipment: 'Equipment',
   hair: 'Hair',
   outfits: 'Outfits',
@@ -165,7 +167,7 @@ export default function App() {
         {/* Center: Texture / Properties / Attributes */}
         <div className="flex-1 flex flex-col bg-emperia-bg overflow-hidden">
           <div className="flex items-center border-b border-emperia-border shrink-0">
-            {(['texture', 'properties', 'equipment', 'hair', 'outfits', 'poseLab'] as CenterTab[]).map((tab) => (
+            {(['texture', 'properties', 'localization', 'equipment', 'hair', 'outfits', 'poseLab'] as CenterTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => {
@@ -190,6 +192,7 @@ export default function App() {
           <div className="flex-1 overflow-y-auto">
             {centerTab === 'texture' && <SpritePreview />}
             {centerTab === 'properties' && <PropertyInspector />}
+            {centerTab === 'localization' && <LocalizationEditor />}
             {centerTab === 'equipment' && <EquipmentCatalogEditor />}
             {centerTab === 'hair' && <HairEditor />}
             {centerTab === 'outfits' && <OutfitEditor />}

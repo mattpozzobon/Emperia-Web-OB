@@ -470,6 +470,26 @@ export interface ItemDefinition {
   properties: ItemProperties | null;
 }
 
+export const ITEM_LOCALES = ['en', 'pt', 'es', 'pl'] as const;
+export type ItemLocale = typeof ITEM_LOCALES[number];
+export type ItemTranslationStatus = 'draft' | 'reviewed' | 'stale';
+
+export interface ItemLocalizedText {
+  name: string;
+  article?: string;
+  description?: string;
+  /** Fingerprint of the English source used to create this translation. */
+  sourceHash?: string;
+  status?: ItemTranslationStatus;
+}
+
+export interface ItemCatalogFile {
+  schemaVersion: 1;
+  locale: ItemLocale;
+  fallbackLocale: 'en';
+  items: Record<string, ItemLocalizedText>;
+}
+
 // ─── Hair Definitions ────────────────────────────────────────────────────────
 
 /** Race bitmask flags — matches server Race enum values as bit positions. */

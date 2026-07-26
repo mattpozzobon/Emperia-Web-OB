@@ -9,18 +9,22 @@ import {
   verifyPermission,
   type SessionHandles,
 } from '../lib/dir-handle-store';
+import { ITEM_LOCALES, type ItemCatalogFile, type ItemLocale } from '../lib/types';
+import { ITEM_CATALOG_FILE, parseItemCatalog } from '../lib/item-localization';
 
 export function FileDropZone() {
   const loadFiles = useOBStore((s) => s.loadFiles);
   const loading = useOBStore((s) => s.loading);
   const error = useOBStore((s) => s.error);
   const loadDefinitions = useOBStore((s) => s.loadDefinitions);
+  const loadItemCatalogs = useOBStore((s) => s.loadItemCatalogs);
   const setSourceDir = useOBStore((s) => s.setSourceDir);
   const setSourceHandles = useOBStore((s) => s.setSourceHandles);
   const objRef = useRef<ArrayBuffer | null>(null);
   const sprRef = useRef<ArrayBuffer | null>(null);
 
   const pendingJsonRef = useRef<ArrayBuffer | null>(null);
+  const pendingCatalogsRef = useRef<Partial<Record<ItemLocale, ItemCatalogFile>>>({});
   const lastDirRef = useRef<FileSystemDirectoryHandle | null>(null);
 
   // Track collected file handles during folder load for persisting to IndexedDB
@@ -57,6 +61,8 @@ export function FileDropZone() {
     }
     await loadFiles(objRef.current, sprRef.current);
     if (definitions) loadDefinitions(definitions as Record<string, any>);
+    loadItemCatalogs(pendingCatalogsRef.current);
+    pendingCatalogsRef.current = {};
 
     // Persist whatever handles we collected so far
     if (pendingHandlesRef.current.obj || pendingHandlesRef.current.spr) {
@@ -64,7 +70,7 @@ export function FileDropZone() {
       // Also store them in Zustand for compile save-back
       setSourceHandles(pendingHandlesRef.current);
     }
-  }, [loadFiles, loadDefinitions, persistSession, setSourceHandles]);
+  }, [loadFiles, loadDefinitions, loadItemCatalogs, persistSession, setSourceHandles]);
 
   // Open Folder — uses File System Access API for direct save-back
   const handleOpenFolder = useCallback(async () => {
@@ -77,6 +83,10 @@ export function FileDropZone() {
         setReloadError('Select the asset folder, not its backup subfolder.');
         return;
       }
+      objRef.current = null;
+      sprRef.current = null;
+      pendingJsonRef.current = null;
+      pendingCatalogsRef.current = {};
       const names: { obj?: string; spr?: string; def?: string } = {};
       const handles: SessionHandles = { dir: dirHandle };
 
@@ -99,6 +109,16 @@ export function FileDropZone() {
           handles.def = entry as FileSystemFileHandle;
           const file = await (entry as FileSystemFileHandle).getFile();
           pendingJsonRef.current = await file.arrayBuffer();
+        } else if (ext === 'json') {
+          const match = name.toLowerCase().match(/^item-catalog\.(en|pt|es|pl)\.json$/);
+          if (match) {
+            const locale = match[1] as ItemLocale;
+            const file = await (entry as FileSystemFileHandle).getFile();
+            pendingCatalogsRef.current[locale] = parseItemCatalog(
+              JSON.parse(await file.text()),
+              locale,
+            );
+          }
         }
       }
 
@@ -162,6 +182,23 @@ export function FileDropZone() {
         loadDefinitions(JSON.parse(text));
       } catch (e) { console.error('Failed to parse definitions:', e); }
     }
+    if (session.dir && await verifyPermission(session.dir, 'read')) {
+      const catalogs: Partial<Record<ItemLocale, ItemCatalogFile>> = {};
+      for (const locale of ITEM_LOCALES) {
+        try {
+          const handle = await session.dir.getFileHandle(ITEM_CATALOG_FILE(locale));
+          const file = await handle.getFile();
+          catalogs[locale] = parseItemCatalog(JSON.parse(await file.text()), locale);
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === 'NotFoundError')) {
+            console.error(`[OB] Failed to load ${ITEM_CATALOG_FILE(locale)}:`, error);
+          }
+        }
+      }
+      loadItemCatalogs(catalogs);
+    } else {
+      loadItemCatalogs({});
+    }
     // Set handles in store for save-back
     setSourceHandles({
       obj: session.obj,
@@ -176,7 +213,7 @@ export function FileDropZone() {
       setSourceDir(session.dir, names);
     }
 
-  }, [loadFiles, loadDefinitions, setSourceHandles, setSourceDir]);
+  }, [loadFiles, loadDefinitions, loadItemCatalogs, setSourceHandles, setSourceDir]);
 
   return (
     <div className="h-full flex items-center justify-center bg-emperia-bg p-8">

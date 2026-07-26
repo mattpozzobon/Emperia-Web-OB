@@ -2,7 +2,7 @@
  * Global state for the Object Builder using Zustand.
  */
 import { create } from 'zustand';
-import type { ThingType, ThingCategory, ThingFlags, FrameGroup, ItemDefinition } from '../lib/types';
+import { ITEM_LOCALES, type ThingType, type ThingCategory, type ThingFlags, type FrameGroup, type ItemDefinition } from '../lib/types';
 import { parseObjectData } from '../lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from '../lib/sprite-decoder';
 import { maybeDecompress } from '../lib/emperia-format';
@@ -14,6 +14,16 @@ import { createEquipmentCatalogSlice } from './equipment-catalog-slice';
 import { createCompactAtlasAction } from './compact-atlas';
 import { createSpriteGroupSlice } from './sprite-group-slice';
 import { createOutfitSlice } from './outfit-slice';
+import { sourceHash, sourceTextFromDefinition } from '../lib/item-localization';
+
+function emptyItemLocalizations() {
+  return {
+    en: new Map(),
+    pt: new Map(),
+    es: new Map(),
+    pl: new Map(),
+  };
+}
 
 const getSavedLibraryColumns = (): number => {
   if (typeof localStorage === 'undefined') return 6;
@@ -63,6 +73,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   itemDefinitions: new Map(),
   appearanceToItemIds: new Map(),
   definitionsLoaded: false,
+  itemLocalizations: emptyItemLocalizations(),
   selectedHairId: null,
   outfitDefinitions: [],
   outfitDefsLoaded: false,
@@ -178,7 +189,37 @@ export const useOBStore = create<OBState>((set, get) => ({
       defs.set(itemId, definition);
       registerPrimaryItemForAppearance(appearanceMap, defs, definition);
     }
-    set({ itemDefinitions: defs, appearanceToItemIds: appearanceMap, definitionsLoaded: true });
+    const itemLocalizations = { ...get().itemLocalizations, en: new Map(get().itemLocalizations.en) };
+    for (const [itemId, definition] of defs) {
+      const source = sourceTextFromDefinition(definition);
+      if (source) itemLocalizations.en.set(itemId, source);
+    }
+    set({ itemDefinitions: defs, appearanceToItemIds: appearanceMap, definitionsLoaded: true, itemLocalizations });
+  },
+
+  loadItemCatalogs: (catalogs) => {
+    const next = emptyItemLocalizations();
+    for (const locale of ITEM_LOCALES) {
+      const catalog = catalogs[locale];
+      if (!catalog) continue;
+      for (const [itemId, entry] of Object.entries(catalog.items)) {
+        next[locale].set(Number(itemId), { ...entry });
+      }
+    }
+    for (const [itemId, definition] of get().itemDefinitions) {
+      const source = sourceTextFromDefinition(definition);
+      if (source) next.en.set(itemId, source);
+    }
+    for (const locale of ITEM_LOCALES) {
+      if (locale === 'en') continue;
+      for (const [itemId, entry] of next[locale]) {
+        const source = next.en.get(itemId);
+        if (source && entry.sourceHash !== sourceHash(source)) {
+          next[locale].set(itemId, { ...entry, status: 'stale' });
+        }
+      }
+    }
+    set({ itemLocalizations: next });
   },
 
   // ─── Source file handles ────────────────────────────────────────────────────
@@ -259,6 +300,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       itemDefinitions: new Map(),
       appearanceToItemIds: new Map(),
       definitionsLoaded: false,
+      itemLocalizations: emptyItemLocalizations(),
       selectedHairId: null,
       sourceHandles: {},
     });
@@ -267,7 +309,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   // ─── Server definitions ─────────────────────────────────────────────────────
 
   updateItemDefinition: (appearanceId, data) => {
-    const { itemDefinitions, appearanceToItemIds, editVersion } = get();
+    const { itemDefinitions, appearanceToItemIds, editVersion, itemLocalizations } = get();
     const itemId = appearanceToItemIds.get(appearanceId) ?? appearanceId;
     const existing = itemDefinitions.get(itemId);
     const updated: ItemDefinition = {
@@ -283,7 +325,85 @@ export const useOBStore = create<OBState>((set, get) => ({
     newDefs.set(itemId, updated);
     const newAppearanceMap = new Map(appearanceToItemIds);
     if (!newAppearanceMap.has(appearanceId)) newAppearanceMap.set(appearanceId, itemId);
-    set({ itemDefinitions: newDefs, appearanceToItemIds: newAppearanceMap, dirty: true, editVersion: editVersion + 1 });
+    const nextLocalizations = { ...itemLocalizations, en: new Map(itemLocalizations.en) };
+    const source = sourceTextFromDefinition(updated);
+    if (source) {
+      const previousHash = itemLocalizations.en.get(itemId)
+        ? sourceHash(itemLocalizations.en.get(itemId)!)
+        : null;
+      const nextHash = sourceHash(source);
+      nextLocalizations.en.set(itemId, source);
+      if (previousHash !== null && previousHash !== nextHash) {
+        for (const locale of ITEM_LOCALES) {
+          if (locale === 'en') continue;
+          const translated = itemLocalizations[locale].get(itemId);
+          if (!translated) continue;
+          nextLocalizations[locale] = new Map(nextLocalizations[locale]);
+          nextLocalizations[locale].set(itemId, { ...translated, status: 'stale' });
+        }
+      }
+    } else {
+      nextLocalizations.en.delete(itemId);
+      for (const locale of ITEM_LOCALES) {
+        if (locale === 'en' || !itemLocalizations[locale].has(itemId)) continue;
+        nextLocalizations[locale] = new Map(nextLocalizations[locale]);
+        nextLocalizations[locale].delete(itemId);
+      }
+    }
+    set({
+      itemDefinitions: newDefs,
+      appearanceToItemIds: newAppearanceMap,
+      itemLocalizations: nextLocalizations,
+      dirty: true,
+      editVersion: editVersion + 1,
+    });
+  },
+
+  updateItemLocalization: (itemId, locale, text) => {
+    if (locale === 'en') return;
+    const { itemLocalizations, editVersion } = get();
+    const next = { ...itemLocalizations, [locale]: new Map(itemLocalizations[locale]) };
+    if (text?.name.trim()) next[locale].set(itemId, { ...text, name: text.name.trim() });
+    else next[locale].delete(itemId);
+    set({ itemLocalizations: next, dirty: true, editVersion: editVersion + 1 });
+  },
+
+  markItemTranslationReviewed: (itemId, locale) => {
+    const { itemLocalizations, editVersion } = get();
+    const current = itemLocalizations[locale].get(itemId);
+    const source = itemLocalizations.en.get(itemId);
+    if (!current || !source) return;
+    const next = { ...itemLocalizations, [locale]: new Map(itemLocalizations[locale]) };
+    next[locale].set(itemId, {
+      ...current,
+      sourceHash: sourceHash(source),
+      status: 'reviewed',
+    });
+    set({ itemLocalizations: next, dirty: true, editVersion: editVersion + 1 });
+  },
+
+  resetItemTranslationReviews: (onlyLocale) => {
+    const { itemLocalizations, editVersion } = get();
+    const next = { ...itemLocalizations };
+    let changed = 0;
+    for (const locale of ITEM_LOCALES) {
+      if (locale === 'en' || (onlyLocale && locale !== onlyLocale)) continue;
+      const entries = new Map(itemLocalizations[locale]);
+      for (const [itemId, entry] of entries) {
+        if (entry.status !== 'reviewed') continue;
+        entries.set(itemId, { ...entry, status: 'draft' });
+        changed += 1;
+      }
+      next[locale] = entries;
+    }
+    if (changed > 0) {
+      set({
+        itemLocalizations: next,
+        dirty: true,
+        editVersion: editVersion + 1,
+      });
+    }
+    return changed;
   },
 
   updateItemSeatDefinition: (appearanceId, definition) => {
