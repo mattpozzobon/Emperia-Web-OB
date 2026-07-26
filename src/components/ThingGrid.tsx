@@ -1,9 +1,17 @@
 import { useCallback, useRef, useEffect, useState, useMemo } from 'react';
+import { Link2 } from 'lucide-react';
 import { useOBStore, getThingsForCategory, getDisplayId } from '../store';
 import { compositeThingDataUrl } from '../lib/sprite-decoder';
+import { poseSetProfileKey, type SeatDirection } from '../lib/types';
 import { useSpriteTooltip } from './SpriteTooltip';
 
 const VISIBLE_BUFFER = 20; // extra items to render above/below viewport
+const SEAT_DIRECTION_BITS: Array<{ direction: SeatDirection; bit: number }> = [
+  { direction: 'north', bit: 1 },
+  { direction: 'east', bit: 2 },
+  { direction: 'south', bit: 4 },
+  { direction: 'west', bit: 8 },
+];
 
 export function ThingGrid() {
   const objectData = useOBStore((s) => s.objectData);
@@ -163,7 +171,29 @@ export function ThingGrid() {
             const def = itemId != null ? itemDefinitions?.get(itemId) : undefined;
             const itemName = def?.properties?.name;
             const publicId = activeCategory === 'item' ? (itemId ?? displayId) : displayId;
-            const tipText = itemName ? `#${publicId} — ${itemName}` : `#${publicId}`;
+            const seatBinding = activeCategory === 'item'
+              ? objectData?.itemSeatDefinitions.get(publicId) ?? null
+              : null;
+            const boundPoseSet = seatBinding
+              ? objectData?.poseSets.get(seatBinding.poseSetId) ?? null
+              : null;
+            const enabledPoseDirections = seatBinding
+              ? SEAT_DIRECTION_BITS.filter(({ bit }) => (seatBinding.directionMask & bit) !== 0)
+              : [];
+            const missingPoseDirections = boundPoseSet && objectData
+              ? enabledPoseDirections.filter(({ direction }) => !objectData.seatPoseProfiles.has(
+                  poseSetProfileKey(boundPoseSet.id, direction),
+                ))
+              : enabledPoseDirections;
+            const bindingComplete = Boolean(
+              boundPoseSet
+              && enabledPoseDirections.length > 0
+              && missingPoseDirections.length === 0,
+            );
+            const baseTipText = itemName ? `#${publicId} — ${itemName}` : `#${publicId}`;
+            const tipText = seatBinding
+              ? `${baseTipText} · Pose: ${boundPoseSet?.name ?? `missing #${seatBinding.poseSetId}`}`
+              : baseTipText;
 
             const isMultiSelected = selectedIds.has(thing.id);
             return (
@@ -237,7 +267,27 @@ export function ThingGrid() {
                     }}
                   />
                 )}
-                <span className="absolute bottom-0 right-0.5 text-[8px] text-emperia-muted/60 leading-none">
+                {seatBinding && (
+                  <span
+                    title={bindingComplete
+                      ? `Bound to ${boundPoseSet?.name}`
+                      : `Pose binding incomplete${missingPoseDirections.length > 0
+                        ? `: ${missingPoseDirections.map(({ direction }) => direction).join(', ')}`
+                        : ''}`}
+                    className={`absolute left-1 top-1 flex h-4 w-4 items-center justify-center rounded border shadow-md shadow-black ${
+                      bindingComplete
+                        ? 'border-emerald-300/60 bg-emerald-600 text-white'
+                        : 'border-amber-300/60 bg-amber-600 text-white'
+                    }`}
+                  >
+                    <Link2 className="h-2.5 w-2.5" strokeWidth={3} />
+                  </span>
+                )}
+                <span
+                  className="absolute bottom-1 right-1 rounded border border-white/20 bg-black/90 px-1 py-0.5
+                             font-mono text-[10px] font-bold leading-none text-white shadow-md shadow-black"
+                  style={{ textShadow: '0 1px 1px #000' }}
+                >
                   {publicId}
                 </span>
               </button>

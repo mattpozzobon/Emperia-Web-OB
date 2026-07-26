@@ -4,10 +4,10 @@
  */
 import PacketWriter from './packet-writer';
 import { EMPERIA_MAGIC, EmperiaFileType } from './emperia-format';
-import type { ObjectData, ThingFlags, FrameGroup, EquipmentAppearance, HairDefinition } from './types';
+import type { ObjectData, ThingFlags, FrameGroup, EquipmentAppearance, HairDefinition, ItemSeatDefinition } from './types';
 import { encodeItemSlotType } from './item-slot-types';
 
-const EOBJ_FORMAT_VERSION = 6;
+const EOBJ_FORMAT_VERSION = 10;
 
 const ATTR = {
   ThingAttrGround: 0,
@@ -154,6 +154,7 @@ export function compileObjectData(
   itemSlotTypes: Map<number, string> = data.itemSlotTypes,
   equipmentAppearances: Map<number, EquipmentAppearance> = data.equipmentAppearances,
   hairDefinitions: Map<number, HairDefinition> = data.hairDefinitions,
+  itemSeatDefinitions: Map<number, ItemSeatDefinition> = data.itemSeatDefinitions,
 ): ArrayBuffer {
   const w = new PacketWriter(1024 * 1024); // 1MB initial
 
@@ -277,6 +278,44 @@ export function compileObjectData(
     w.writeUInt16(hair.sortOrder);
     w.writeString(hair.name);
   }
+
+  const seats = Array.from(itemSeatDefinitions.entries()).sort(([a], [b]) => a - b);
+  if (seats.length > 0xFFFF) throw new Error('Seat metadata exceeds the UInt16 entry limit');
+  w.writeUInt16(seats.length);
+  for (const [itemId, seat] of seats) {
+    if (!Number.isInteger(itemId) || itemId <= 0 || itemId > 0xFFFF) {
+      throw new Error(`Seat item ID ${itemId} is outside the UInt16 protocol range`);
+    }
+    if (seat.poseSetId !== 0 && !data.poseSets.has(seat.poseSetId)) {
+      throw new Error(`Seat item ${itemId} references missing Pose Set ${seat.poseSetId}`);
+    }
+    w.writeUInt16(itemId);
+    w.writeUInt16(seat.poseSetId);
+    w.writeUInt8(seat.directionMask & 0x0F);
+    for (const direction of ['north', 'east', 'south', 'west'] as const) {
+      const offset = seat.offsets[direction] ?? { x: 0, y: 0 };
+      w.writeInt16(offset.x);
+      w.writeInt16(offset.y);
+    }
+  }
+
+  const profiles = Array.from(data.seatPoseProfiles.values())
+    .sort((a, b) =>
+      `${a.poseSetId ?? 0}:${a.direction}`
+        .localeCompare(`${b.poseSetId ?? 0}:${b.direction}`)
+    );
+  const poseSets = Array.from(data.poseSets.values()).sort((a, b) => a.id - b.id);
+  for (const poseSet of poseSets) {
+    if (!Number.isInteger(poseSet.id) || poseSet.id <= 0 || poseSet.id > 0xFFFF) {
+      throw new Error(`Pose Set ID ${poseSet.id} is outside the UInt16 protocol range`);
+    }
+  }
+  for (const profile of profiles) {
+    if (profile.poseSetId == null || !data.poseSets.has(profile.poseSetId)) {
+      throw new Error(`Pose profile ${profile.direction} references a missing Pose Set`);
+    }
+  }
+  w.writeString(JSON.stringify({ poseSets, profiles }));
 
   const totalCount = data.itemCount + data.outfitCount + data.equipmentCount
     + data.hairCount + data.effectCount + data.distanceCount;

@@ -6,6 +6,12 @@ import PacketReader from './packet-reader';
 import { parseEmperiaHeader, EMPERIA_HEADER_SIZE, EmperiaFileType } from './emperia-format';
 import type { ObjectData, ThingType, ThingFlags, FrameGroup, ThingCategory } from './types';
 import { decodeItemSlotType } from './item-slot-types';
+import {
+  createDefaultPoseSets,
+  createDefaultSeatPoseProfiles,
+  DEFAULT_BENCH_POSE_SET_ID,
+  DEFAULT_CHAIR_POSE_SET_ID,
+} from './default-seat-pose-profiles';
 
 const LEGACY_SIGNATURES: Record<string, number> = {
   "41BF619C": 740,
@@ -315,6 +321,47 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
   const equipmentAppearances = new Map<number, import('./types').EquipmentAppearance>();
   const visualEquipmentAppearances = new Map<number, import('./types').VisualEquipmentAppearance>();
   const hairDefinitions = new Map<number, import('./types').HairDefinition>();
+  const itemSeatDefinitions = new Map<number, import('./types').ItemSeatDefinition>();
+  const poseSets = new Map<number, import('./types').PoseSetDefinition>();
+  const seatPoseProfiles = new Map<string, import('./types').SeatPoseProfile>();
+  if (formatVersion === 6) {
+    const offsets = () => ({
+      north: { x: 0, y: 0 },
+      east: { x: 0, y: 0 },
+      south: { x: 0, y: 0 },
+      west: { x: 0, y: 0 },
+    });
+    if (itemAppearances.has(1650)) {
+      itemSeatDefinitions.set(1650, {
+        poseSetId: DEFAULT_CHAIR_POSE_SET_ID,
+        directionMask: 1,
+        offsets: { ...offsets(), north: { x: 1, y: -28 } },
+      });
+    }
+    if (itemAppearances.has(1653)) {
+      itemSeatDefinitions.set(1653, {
+        poseSetId: DEFAULT_CHAIR_POSE_SET_ID,
+        directionMask: 8,
+        offsets: offsets(),
+      });
+    }
+    for (const itemId of [1662, 1663]) {
+      if (!itemAppearances.has(itemId)) continue;
+      itemSeatDefinitions.set(itemId, {
+        poseSetId: DEFAULT_BENCH_POSE_SET_ID,
+        directionMask: 4,
+        offsets: { ...offsets(), south: { x: 5, y: 4 } },
+      });
+    }
+    for (const itemId of [1664, 1665]) {
+      if (!itemAppearances.has(itemId)) continue;
+      itemSeatDefinitions.set(itemId, {
+        poseSetId: DEFAULT_BENCH_POSE_SET_ID,
+        directionMask: 2,
+        offsets: { ...offsets(), east: { x: 5, y: -2 } },
+      });
+    }
+  }
   if (formatVersion >= 4) {
     const equipmentCount = packet.readUInt32();
     for (let index = 0; index < equipmentCount; index++) {
@@ -351,6 +398,99 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
         sortOrder: packet.readUInt16(),
         name: packet.readString(),
       });
+    }
+
+    if (formatVersion >= 7) {
+      const seatCount = packet.readUInt16();
+      for (let index = 0; index < seatCount; index++) {
+        const itemId = packet.readUInt16();
+        let typeCode = 0;
+        let poseSetId: number;
+        let directionMask: number;
+        if (formatVersion >= 10) {
+          poseSetId = packet.readUInt16();
+          directionMask = packet.readUInt8() & 0x0F;
+        } else {
+          typeCode = packet.readUInt8();
+          directionMask = packet.readUInt8() & 0x0F;
+          poseSetId = formatVersion >= 9
+            ? packet.readUInt16()
+            : typeCode === 1 ? DEFAULT_CHAIR_POSE_SET_ID : DEFAULT_BENCH_POSE_SET_ID;
+        }
+        const offsets = {
+          north: { x: packet.readInt16(), y: packet.readInt16() },
+          east: { x: packet.readInt16(), y: packet.readInt16() },
+          south: { x: packet.readInt16(), y: packet.readInt16() },
+          west: { x: packet.readInt16(), y: packet.readInt16() },
+        };
+        if (formatVersion < 10 && typeCode !== 1 && typeCode !== 2) {
+          throw new Error(`Unknown EOBJ seat type code ${typeCode} for item ${itemId}`);
+        }
+        itemSeatDefinitions.set(itemId, {
+          poseSetId,
+          directionMask,
+          offsets,
+        });
+      }
+    }
+    if (formatVersion >= 9) {
+      const serializedLibrary = packet.readString();
+      const library = JSON.parse(serializedLibrary) as {
+        poseSets: import('./types').PoseSetDefinition[];
+        profiles: import('./types').SeatPoseProfile[];
+      };
+      for (const poseSet of library.poseSets ?? []) {
+        poseSets.set(poseSet.id, {
+          id: poseSet.id,
+          name: poseSet.name,
+          action: poseSet.action,
+        });
+      }
+      for (const profile of library.profiles ?? []) {
+        if (profile.poseSetId == null) continue;
+        seatPoseProfiles.set(`${profile.poseSetId}:${profile.direction}`, {
+          ...profile,
+          action: poseSets.get(profile.poseSetId)?.action ?? profile.action ?? 'sit',
+          variant: undefined,
+          seatType: undefined,
+        });
+      }
+    } else if (formatVersion >= 8) {
+      const serializedProfiles = packet.readString();
+      const profiles = JSON.parse(serializedProfiles) as import('./types').SeatPoseProfile[];
+      for (const [id, poseSet] of createDefaultPoseSets()) poseSets.set(id, poseSet);
+      for (const profile of profiles) {
+        profile.action ??= 'sit';
+        profile.variant ??= profile.seatType;
+        profile.poseSetId = profile.variant === 'bench'
+          ? DEFAULT_BENCH_POSE_SET_ID
+          : DEFAULT_CHAIR_POSE_SET_ID;
+        profile.variant = undefined;
+        profile.seatType = undefined;
+        const key = `${profile.poseSetId}:${profile.direction}`;
+        seatPoseProfiles.set(key, profile);
+      }
+    }
+  }
+  if (poseSets.size === 0) {
+    for (const [id, poseSet] of createDefaultPoseSets()) poseSets.set(id, poseSet);
+  }
+  if (seatPoseProfiles.size === 0) {
+    for (const [key, profile] of createDefaultSeatPoseProfiles()) {
+      seatPoseProfiles.set(key, profile);
+      const bit = profile.direction === 'north' ? 1
+        : profile.direction === 'east' ? 2
+          : profile.direction === 'south' ? 4 : 8;
+      for (const [itemId, seat] of itemSeatDefinitions) {
+        if (seat.poseSetId !== profile.poseSetId || (seat.directionMask & bit) === 0) continue;
+        itemSeatDefinitions.set(itemId, {
+          ...seat,
+          offsets: {
+            ...seat.offsets,
+            [profile.direction]: { x: 0, y: 0 },
+          },
+        });
+      }
     }
   }
   const totalCount = itemCount + outfitCount + equipmentCount + hairCount + effectCount + distanceCount;
@@ -401,6 +541,9 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
     itemAppearances,
     outfitAppearances,
     itemSlotTypes,
+    itemSeatDefinitions,
+    poseSets,
+    seatPoseProfiles,
     equipmentAppearances,
     visualEquipmentAppearances,
     hairDefinitions,

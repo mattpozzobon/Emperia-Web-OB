@@ -86,6 +86,12 @@ export interface ObjectData {
   outfitAppearances: Map<number, number>;
   /** Public item ID -> compact slot/category metadata, embedded in EOBJ. */
   itemSlotTypes: Map<number, string>;
+  /** Public item ID -> client-only seated-pose metadata, embedded in EOBJ. */
+  itemSeatDefinitions: Map<number, ItemSeatDefinition>;
+  /** Stable pose-set ID -> reusable action/variant metadata, embedded in EOBJ. */
+  poseSets: Map<number, PoseSetDefinition>;
+  /** Pose-set ID + direction -> Pose Lab rig, embedded in EOBJ. */
+  seatPoseProfiles: Map<string, SeatPoseProfile>;
   /** Public item ID -> zero-based equipment appearances, embedded in EOBJ. */
   equipmentAppearances: Map<number, EquipmentAppearance>;
   /** Stable visual equipment ID -> zero-based equipment appearance, without an item. */
@@ -95,6 +101,101 @@ export interface ObjectData {
   things: Map<number, ThingType>;
   /** The entire original file buffer for lossless round-trip */
   originalBuffer: ArrayBuffer;
+}
+
+export type SeatType = 'chair' | 'bench';
+export type SeatDirection = 'north' | 'east' | 'south' | 'west';
+export type PoseAction = 'sit' | 'sit-ground' | 'attack';
+
+export interface SeatOffset {
+  x: number;
+  y: number;
+}
+
+export interface ItemSeatDefinition {
+  /** Reusable Pose Set selected for this furniture item. */
+  poseSetId: number;
+  /** Direction bits use north=1, east=2, south=4, west=8. */
+  directionMask: number;
+  offsets: Record<SeatDirection, SeatOffset>;
+}
+
+export interface PoseSetDefinition {
+  id: number;
+  name: string;
+  action: PoseAction;
+}
+
+export interface PoseSegmentTransform {
+  translate: SeatOffset;
+  /** Percentage where 100 means the original size. */
+  scale: SeatOffset;
+  /** Shear angles in degrees. */
+  skew: SeatOffset;
+}
+
+export type BodyPartId =
+  | 'torso' | 'head'
+  | 'upper-arm-left' | 'forearm-left' | 'hand-left'
+  | 'upper-arm-right' | 'forearm-right' | 'hand-right'
+  | 'thigh-left' | 'shin-left' | 'foot-left'
+  | 'thigh-right' | 'shin-right' | 'foot-right';
+
+export interface BodyPartPose {
+  id: BodyPartId;
+  parentId: BodyPartId | null;
+  anchor: SeatOffset;
+  rotation: number;
+  offset: SeatOffset;
+  visible: boolean;
+}
+
+export interface AnatomicalRig {
+  version: 1;
+  parts: BodyPartPose[];
+  drawOrder: BodyPartId[];
+  maskRanges: Partial<Record<BodyPartId, string>>;
+}
+
+export interface SeatPoseProfile {
+  /** Stable parent set. action/variant/seatType remain for v8 migration compatibility. */
+  poseSetId?: number;
+  action?: PoseAction;
+  variant?: string;
+  seatType?: SeatType;
+  direction: SeatDirection;
+  width: number;
+  height: number;
+  horizontal: boolean;
+  hip: { start: SeatOffset; end: SeatOffset };
+  knee: { start: SeatOffset; end: SeatOffset };
+  ankle: { start: SeatOffset; end: SeatOffset };
+  torsoAngle: number;
+  hipAngle: number;
+  kneeAngle: number;
+  bend: number;
+  shinBend: number;
+  hipSplitOffset: number;
+  kneeSplitOffset: number;
+  torsoCut: SeatOffset;
+  thighCut: SeatOffset;
+  shinCut: SeatOffset;
+  torsoLean: number;
+  segmentTransforms?: {
+    torso: PoseSegmentTransform;
+    thigh: PoseSegmentTransform;
+    shin: PoseSegmentTransform;
+  };
+  drawLayers: Array<{ region: 1 | 2 | 3; visible: boolean }>;
+  playerOffset: SeatOffset;
+  benchOffset: SeatOffset;
+  maskRanges: Record<1 | 2 | 3 | 4 | 5, string>;
+  /** Optional articulated rig. Legacy torso/thigh/shin profiles remain valid. */
+  anatomicalRig?: AnatomicalRig;
+}
+
+export function poseSetProfileKey(poseSetId: number, direction: SeatDirection): string {
+  return `${poseSetId}:${direction}`;
 }
 
 export interface EquipmentAppearance {
@@ -196,7 +297,7 @@ export function deriveTopOrder(f: ThingFlags): number {
  * Derive the server group from visual ThingFlags.
  */
 export function deriveGroup(f: ThingFlags): number {
-  if (f.ground || f.groundBorder) return 1;  // Ground
+  if (f.ground) return 1;                    // Ground
   if (f.container) return 2;                  // Container
   if (f.splash) return 11;                    // Splash
   if (f.fluidContainer) return 12;            // Fluid Container

@@ -531,10 +531,11 @@ export async function runCompile(
       itemSlotTypes,
       equipmentAppearances,
       hairDefinitions,
+      od.itemSeatDefinitions,
     );
     reparsedObject = parseObjectData(buf);
-    if (reparsedObject.formatVersion !== 6) {
-      throw new Error(`Generated EOBJ v${reparsedObject.formatVersion}; expected v6.`);
+    if (reparsedObject.formatVersion !== 10) {
+      throw new Error(`Generated EOBJ v${reparsedObject.formatVersion}; expected v10.`);
     }
     if (reparsedObject.itemAppearances.size !== itemAppearances.size) {
       throw new Error('Generated EOBJ item mapping is incomplete.');
@@ -544,6 +545,15 @@ export async function runCompile(
     }
     if (reparsedObject.hairDefinitions.size !== hairDefinitions.size) {
       throw new Error('Generated EOBJ hair catalog is incomplete.');
+    }
+    if (reparsedObject.itemSeatDefinitions.size !== od.itemSeatDefinitions.size) {
+      throw new Error('Generated EOBJ seat metadata is incomplete.');
+    }
+    if (reparsedObject.poseSets.size !== od.poseSets.size) {
+      throw new Error('Generated EOBJ Pose Set catalog is incomplete.');
+    }
+    if (reparsedObject.seatPoseProfiles.size !== od.seatPoseProfiles.size) {
+      throw new Error('Generated EOBJ seated-pose catalog is incomplete.');
     }
     artifacts.push({ role: 'obj', name: sourceNames.obj || 'emperia.eobj', buf });
     return buf.byteLength;

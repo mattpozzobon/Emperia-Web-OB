@@ -11,9 +11,10 @@
  *   0x10  4B  Reserved
  *   0x14  --  Payload
  *
- * Object definitions format v6:
+ * Object definitions format v10:
  *   six category counts, public item/outfit mappings, compact item slot types,
  *   item equipment bindings, direct visual equipment, hair definitions,
+ *   client-only seating bindings and reusable Pose Set library,
  *   then object records.
  */
 

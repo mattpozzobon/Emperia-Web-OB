@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { ChevronDown, ChevronRight, Copy, ClipboardPaste } from 'lucide-react';
 import { useOBStore } from '../store';
-import type { ItemProperties, ThingCategory, ThingFlags } from '../lib/types';
+import type { ItemProperties, ItemSeatDefinition, SeatDirection, ThingCategory, ThingFlags } from '../lib/types';
 import { ColorPalettePopover } from './ColorPalettePopover';
 import { ServerPropertiesEditor } from './ServerPropertiesEditor';
 import { HelpTooltip } from './HelpTooltip';
@@ -288,13 +288,21 @@ export function PropertyInspector() {
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   const updateItemDefinition = useOBStore((s) => s.updateItemDefinition);
+  const updateItemSeatDefinition = useOBStore((s) => s.updateItemSeatDefinition);
   // Subscribe to editVersion so edits cause re-render
   useOBStore((s) => s.editVersion);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
-  const itemId = selectedId != null ? appearanceToItemIds.get(selectedId) : undefined;
+  const itemId = selectedId != null
+    ? appearanceToItemIds.get(selectedId)
+      ?? Array.from(objectData?.itemAppearances.entries() ?? [])
+        .find(([, appearanceId]) => appearanceId === selectedId)?.[0]
+    : undefined;
   const itemProperties = itemId != null
     ? itemDefinitions.get(itemId)?.properties ?? null
+    : null;
+  const seatDefinition = itemId != null
+    ? objectData?.itemSeatDefinitions.get(itemId) ?? null
     : null;
 
   const updateTextConfiguration = useCallback((
@@ -477,6 +485,14 @@ export function PropertyInspector() {
             />
           </div>
         )}
+        {thing.category === 'item' && (
+          <div className="h-full">
+            <SeatingSection
+              definition={seatDefinition}
+              onChange={(definition) => updateItemSeatDefinition(thing.id, definition)}
+            />
+          </div>
+        )}
         {FLAG_GROUPS.filter((group) => group.fullWidth).map((group) => {
           const visibleFlags = group.flags.filter((flag) =>
             !flag.categories || flag.categories.includes(thing.category)
@@ -510,6 +526,131 @@ export function PropertyInspector() {
         </div>
         <ServerPropertiesEditor />
       </section>
+    </div>
+  );
+}
+
+const SEAT_DIRECTIONS: {
+  key: SeatDirection;
+  label: string;
+  name: string;
+  bit: number;
+}[] = [
+  { key: 'north', label: '↑', name: 'North', bit: 1 },
+  { key: 'east', label: '→', name: 'East', bit: 2 },
+  { key: 'south', label: '↓', name: 'South', bit: 4 },
+  { key: 'west', label: '←', name: 'West', bit: 8 },
+];
+
+function createSeatDefinition(): ItemSeatDefinition {
+  return {
+    poseSetId: 0,
+    directionMask: 0,
+    offsets: {
+      north: { x: 0, y: 0 },
+      east: { x: 0, y: 0 },
+      south: { x: 0, y: 0 },
+      west: { x: 0, y: 0 },
+    },
+  };
+}
+
+function SeatingSection({
+  definition,
+  onChange,
+}: {
+  definition: ItemSeatDefinition | null;
+  onChange: (definition: ItemSeatDefinition | null) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const poseSets = useOBStore((state) => state.objectData?.poseSets);
+  const availablePoseSets = Array.from(poseSets?.values() ?? [])
+    .filter((poseSet) => poseSet.action === 'sit')
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const update = (patch: Partial<ItemSeatDefinition>) => {
+    if (!definition) return;
+    onChange({ ...definition, ...patch });
+  };
+
+  return (
+    <div className="h-full overflow-hidden rounded-md border border-emperia-border/60 bg-emperia-bg/20">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center gap-1.5 border-b border-transparent bg-emperia-surface/60 px-2.5 py-2
+                   text-left transition-colors hover:bg-emperia-surface"
+      >
+        {open
+          ? <ChevronDown className="h-3 w-3 shrink-0 text-emperia-muted" />
+          : <ChevronRight className="h-3 w-3 shrink-0 text-emperia-muted" />}
+        <span className="flex-1 text-[10px] font-semibold uppercase tracking-wider text-emperia-text">
+          Seating
+        </span>
+        <input
+          type="checkbox"
+          checked={definition !== null}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => {
+            if (event.target.checked) {
+              setOpen(true);
+              onChange(createSeatDefinition());
+            } else {
+              onChange(null);
+            }
+          }}
+          title="Allow the local client to render creatures seated on this item"
+        />
+      </button>
+      {open && definition && (
+        <div className="space-y-2 px-2.5 py-2">
+          <label className="block">
+            <span className="mb-1 block text-[10px] text-emperia-muted">Pose Set</span>
+            <select
+              value={definition.poseSetId}
+              onChange={(event) => update({ poseSetId: Number(event.target.value) })}
+              className="w-full rounded border border-emperia-border bg-emperia-bg px-2 py-1 text-[9px] text-emperia-text"
+            >
+              <option value={0}>Not assigned</option>
+              {availablePoseSets.map((poseSet) => (
+                <option key={poseSet.id} value={poseSet.id}>
+                  {poseSet.name} (#{poseSet.id})
+                </option>
+              ))}
+            </select>
+          </label>
+          <div>
+            <div className="mb-1 text-[10px] text-emperia-muted">Allowed facing directions</div>
+            <div className="grid grid-cols-4 gap-1">
+              {SEAT_DIRECTIONS.map(({ key, label, name, bit }) => {
+                const enabled = (definition.directionMask & bit) !== 0;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    title={name}
+                    aria-label={`${name} facing ${enabled ? 'enabled' : 'disabled'}`}
+                    onClick={() => update({
+                      directionMask: enabled
+                        ? definition.directionMask & ~bit
+                        : definition.directionMask | bit,
+                    })}
+                    className={`rounded border px-1 py-1 text-sm leading-none ${
+                      enabled
+                        ? 'border-emperia-accent/70 bg-emperia-accent/15 text-emperia-accent'
+                        : 'border-emperia-border text-emperia-muted'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <p className="text-[9px] leading-relaxed text-emperia-muted/60">
+            Client-only EOBJ metadata. The server receives no seated state.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

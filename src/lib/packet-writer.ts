@@ -29,6 +29,10 @@ export default class PacketWriter {
     this.current[this.pos++] = v & 0xFF;
   }
 
+  writeInt16(v: number): void {
+    this.writeUInt16(v & 0xFFFF);
+  }
+
   writeUInt16(v: number): void {
     this.ensure(2);
     this.current[this.pos++] = v & 0xFF;

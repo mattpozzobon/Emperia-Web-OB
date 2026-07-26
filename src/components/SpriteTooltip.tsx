@@ -110,7 +110,7 @@ function SpriteTooltipOverlay({ url, label, x, y, nativeW, nativeH }: SpriteTool
       className="fixed z-[9999] pointer-events-none"
       style={{ left: pos.x, top: pos.y }}
     >
-      <div className="bg-emperia-panel border border-emperia-border rounded-lg shadow-xl p-1.5 flex flex-col items-center gap-1">
+      <div className="flex flex-col items-center gap-1.5 rounded-lg border border-emperia-border bg-emperia-panel p-2 shadow-xl">
         <div
           className="checkerboard rounded"
           style={{ width: displayW + 8, height: displayH + 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -127,7 +127,9 @@ function SpriteTooltipOverlay({ url, label, x, y, nativeW, nativeH }: SpriteTool
           />
         </div>
         {label && (
-          <span className="text-[10px] text-emperia-muted font-mono leading-none">{label}</span>
+          <span className="max-w-64 rounded border border-white/15 bg-black/80 px-2 py-1 font-mono text-[13px] font-bold leading-tight text-white shadow-sm">
+            {label}
+          </span>
         )}
       </div>
     </div>

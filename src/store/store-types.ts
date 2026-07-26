@@ -1,7 +1,7 @@
 /**
  * Shared types for the OB Zustand store.
  */
-import type { ObjectData, SpriteData, ThingType, ThingCategory, LibraryCategory, ThingFlags, FrameGroup, ItemDefinition, EquipmentCatalogEntry, HairDefinition } from '../lib/types';
+import type { ObjectData, SpriteData, ThingType, ThingCategory, LibraryCategory, ThingFlags, FrameGroup, ItemDefinition, EquipmentCatalogEntry, HairDefinition, ItemSeatDefinition, SeatPoseProfile, PoseAction } from '../lib/types';
 import type { OutfitDefinition } from './outfit-slice';
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 
@@ -149,6 +149,11 @@ export interface OBState {
 
   // Server definitions actions
   updateItemDefinition: (appearanceId: number, data: Partial<ItemDefinition>) => void;
+  // Client-only seating metadata embedded in EOBJ
+  updateItemSeatDefinition: (appearanceId: number, definition: ItemSeatDefinition | null) => void;
+  updateSeatPoseProfile: (profile: SeatPoseProfile) => void;
+  createPoseSet: (action: PoseAction, name: string, copyFromId?: number) => number | null;
+  renamePoseSet: (poseSetId: number, name: string) => void;
 
   // Sprite atlas maintenance
   compactSpriteAtlas: () => { removed: number; deduplicated: number; blanked: number; oldCount: number; newCount: number } | null;

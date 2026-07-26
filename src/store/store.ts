@@ -6,7 +6,7 @@ import type { ThingType, ThingCategory, ThingFlags, FrameGroup, ItemDefinition }
 import { parseObjectData } from '../lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from '../lib/sprite-decoder';
 import { maybeDecompress } from '../lib/emperia-format';
-import { syncItemFlagsFromVisual, deriveGroup, deriveTopOrder } from '../lib/types';
+import { syncItemFlagsFromVisual, deriveGroup, deriveTopOrder, poseSetProfileKey } from '../lib/types';
 import type { OBState } from './store-types';
 import { shiftThingsDown, allocateThingId, remapSpriteIds } from './thing-helpers';
 import { createHairCatalogSlice } from './hair-catalog-slice';
@@ -284,6 +284,109 @@ export const useOBStore = create<OBState>((set, get) => ({
     const newAppearanceMap = new Map(appearanceToItemIds);
     if (!newAppearanceMap.has(appearanceId)) newAppearanceMap.set(appearanceId, itemId);
     set({ itemDefinitions: newDefs, appearanceToItemIds: newAppearanceMap, dirty: true, editVersion: editVersion + 1 });
+  },
+
+  updateItemSeatDefinition: (appearanceId, definition) => {
+    const { objectData, appearanceToItemIds, editVersion } = get();
+    if (!objectData) return;
+    let itemId = appearanceToItemIds.get(appearanceId);
+    if (itemId == null) {
+      for (const [candidateItemId, candidateAppearanceId] of objectData.itemAppearances) {
+        if (candidateAppearanceId === appearanceId) {
+          itemId = candidateItemId;
+          break;
+        }
+      }
+    }
+    if (itemId == null) return;
+    const itemSeatDefinitions = new Map(objectData.itemSeatDefinitions);
+    if (definition) {
+      itemSeatDefinitions.set(itemId, {
+        poseSetId: definition.poseSetId,
+        directionMask: definition.directionMask & 0x0F,
+        offsets: {
+          north: { ...definition.offsets.north },
+          east: { ...definition.offsets.east },
+          south: { ...definition.offsets.south },
+          west: { ...definition.offsets.west },
+        },
+      });
+    } else {
+      itemSeatDefinitions.delete(itemId);
+    }
+    set({
+      objectData: { ...objectData, itemSeatDefinitions },
+      dirty: true,
+      editVersion: editVersion + 1,
+    });
+  },
+
+  updateSeatPoseProfile: (profile) => {
+    const { objectData, editVersion } = get();
+    if (!objectData) return;
+    if (profile.poseSetId == null || !objectData.poseSets.has(profile.poseSetId)) return;
+    const seatPoseProfiles = new Map(objectData.seatPoseProfiles);
+    const poseSet = objectData.poseSets.get(profile.poseSetId)!;
+    const profileKey = poseSetProfileKey(profile.poseSetId, profile.direction);
+    seatPoseProfiles.set(profileKey, structuredClone({
+      ...profile,
+      action: poseSet.action,
+      variant: undefined,
+      seatType: undefined,
+    }));
+    set({
+      objectData: { ...objectData, seatPoseProfiles },
+      dirty: true,
+      editVersion: editVersion + 1,
+    });
+  },
+
+  createPoseSet: (action, name, copyFromId) => {
+    const { objectData, editVersion } = get();
+    if (!objectData) return null;
+    const usedIds = new Set(objectData.poseSets.keys());
+    let id = 1;
+    while (usedIds.has(id) && id < 0xFFFF) id++;
+    if (usedIds.has(id)) return null;
+
+    const poseSets = new Map(objectData.poseSets);
+    poseSets.set(id, {
+      id,
+      action,
+      name: name.trim() || `Pose Set ${id}`,
+    });
+    const seatPoseProfiles = new Map(objectData.seatPoseProfiles);
+    if (copyFromId != null) {
+      for (const profile of objectData.seatPoseProfiles.values()) {
+        if (profile.poseSetId !== copyFromId) continue;
+        const copy = structuredClone(profile);
+        copy.poseSetId = id;
+        copy.action = action;
+        copy.variant = undefined;
+        copy.seatType = undefined;
+        seatPoseProfiles.set(poseSetProfileKey(id, copy.direction), copy);
+      }
+    }
+    set({
+      objectData: { ...objectData, poseSets, seatPoseProfiles },
+      dirty: true,
+      editVersion: editVersion + 1,
+    });
+    return id;
+  },
+
+  renamePoseSet: (poseSetId, name) => {
+    const { objectData, editVersion } = get();
+    const poseSet = objectData?.poseSets.get(poseSetId);
+    const trimmedName = name.trim();
+    if (!objectData || !poseSet || !trimmedName || trimmedName === poseSet.name) return;
+    const poseSets = new Map(objectData.poseSets);
+    poseSets.set(poseSetId, { ...poseSet, name: trimmedName });
+    set({
+      objectData: { ...objectData, poseSets },
+      dirty: true,
+      editVersion: editVersion + 1,
+    });
   },
 
   // ─── Thing flag editing + undo/redo ─────────────────────────────────────────
