@@ -86,6 +86,8 @@ export interface ObjectData {
   outfitAppearances: Map<number, number>;
   /** Public item ID -> compact slot/category metadata, embedded in EOBJ. */
   itemSlotTypes: Map<number, string>;
+  /** Public item ID -> semantic identity used by interaction and lighting. */
+  itemIdentities: Map<number, string>;
   /** Public item ID -> client-only seated-pose metadata, embedded in EOBJ. */
   itemSeatDefinitions: Map<number, ItemSeatDefinition>;
   /** Stable pose-set ID -> reusable action/variant metadata, embedded in EOBJ. */
@@ -353,7 +355,8 @@ export interface ItemProperties {
 
   // Requirements
   level?: number;
-  expertise?: number;
+  /** Numeric item requirement, or the legacy boolean marker used by expertise gates. */
+  expertise?: number | boolean;
 
   // Container
   containerSize?: number;

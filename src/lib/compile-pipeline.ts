@@ -18,6 +18,7 @@ import {
 } from './types';
 import { ITEM_LOCALES } from './types';
 import { serializeItemCatalog, sourceHash } from './item-localization';
+import { isItemIdentity } from './item-identity-codec';
 
 export interface CompileStep {
   label: string;
@@ -469,13 +470,19 @@ export async function runCompile(
 
   const itemAppearances = new Map<number, number>(od.itemAppearances);
   const itemSlotTypes = new Map<number, string>(od.itemSlotTypes);
+  const itemIdentities = new Map<number, string>(od.itemIdentities);
   if (state.definitionsLoaded && itemDefinitions.size > 0) {
     itemAppearances.clear();
     itemSlotTypes.clear();
+    itemIdentities.clear();
     for (const [itemId, definition] of itemDefinitions) {
       itemAppearances.set(itemId, definition.appearanceId);
       const slotType = definition.properties?.slotType;
       if (typeof slotType === 'string' && slotType) itemSlotTypes.set(itemId, slotType);
+      const identity = definition.properties?.type;
+      if (typeof identity === 'string' && isItemIdentity(identity)) {
+        itemIdentities.set(itemId, identity);
+      }
     }
   }
   if (itemAppearances.size === 0 && sourceHandles.obj) {
@@ -486,6 +493,9 @@ export async function runCompile(
       }
       for (const [itemId, slotType] of diskObject.itemSlotTypes) {
         itemSlotTypes.set(itemId, slotType);
+      }
+      for (const [itemId, identity] of diskObject.itemIdentities) {
+        itemIdentities.set(itemId, identity);
       }
     } catch (error) {
       console.error('[OB] Could not refresh EOBJ mappings from disk:', error);
@@ -533,16 +543,20 @@ export async function runCompile(
       dirtyIds,
       itemAppearances,
       itemSlotTypes,
+      itemIdentities,
       equipmentAppearances,
       hairDefinitions,
       od.itemSeatDefinitions,
     );
     reparsedObject = parseObjectData(buf);
-    if (reparsedObject.formatVersion !== 10) {
-      throw new Error(`Generated EOBJ v${reparsedObject.formatVersion}; expected v10.`);
+    if (reparsedObject.formatVersion !== 11) {
+      throw new Error(`Generated EOBJ v${reparsedObject.formatVersion}; expected v11.`);
     }
     if (reparsedObject.itemAppearances.size !== itemAppearances.size) {
       throw new Error('Generated EOBJ item mapping is incomplete.');
+    }
+    if (reparsedObject.itemIdentities.size !== itemIdentities.size) {
+      throw new Error('Generated EOBJ item identity table is incomplete.');
     }
     if (reparsedObject.equipmentAppearances.size !== equipmentAppearances.size) {
       throw new Error('Generated EOBJ equipment catalog is incomplete.');
@@ -590,6 +604,11 @@ export async function runCompile(
         properties = {};
         for (const [key, value] of Object.entries(definition.properties)) {
           const canonicalKey = SERVER_PROPERTY_ALIASES[key] ?? key;
+          // ItemAttr.Type ("4") is the canonical server enum. `type` is kept
+          // in memory only as the EOBJ identity projection.
+          if (canonicalKey === 'type' && typeof definition.properties['4'] === 'number') {
+            continue;
+          }
           if (
             canonicalKey !== key
             && definition.properties[canonicalKey] !== undefined

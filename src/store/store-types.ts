@@ -110,6 +110,7 @@ export interface OBState {
   } | null;
 
   // Preview state (shared between SpritePreview and LayerPanel)
+  activeGroup: number;
   activeLayer: number;
   blendLayers: boolean;
   currentFrame: number;

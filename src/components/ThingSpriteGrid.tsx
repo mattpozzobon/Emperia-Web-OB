@@ -17,6 +17,24 @@ const MAX_GROUP_DIM = 8;
 
 const CELL = 40;
 const ATLAS_COLS = 6;
+const MAX_DIRECTIONAL_FRAME_COUNT = 255;
+
+const supportsFullSheetImport = (category?: string) => (
+  category === 'equipment' || category === 'hair' || category === 'outfit'
+);
+
+const categoryLabel = (category?: string) => {
+  if (category === 'hair') return 'Hair';
+  if (category === 'outfit') return 'Outfit';
+  return 'Equipment';
+};
+
+interface FullSheetPreview {
+  file: File;
+  url: string;
+  width: number;
+  height: number;
+}
 
 export function ThingSpriteGrid() {
   const selectedId = useOBStore((s) => s.selectedThingId);
@@ -29,6 +47,11 @@ export function ThingSpriteGrid() {
   const [showCustomSize, setShowCustomSize] = useState(false);
   const [customW, setCustomW] = useState(2);
   const [customH, setCustomH] = useState(2);
+  const [showFullSheetConfig, setShowFullSheetConfig] = useState(false);
+  const [fullSheetIdleFrames, setFullSheetIdleFrames] = useState(1);
+  const [fullSheetMovingFrames, setFullSheetMovingFrames] = useState(2);
+  const [fullSheetSpriteSize, setFullSheetSpriteSize] = useState<32 | 64>(64);
+  const [fullSheetPreview, setFullSheetPreview] = useState<FullSheetPreview | null>(null);
 
   const selectedSlots = useOBStore((s) => s.selectedSlots);
 
@@ -48,11 +71,42 @@ export function ThingSpriteGrid() {
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
 
-  const handleFullSheetImport = useCallback(async (files: FileList | null) => {
+  useEffect(() => {
+    return () => {
+      if (fullSheetPreview?.url) URL.revokeObjectURL(fullSheetPreview.url);
+    };
+  }, [fullSheetPreview?.url]);
+
+  const handleFullSheetSelection = useCallback((files: FileList | null) => {
     const file = files?.[0];
     if (!file) return;
-    if (!thing || !spriteData || thing.category !== 'equipment') {
-      alert('Select an Equipment object before importing equipment.');
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      const rowCount = fullSheetIdleFrames + fullSheetMovingFrames;
+      const detectedSize = ([32, 64] as const).find((size) => (
+        image.naturalWidth === size * 4 && image.naturalHeight === size * rowCount
+      ));
+      if (detectedSize) setFullSheetSpriteSize(detectedSize);
+      setFullSheetPreview({
+        file,
+        url,
+        width: image.naturalWidth,
+        height: image.naturalHeight,
+      });
+      setShowFullSheetConfig(false);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      alert('Could not load the selected image.');
+    };
+    image.src = url;
+  }, [fullSheetIdleFrames, fullSheetMovingFrames]);
+
+  const handleFullSheetImport = useCallback(async (file: File | null) => {
+    if (!file) return;
+    if (!thing || !spriteData || !supportsFullSheetImport(thing.category)) {
+      alert('Select an Equipment, Hair, or Outfit object before importing a directional sheet.');
       return;
     }
 
@@ -62,6 +116,9 @@ export function ThingSpriteGrid() {
         file,
         thing,
         addSprite: store.addSprite,
+        idleFrames: fullSheetIdleFrames,
+        movingFrames: fullSheetMovingFrames,
+        spriteSize: fullSheetSpriteSize,
       });
       clearSpriteCache();
       const latest = useOBStore.getState();
@@ -76,14 +133,17 @@ export function ThingSpriteGrid() {
         activeLayer: 0,
         selectedSlots: [],
       });
+      setShowFullSheetConfig(false);
+      setFullSheetPreview(null);
       alert(
-        `Equipment imported: 2x2, ${result.idleFrames} Idle frame(s), `
+        `${categoryLabel(thing.category)} imported: ${fullSheetSpriteSize}x${fullSheetSpriteSize}px, `
+        + `${result.idleFrames} Idle frame(s), `
         + `${result.movingFrames} Moving frame(s), 4 directions.`,
       );
     } catch (error) {
       alert(`Could not import complete sheet: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [thing, spriteData]);
+  }, [thing, spriteData, fullSheetIdleFrames, fullSheetMovingFrames, fullSheetSpriteSize]);
 
   // Import PNG(s) as new atlas sprites (always sliced into 32×32 tiles)
   // When grouped (W>1 or H>1), inserts blank padding sprites after each W×H group
@@ -424,6 +484,15 @@ export function ThingSpriteGrid() {
     e.dataTransfer.effectAllowed = 'copy';
   }, []);
 
+  const fullSheetRowCount = fullSheetIdleFrames + fullSheetMovingFrames;
+  const expectedFullSheetWidth = fullSheetSpriteSize * 4;
+  const expectedFullSheetHeight = fullSheetRowCount * fullSheetSpriteSize;
+  const fullSheetSizeMatches = Boolean(
+    fullSheetPreview
+    && fullSheetPreview.width === expectedFullSheetWidth
+    && fullSheetPreview.height === expectedFullSheetHeight,
+  );
+
   if (!spriteData) {
     return <div className="p-3 text-emperia-muted text-xs">Load files to browse sprites</div>;
   }
@@ -470,7 +539,7 @@ export function ThingSpriteGrid() {
             accept="image/png,image/gif,image/bmp"
             className="hidden"
             onChange={(event) => {
-              void handleFullSheetImport(event.target.files);
+              handleFullSheetSelection(event.target.files);
               event.target.value = '';
             }}
           />
@@ -481,15 +550,94 @@ export function ThingSpriteGrid() {
           >
             <Plus className="w-3.5 h-3.5" />
           </button>
-          <button
-            onClick={() => fullSheetInputRef.current?.click()}
-            disabled={!thing || thing.category !== 'equipment'}
-            className="flex items-center gap-1 rounded border border-emperia-accent/40 bg-emperia-accent/10 px-1.5 py-1 text-[10px] font-medium text-emperia-accent transition-colors hover:border-emperia-accent hover:bg-emperia-accent/20 disabled:cursor-default disabled:opacity-30"
-            title="Import Equipment — automatically configures 2x2, 4 directions, 1 Idle and 2 Moving frames"
-          >
-            <Images className="w-3.5 h-3.5" />
-            <span>Equipment</span>
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowFullSheetConfig((visible) => !visible)}
+              disabled={!thing || !supportsFullSheetImport(thing.category)}
+              className="flex items-center gap-1 rounded border border-emperia-accent/40 bg-emperia-accent/10 px-1.5 py-1 text-[10px] font-medium text-emperia-accent transition-colors hover:border-emperia-accent hover:bg-emperia-accent/20 disabled:cursor-default disabled:opacity-30"
+              title="Import a 32x32 or 64x64 directional sheet for Equipment, Hair, or Outfit"
+            >
+              <Images className="w-3.5 h-3.5" />
+              <span>Sprite Sheet</span>
+            </button>
+            {showFullSheetConfig && thing && supportsFullSheetImport(thing.category) && (
+              <div className="absolute left-0 top-full z-50 mt-1 w-56 rounded border border-emperia-border bg-emperia-surface p-2.5 shadow-xl">
+                <div className="mb-2 flex items-center justify-between">
+                  <div>
+                    <p className="text-[11px] font-semibold text-emperia-text">
+                      Import {categoryLabel(thing.category)}
+                    </p>
+                    <p className="text-[9px] text-emperia-muted">4 directions</p>
+                  </div>
+                  <button
+                    onClick={() => setShowFullSheetConfig(false)}
+                    className="rounded p-0.5 text-emperia-muted hover:bg-emperia-hover hover:text-emperia-text"
+                    title="Close"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div className="mb-2">
+                  <p className="mb-1 text-[9px] text-emperia-muted">Sprite size</p>
+                  <div className="grid grid-cols-2 gap-1">
+                    {([32, 64] as const).map((size) => (
+                      <button
+                        key={size}
+                        onClick={() => setFullSheetSpriteSize(size)}
+                        className={`rounded border px-2 py-1 text-[10px] font-medium transition-colors ${
+                          fullSheetSpriteSize === size
+                            ? 'border-emperia-accent bg-emperia-accent/20 text-emperia-accent'
+                            : 'border-emperia-border bg-emperia-bg text-emperia-muted hover:text-emperia-text'
+                        }`}
+                      >
+                        {size}x{size} <span className="opacity-70">({size / 32}x{size / 32})</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[9px] text-emperia-muted">
+                    Idle frames
+                    <input
+                      type="number"
+                      min={1}
+                      max={MAX_DIRECTIONAL_FRAME_COUNT}
+                      value={fullSheetIdleFrames}
+                      onChange={(event) => setFullSheetIdleFrames(Math.max(
+                        1,
+                        Math.min(MAX_DIRECTIONAL_FRAME_COUNT, parseInt(event.target.value, 10) || 1),
+                      ))}
+                      className="mt-0.5 w-full rounded border border-emperia-border bg-emperia-bg px-1.5 py-1 text-[11px] text-emperia-text outline-none focus:border-emperia-accent"
+                    />
+                  </label>
+                  <label className="text-[9px] text-emperia-muted">
+                    Moving frames
+                    <input
+                      type="number"
+                      min={1}
+                      max={MAX_DIRECTIONAL_FRAME_COUNT}
+                      value={fullSheetMovingFrames}
+                      onChange={(event) => setFullSheetMovingFrames(Math.max(
+                        1,
+                        Math.min(MAX_DIRECTIONAL_FRAME_COUNT, parseInt(event.target.value, 10) || 1),
+                      ))}
+                      className="mt-0.5 w-full rounded border border-emperia-border bg-emperia-bg px-1.5 py-1 text-[11px] text-emperia-text outline-none focus:border-emperia-accent"
+                    />
+                  </label>
+                </div>
+                <p className="mt-2 text-[9px] leading-4 text-emperia-muted">
+                  Expected sheet: {expectedFullSheetWidth}x{expectedFullSheetHeight} px.
+                  Idle rows first, then Moving rows.
+                </p>
+                <button
+                  onClick={() => fullSheetInputRef.current?.click()}
+                  className="mt-2 w-full rounded bg-emperia-accent/20 px-2 py-1.5 text-[10px] font-semibold text-emperia-accent transition-colors hover:bg-emperia-accent/30"
+                >
+                  Choose sprite sheet
+                </button>
+              </div>
+            )}
+          </div>
           <div className="relative group">
             <button
               className="flex items-center gap-0.5 px-1.5 py-1 rounded text-[10px] font-medium bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text hover:border-emperia-accent/50 transition-colors"
@@ -657,6 +805,179 @@ export function ThingSpriteGrid() {
       </div>
       <SpriteGroupTray />
     </div>
+    {fullSheetPreview && (
+      <div
+        className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Directional sprite sheet mapping"
+        onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setFullSheetPreview(null);
+        }}
+      >
+        <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-emperia-border bg-emperia-bg shadow-2xl">
+          <div className="flex items-start justify-between border-b border-emperia-border px-4 py-3">
+            <div>
+              <h3 className="text-sm font-semibold text-emperia-text">
+                Confirm {categoryLabel(thing?.category)} sheet mapping
+              </h3>
+              <p className="mt-0.5 text-[10px] text-emperia-muted">
+                Check where every direction and animation row will be imported from.
+              </p>
+            </div>
+            <button
+              onClick={() => setFullSheetPreview(null)}
+              className="rounded p-1 text-emperia-muted hover:bg-emperia-hover hover:text-emperia-text"
+              title="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 border-b border-emperia-border px-4 py-2">
+            <div className="flex items-center gap-1 text-[10px] text-emperia-muted">
+              Sprite
+              {([32, 64] as const).map((size) => (
+                <button
+                  key={size}
+                  onClick={() => setFullSheetSpriteSize(size)}
+                  className={`rounded border px-2 py-1 text-[10px] font-medium ${
+                    fullSheetSpriteSize === size
+                      ? 'border-emperia-accent bg-emperia-accent/20 text-emperia-accent'
+                      : 'border-emperia-border bg-emperia-surface text-emperia-muted hover:text-emperia-text'
+                  }`}
+                >
+                  {size}x{size}
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-1.5 text-[10px] text-emperia-muted">
+              Idle frames
+              <input
+                type="number"
+                min={1}
+                max={MAX_DIRECTIONAL_FRAME_COUNT}
+                value={fullSheetIdleFrames}
+                onChange={(event) => setFullSheetIdleFrames(Math.max(
+                  1,
+                  Math.min(MAX_DIRECTIONAL_FRAME_COUNT, parseInt(event.target.value, 10) || 1),
+                ))}
+                className="w-14 rounded border border-emperia-border bg-emperia-surface px-1.5 py-1 text-center text-[11px] text-emperia-text outline-none focus:border-emperia-accent"
+              />
+            </label>
+            <label className="flex items-center gap-1.5 text-[10px] text-emperia-muted">
+              Moving frames
+              <input
+                type="number"
+                min={1}
+                max={MAX_DIRECTIONAL_FRAME_COUNT}
+                value={fullSheetMovingFrames}
+                onChange={(event) => setFullSheetMovingFrames(Math.max(
+                  1,
+                  Math.min(MAX_DIRECTIONAL_FRAME_COUNT, parseInt(event.target.value, 10) || 1),
+                ))}
+                className="w-14 rounded border border-emperia-border bg-emperia-surface px-1.5 py-1 text-center text-[11px] text-emperia-text outline-none focus:border-emperia-accent"
+              />
+            </label>
+            <span className={`ml-auto text-[10px] font-medium ${fullSheetSizeMatches ? 'text-green-400' : 'text-red-400'}`}>
+              Image {fullSheetPreview.width}x{fullSheetPreview.height}px · Expected {expectedFullSheetWidth}x{expectedFullSheetHeight}px
+            </span>
+          </div>
+
+          <div className="flex-1 overflow-auto p-4">
+            <div className="mx-auto w-full min-w-[400px] max-w-[500px]">
+              <div className="mb-1 grid grid-cols-[72px_repeat(4,minmax(0,1fr))] gap-0">
+                <div />
+                {['North', 'East', 'South', 'West'].map((direction, index) => (
+                  <div
+                    key={direction}
+                    className="px-1 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-emperia-text"
+                  >
+                    {index + 1}. {direction}
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-stretch">
+                <div
+                  className="grid w-[72px] shrink-0"
+                  style={{ gridTemplateRows: `repeat(${fullSheetRowCount}, minmax(0, 1fr))` }}
+                >
+                  {Array.from({ length: fullSheetRowCount }, (_, row) => {
+                    const isIdle = row < fullSheetIdleFrames;
+                    return (
+                      <div
+                        key={row}
+                        className={`flex items-center justify-end border-b border-emperia-border/40 pr-2 text-[9px] font-semibold ${
+                          isIdle ? 'text-cyan-300' : 'text-amber-300'
+                        }`}
+                      >
+                        {isIdle ? `Idle ${row + 1}` : `Moving ${row - fullSheetIdleFrames + 1}`}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div
+                  className="relative min-w-0 flex-1 overflow-hidden border border-emperia-border bg-black/40"
+                  style={{ aspectRatio: `${fullSheetPreview.width} / ${fullSheetPreview.height}` }}
+                >
+                  <img
+                    src={fullSheetPreview.url}
+                    alt="Selected directional sprite sheet"
+                    className="block h-full w-full pixelated"
+                    style={{ imageRendering: 'pixelated' }}
+                    draggable={false}
+                  />
+                  <div
+                    className="pointer-events-none absolute inset-0 grid"
+                    style={{
+                      gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+                      gridTemplateRows: `repeat(${fullSheetRowCount}, minmax(0, 1fr))`,
+                    }}
+                  >
+                    {Array.from({ length: fullSheetRowCount * 4 }, (_, index) => {
+                      const row = Math.floor(index / 4);
+                      const direction = ['North', 'East', 'South', 'West'][index % 4];
+                      const isIdle = row < fullSheetIdleFrames;
+                      const frame = isIdle ? row + 1 : row - fullSheetIdleFrames + 1;
+                      return (
+                        <div
+                          key={index}
+                          title={`${isIdle ? 'Idle' : 'Moving'} ${frame}, facing ${direction}`}
+                          className={`border border-white/35 ${
+                            isIdle ? 'bg-cyan-400/10' : 'bg-amber-400/10'
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div className="ml-[72px] mt-2 flex items-center gap-4 text-[9px] text-emperia-muted">
+                <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-cyan-400/40" />Idle rows</span>
+                <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-400/40" />Moving rows</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 border-t border-emperia-border px-4 py-3">
+            <button
+              onClick={() => fullSheetInputRef.current?.click()}
+              className="rounded border border-emperia-border bg-emperia-surface px-3 py-1.5 text-[10px] font-medium text-emperia-text hover:border-emperia-accent/60"
+            >
+              Choose another image
+            </button>
+            <button
+              onClick={() => void handleFullSheetImport(fullSheetPreview.file)}
+              disabled={!fullSheetSizeMatches}
+              className="rounded bg-emperia-accent px-3 py-1.5 text-[10px] font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-35"
+              title={fullSheetSizeMatches ? 'Import this mapped sprite sheet' : 'The image size must match the configured frame rows'}
+            >
+              Import mapped sheet
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     {tooltip.portal}
   </>);
 }

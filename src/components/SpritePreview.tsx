@@ -11,6 +11,7 @@ import { FrameScrubber } from './FrameScrubber';
 import { LayerScrubber } from './LayerScrubber';
 import type { SpriteGroup } from '../store/store-types';
 
+const MAX_BROWSER_TIMEOUT_MS = 0x7FFF_FFFF;
 
 export function SpritePreview() {
   const selectedId = useOBStore((s) => s.selectedThingId);
@@ -25,7 +26,8 @@ export function SpritePreview() {
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
 
-  const [activeGroup, setActiveGroup] = useState(0);
+  const activeGroup = useOBStore((s) => s.activeGroup);
+  const setActiveGroup = (groupIndex: number) => useOBStore.setState({ activeGroup: groupIndex });
   const currentFrame = useOBStore((s) => s.currentFrame);
   const setCurrentFrame = (f: number | ((prev: number) => number)) => {
     if (typeof f === 'function') {
@@ -78,8 +80,7 @@ export function SpritePreview() {
   const previewBaseOutfitId = isEffect ? effectReferenceOutfitId : baseOutfitId;
 
   useEffect(() => {
-    setActiveGroup(0);
-    useOBStore.setState({ currentFrame: 0, playing: false, activeLayer: 0, blendLayers: false, showColorPicker: null });
+    useOBStore.setState({ activeGroup: 0, currentFrame: 0, playing: false, activeLayer: 0, blendLayers: false, showColorPicker: null });
     setActiveZ(0);
     setActiveDirection(2);
     setActivePatternY(0);
@@ -191,9 +192,10 @@ export function SpritePreview() {
     const hasBase = previewBaseOutfitId != null && previewBaseOutfitId !== selectedId;
     const hasEffectReference = isEffect && effectReferenceOutfitId != null;
 
-    // Outfit displacement positions an overlay relative to its base. Effect
-    // displacement positions the complete effect relative to its tile anchor.
-    const hasOutfitDisplacement = hasBase && (thing?.flags.hasDisplacement ?? false);
+    // Directional-appearance displacement is visible even without a pinned
+    // base outfit, matching the client renderer. Effect displacement positions
+    // the complete effect relative to its tile anchor.
+    const hasOutfitDisplacement = isDirectionalAppearance && (thing?.flags.hasDisplacement ?? false);
     const hasEffectDisplacement = isEffect && (thing?.flags.hasDisplacement ?? false);
     const dispX = (hasOutfitDisplacement || hasEffectDisplacement) ? (thing?.flags.displacementX ?? 0) : 0;
     const dispY = (hasOutfitDisplacement || hasEffectDisplacement) ? (thing?.flags.displacementY ?? 0) : 0;
@@ -336,16 +338,34 @@ export function SpritePreview() {
   useEffect(() => {
     if (!playing || !group || group.animationLength <= 1) return;
     let frame = currentFrame;
+    let cancelled = false;
+
+    const scheduleTick = (remainingMs: number) => {
+      const delay = Math.min(MAX_BROWSER_TIMEOUT_MS, Math.max(0, remainingMs));
+      frameTimerRef.current = window.setTimeout(() => {
+        if (cancelled) return;
+        if (remainingMs > MAX_BROWSER_TIMEOUT_MS) {
+          scheduleTick(remainingMs - MAX_BROWSER_TIMEOUT_MS);
+        } else {
+          tick();
+        }
+      }, delay);
+    };
+
     const tick = () => {
       frame = (frame + 1) % group.animationLength;
       setCurrentFrame(frame);
       renderFrame(frame);
       const duration = group.animationLengths[frame]?.min ?? 200;
-      frameTimerRef.current = window.setTimeout(tick, duration);
+      scheduleTick(duration);
     };
+
     const duration = group.animationLengths[frame]?.min ?? 200;
-    frameTimerRef.current = window.setTimeout(tick, duration);
-    return () => { clearTimeout(frameTimerRef.current); };
+    scheduleTick(duration);
+    return () => {
+      cancelled = true;
+      clearTimeout(frameTimerRef.current);
+    };
   }, [playing, group, renderFrame]);
 
   // How many pattern columns/rows are actually rendered
@@ -355,7 +375,7 @@ export function SpritePreview() {
   // Compute expected canvas pixel dimensions from current group data so CSS sizing
   // never reads stale values from canvasRef when switching between items of different sizes.
   const hasBase = previewBaseOutfitId != null && previewBaseOutfitId !== selectedId;
-  const hasPreviewDisplacement = (hasBase || isEffect) && (thing?.flags.hasDisplacement ?? false);
+  const hasPreviewDisplacement = (isDirectionalAppearance || isEffect) && (thing?.flags.hasDisplacement ?? false);
   const previewDispX = hasPreviewDisplacement ? (thing?.flags.displacementX ?? 0) : 0;
   const previewDispY = hasPreviewDisplacement ? (thing?.flags.displacementY ?? 0) : 0;
   const previewCellW = group ? group.width * 32 : 32;
@@ -688,8 +708,8 @@ export function SpritePreview() {
       playing: false,
       activeLayer: 0,
       selectedSlots: [],
+      activeGroup: 1,
     });
-    setActiveGroup(1);
     setActiveZ(0);
   };
 
@@ -1057,7 +1077,15 @@ export function SpritePreview() {
           {thing.frameGroups.map((_, i) => (
             <button
               key={i}
-              onClick={() => { setActiveGroup(i); setCurrentFrame(0); setPlaying(false); setActiveLayer(0); setActiveZ(0); }}
+              onClick={() => {
+                useOBStore.setState({
+                  activeGroup: i,
+                  currentFrame: 0,
+                  playing: false,
+                  activeLayer: 0,
+                });
+                setActiveZ(0);
+              }}
               className={`px-3 py-1 rounded text-[11px] font-medium transition-colors
                 ${activeGroup === i ? 'bg-emperia-accent text-white' : 'bg-emperia-surface text-emperia-muted hover:bg-emperia-hover border border-emperia-border'}
               `}

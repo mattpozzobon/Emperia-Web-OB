@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useOBStore } from '../store';
 import type { ItemProperties, ExclusiveSlotDef } from '../lib/types';
 import { ITEM_SLOT_TYPES } from '../lib/item-slot-types';
+import { inferVisualFlagsFromIdentity, ITEM_IDENTITY_OPTIONS } from '../lib/item-identity';
 import { HelpTooltip } from './HelpTooltip';
 import type { HelpContent } from './HelpTooltip';
 
@@ -20,7 +21,7 @@ const FIELD_HELP: Record<string, string> = {
   name: 'Server display name used in item look text, search, tooltips, and exports.',
   article: 'Article prepended to the item name in English text, such as "a" or "an".',
   description: 'Optional description sent in detailed item look/tooltips.',
-  type: 'Server gameplay class. This decides special runtime behavior such as containers, doors, runes, fluid containers, keys, and splashes.',
+  type: 'Canonical item identity used by interaction, lighting, rendering, and server gameplay systems.',
   weaponType: 'Classifies the item for combat formulas and equipment rules.',
   slotType: 'Equipment slot or item category used by equipment panels, restrictions, and outfit catalog links.',
   ammoType: 'Ammunition category used by ranged weapons.',
@@ -63,7 +64,7 @@ const FIELD_EXAMPLES: Record<string, string> = {
   name: 'An item named "steel sword" appears with that name in look text, searches, and server messages.',
   article: 'Use "an" for "an arcane orb"; the server combines it with the item name in English text.',
   description: 'A quest item can display "An old key marked with the royal seal." when inspected.',
-  type: 'Set type to door so server door logic recognizes it; use teleport for an item that changes position.',
+  type: 'Closed and open doors use doorClosed and doorOpen; walls and windows can drive lighting occlusion while levers and chests drive proximity interaction.',
   weaponType: 'Set sword so combat and equipment rules treat the item as a sword weapon.',
   slotType: 'Set head for a helmet or potion for an item that belongs to the potion/tool category.',
   ammoType: 'A bow can require the same ammunition category configured on its arrow item.',
@@ -153,11 +154,7 @@ const IDENTITY_FIELDS: FieldDef[] = [
   { key: 'name', label: 'Name', type: 'string', help: FIELD_HELP.name },
   { key: 'article', label: 'Article', type: 'string', placeholder: 'a / an', help: FIELD_HELP.article },
   { key: 'description', label: 'Description', type: 'string', help: FIELD_HELP.description },
-  { key: 'type', label: 'Type', type: 'select', options: [
-    '', 'bed', 'container', 'corpse', 'depot', 'door', 'fluidContainer',
-    'key', 'magicfield', 'mailbox', 'rune', 'splash',
-    'teleport', 'trashholder', 'window',
-  ], help: FIELD_HELP.type },
+  { key: 'type', label: 'Type', type: 'select', options: [...ITEM_IDENTITY_OPTIONS], help: FIELD_HELP.type },
 ];
 
 const EQUIPMENT_FIELDS: FieldDef[] = [
@@ -296,13 +293,18 @@ const SECTIONS: { key: string; title: string; fields: FieldDef[] }[] = [
   { key: 'toolUses', title: 'Tool Uses', fields: TOOL_USES_FIELDS },
 ];
 
-export function ServerPropertiesEditor() {
+export function ServerPropertiesEditor({
+  mode = 'all',
+}: {
+  mode?: 'all' | 'identity' | 'details';
+}) {
   const selectedId = useOBStore((s) => s.selectedThingId);
   const objectData = useOBStore((s) => s.objectData);
   const activeCategory = useOBStore((s) => s.activeCategory);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   const updateItemDefinition = useOBStore((s) => s.updateItemDefinition);
+  const updateThingFlags = useOBStore((s) => s.updateThingFlags);
   useOBStore((s) => s.editVersion);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
@@ -321,8 +323,21 @@ export function ServerPropertiesEditor() {
     } else {
       currentProps[key] = value;
     }
+    if (key === 'type' && typeof value === 'string' && thing) {
+      updateThingFlags(
+        selectedId,
+        inferVisualFlagsFromIdentity(value, thing.flags),
+      );
+    }
     updateItemDefinition(selectedId, { properties: Object.keys(currentProps).length > 0 ? currentProps : null });
-  }, [selectedId, itemDefinitions, updateItemDefinition]);
+  }, [
+    appearanceToItemIds,
+    itemDefinitions,
+    selectedId,
+    thing,
+    updateItemDefinition,
+    updateThingFlags,
+  ]);
 
   const setExclusiveSlots = useCallback((slots: ExclusiveSlotDef[] | undefined) => {
     if (selectedId == null) return;
@@ -343,9 +358,18 @@ export function ServerPropertiesEditor() {
   }, [selectedId, itemDefinitions, updateItemDefinition]);
 
   // Auto-expand sections that have values, collapse empty ones
+  const visibleSections = useMemo(
+    () => SECTIONS.filter((section) => (
+      mode === 'all'
+      || (mode === 'identity' && section.key === 'identity')
+      || (mode === 'details' && section.key !== 'identity')
+    )),
+    [mode],
+  );
+
   const defaultExpanded = useMemo(() => {
     const set = new Set<string>();
-    for (const sec of SECTIONS) {
+    for (const sec of visibleSections) {
       if (sec.fields.some((f) => props[f.key] !== undefined && props[f.key] !== '')) {
         set.add(sec.key);
       }
@@ -354,10 +378,9 @@ export function ServerPropertiesEditor() {
     if (Array.isArray(props.exclusiveSlots) && props.exclusiveSlots.length > 0) {
       set.add('container');
     }
-    // Always expand identity
-    set.add('identity');
+    if (mode !== 'details') set.add('identity');
     return set;
-  }, [props]);
+  }, [mode, props, visibleSections]);
 
   const [expanded, setExpanded] = useState<Set<string>>(defaultExpanded);
 
@@ -395,7 +418,7 @@ export function ServerPropertiesEditor() {
 
   return (
     <div className="space-y-2 text-xs">
-      {SECTIONS.map((sec) => (
+      {visibleSections.map((sec) => (
         <div key={sec.key}>
           <FieldSection
             title={sec.title}

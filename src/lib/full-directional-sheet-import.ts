@@ -9,14 +9,14 @@ interface FullDirectionalSheetImportOptions {
   file: File;
   thing: ThingType;
   addSprite: (imageData: ImageData) => number | null;
+  idleFrames: number;
+  movingFrames: number;
+  spriteSize: 32 | 64;
 }
 
 const DIRECTION_COLUMNS = 4;
-const IDLE_FRAME_ROWS = 1;
-const MOVING_FRAME_ROWS = 2;
-const TOTAL_FRAME_ROWS = IDLE_FRAME_ROWS + MOVING_FRAME_ROWS;
-const EQUIPMENT_WIDTH = 2;
-const EQUIPMENT_HEIGHT = 2;
+const MAX_FRAME_COUNT = 255;
+const SUPPORTED_CATEGORIES = new Set(['equipment', 'hair', 'outfit']);
 
 const getSpriteIndex = (
   group: FrameGroup,
@@ -47,20 +47,38 @@ export async function importFullDirectionalSheet({
   file,
   thing,
   addSprite,
+  idleFrames,
+  movingFrames,
+  spriteSize,
 }: FullDirectionalSheetImportOptions): Promise<FullDirectionalSheetImportResult> {
   const image = await loadImage(file);
-  if (thing.category !== 'equipment') {
-    throw new Error('Select an Equipment object before importing equipment.');
+  if (!SUPPORTED_CATEGORIES.has(thing.category)) {
+    throw new Error('Select an Equipment, Hair, or Outfit object before importing a directional sheet.');
+  }
+  if (
+    !Number.isInteger(idleFrames)
+    || !Number.isInteger(movingFrames)
+    || idleFrames < 1
+    || movingFrames < 1
+    || idleFrames > MAX_FRAME_COUNT
+    || movingFrames > MAX_FRAME_COUNT
+  ) {
+    throw new Error(`Idle and Moving frame counts must each be between 1 and ${MAX_FRAME_COUNT}.`);
+  }
+  if (spriteSize !== 32 && spriteSize !== 64) {
+    throw new Error('Sprite size must be either 32x32 or 64x64 pixels.');
   }
 
   const idle = thing.frameGroups[0];
   if (!idle) throw new Error('The object has no Idle frame group.');
+  const spriteTiles = spriteSize / 32;
 
-  // Equipment sheets have one fixed layout. Normalize a newly created slot
-  // before validating or assigning any sprites.
+  // Directional sheets use square 32px tiles. Normalize the object to either
+  // one tile (32x32) or a 2x2 tile block (64x64) before assigning sprites.
   idle.type = 0;
-  idle.width = EQUIPMENT_WIDTH;
-  idle.height = EQUIPMENT_HEIGHT;
+  idle.width = spriteTiles;
+  idle.height = spriteTiles;
+  idle.exactSizeHint = spriteTiles;
   idle.layers = 1;
   idle.patternX = DIRECTION_COLUMNS;
   idle.patternY = 1;
@@ -69,20 +87,20 @@ export async function importFullDirectionalSheet({
   const blockWidth = idle.width * 32;
   const blockHeight = idle.height * 32;
   const expectedWidth = blockWidth * DIRECTION_COLUMNS;
-  const expectedHeight = blockHeight * TOTAL_FRAME_ROWS;
+  const totalFrameRows = idleFrames + movingFrames;
+  const expectedHeight = blockHeight * totalFrameRows;
   if (image.width !== expectedWidth || image.height !== expectedHeight) {
     throw new Error(
       `Invalid sheet size. For ${idle.width}x${idle.height}, the complete sheet must be `
-      + `${expectedWidth}x${expectedHeight}px (4 columns x 3 rows).`,
+      + `${expectedWidth}x${expectedHeight}px (4 direction columns x ${totalFrameRows} frame rows: `
+      + `${idleFrames} Idle, then ${movingFrames} Moving).`,
     );
   }
 
-  const idleFrames = IDLE_FRAME_ROWS;
-  const movingFrames = MOVING_FRAME_ROWS;
   idle.animationLength = idleFrames;
-  idle.animationLengths = [
-    idle.animationLengths[0] ?? { min: 0, max: 0 },
-  ];
+  idle.animationLengths = Array.from({ length: idleFrames }, (_, index) => (
+    idle.animationLengths[index] ?? (idleFrames === 1 ? { min: 0, max: 0 } : { min: 100, max: 100 })
+  ));
   const idleSlotCount = (
     idle.width
     * idle.height
@@ -111,8 +129,9 @@ export async function importFullDirectionalSheet({
   }
 
   moving.type = 1;
-  moving.width = EQUIPMENT_WIDTH;
-  moving.height = EQUIPMENT_HEIGHT;
+  moving.width = spriteTiles;
+  moving.height = spriteTiles;
+  moving.exactSizeHint = spriteTiles;
   moving.layers = 1;
   moving.patternX = DIRECTION_COLUMNS;
   moving.patternY = 1;

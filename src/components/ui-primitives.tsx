@@ -8,6 +8,7 @@ export function ParamField({
   max,
   readOnly,
   labelClassName,
+  inputClassName,
 }: {
   label: string;
   value: number;
@@ -16,6 +17,7 @@ export function ParamField({
   max?: number;
   readOnly?: boolean;
   labelClassName?: string;
+  inputClassName?: string;
 }) {
   return (
     <div className="flex items-center justify-between">
@@ -33,13 +35,14 @@ export function ParamField({
           <input
             type="number"
             value={value}
+            title={String(value)}
             min={min}
             max={max}
             onChange={(e) => {
               const v = parseInt(e.target.value, 10);
               if (!isNaN(v)) onChange?.(Math.max(min ?? 0, Math.min(max ?? 9999, v)));
             }}
-            className="w-10 px-1 py-0 bg-emperia-surface border border-emperia-border rounded text-[10px] text-emperia-text font-mono text-center outline-none focus:border-emperia-accent"
+            className={`number-input-compact ${inputClassName ?? 'w-10'} px-1 py-0 bg-emperia-surface border border-emperia-border rounded text-[10px] text-emperia-text font-mono tabular-nums text-center outline-none focus:border-emperia-accent`}
           />
           <button
             onClick={() => onChange?.(Math.min(max ?? 9999, value + 1))}

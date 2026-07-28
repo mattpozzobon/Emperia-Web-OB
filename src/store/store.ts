@@ -2,7 +2,7 @@
  * Global state for the Object Builder using Zustand.
  */
 import { create } from 'zustand';
-import { ITEM_LOCALES, type ThingType, type ThingCategory, type ThingFlags, type FrameGroup, type ItemDefinition } from '../lib/types';
+import { ITEM_LOCALES, type ThingType, type ThingCategory, type ThingFlags, type FrameGroup, type ItemDefinition, type ItemProperties } from '../lib/types';
 import { parseObjectData } from '../lib/object-parser';
 import { parseSpriteData, clearSpriteCache, clearSpriteCacheId } from '../lib/sprite-decoder';
 import { maybeDecompress } from '../lib/emperia-format';
@@ -15,6 +15,7 @@ import { createCompactAtlasAction } from './compact-atlas';
 import { createSpriteGroupSlice } from './sprite-group-slice';
 import { createOutfitSlice } from './outfit-slice';
 import { sourceHash, sourceTextFromDefinition } from '../lib/item-localization';
+import { consolidateItemIdentity } from '../lib/item-identity';
 
 function emptyItemLocalizations() {
   return {
@@ -100,6 +101,7 @@ export const useOBStore = create<OBState>((set, get) => ({
   selectedSlots: [],
   copiedThing: null,
 
+  activeGroup: 0,
   activeLayer: 0,
   blendLayers: false,
   currentFrame: 0,
@@ -125,7 +127,14 @@ export const useOBStore = create<OBState>((set, get) => ({
         for (const [itemId, definition] of currentState.itemDefinitions) {
           const appearanceId = objectData.itemAppearances.get(itemId);
           if (appearanceId == null) continue;
-          const remappedDefinition = { ...definition, appearanceId };
+          const remappedDefinition = {
+            ...definition,
+            appearanceId,
+            properties: consolidateItemIdentity(
+              definition.properties,
+              objectData.things.get(appearanceId)?.flags,
+            ),
+          };
           remappedDefinitions.set(itemId, remappedDefinition);
           registerPrimaryItemForAppearance(
             remappedAppearanceToItem,
@@ -154,6 +163,9 @@ export const useOBStore = create<OBState>((set, get) => ({
         editVersion: 0,
         focusSpriteId: null,
         copiedThing: null,
+        activeGroup: 0,
+        currentFrame: 0,
+        playing: false,
         // Preserve public item definitions, but always use the catalogs embedded in
         // the EOBJ that was just opened.
         ...(currentState.definitionsLoaded
@@ -184,7 +196,10 @@ export const useOBStore = create<OBState>((set, get) => ({
         flags: value.flags ?? 0,
         group: value.group ?? 0,
         ...(value.topOrder ? { topOrder: value.topOrder } : {}),
-        properties: value.properties ? { ...value.properties } : null,
+        properties: consolidateItemIdentity(
+          value.properties,
+          get().objectData?.things.get(appearanceId)?.flags,
+        ),
       };
       defs.set(itemId, definition);
       registerPrimaryItemForAppearance(appearanceMap, defs, definition);
@@ -297,6 +312,9 @@ export const useOBStore = create<OBState>((set, get) => ({
       editVersion: 0,
       focusSpriteId: null,
       copiedThing: null,
+      activeGroup: 0,
+      currentFrame: 0,
+      playing: false,
       itemDefinitions: new Map(),
       appearanceToItemIds: new Map(),
       definitionsLoaded: false,
@@ -312,14 +330,18 @@ export const useOBStore = create<OBState>((set, get) => ({
     const { itemDefinitions, appearanceToItemIds, editVersion, itemLocalizations } = get();
     const itemId = appearanceToItemIds.get(appearanceId) ?? appearanceId;
     const existing = itemDefinitions.get(itemId);
+    const thingFlags = get().objectData?.things.get(appearanceId)?.flags;
     const updated: ItemDefinition = {
       itemId,
       appearanceId: data.appearanceId ?? existing?.appearanceId ?? appearanceId,
       flags: data.flags ?? existing?.flags ?? 0,
       group: data.group ?? existing?.group ?? 0,
-      properties: data.properties !== undefined
-        ? (data.properties ? { ...data.properties } : null)
-        : (existing?.properties ? { ...existing.properties } : null),
+      properties: consolidateItemIdentity(
+        data.properties !== undefined
+          ? data.properties
+          : existing?.properties,
+        thingFlags,
+      ),
     };
     const newDefs = new Map(itemDefinitions);
     newDefs.set(itemId, updated);
@@ -547,7 +569,7 @@ export const useOBStore = create<OBState>((set, get) => ({
       const newItemFlags = syncItemFlagsFromVisual(oldItemFlags, newFlags);
       const newGroup = deriveGroup(newFlags);
       // Sync friction property from groundSpeed
-      const syncedProps: Record<string, unknown> = existing?.properties ? { ...existing.properties } : {};
+      const syncedProps: ItemProperties = existing?.properties ? { ...existing.properties } : {};
       if (newFlags.ground && newFlags.groundSpeed != null && newFlags.groundSpeed !== 100) {
         syncedProps.friction = newFlags.groundSpeed;
       } else {
@@ -560,7 +582,7 @@ export const useOBStore = create<OBState>((set, get) => ({
         flags: newItemFlags,
         group: newGroup,
         ...(newTopOrder ? { topOrder: newTopOrder } : {}),
-        properties: Object.keys(syncedProps).length > 0 ? syncedProps as any : null,
+        properties: consolidateItemIdentity(syncedProps, newFlags),
       };
       newDefs.set(itemId, updated);
       set({

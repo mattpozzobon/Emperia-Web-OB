@@ -6,6 +6,7 @@ import PacketReader from './packet-reader';
 import { parseEmperiaHeader, EMPERIA_HEADER_SIZE, EmperiaFileType } from './emperia-format';
 import type { ObjectData, ThingType, ThingFlags, FrameGroup, ThingCategory } from './types';
 import { decodeItemSlotType } from './item-slot-types';
+import { decodeItemIdentity } from './item-identity-codec';
 import {
   createDefaultPoseSets,
   createDefaultSeatPoseProfiles,
@@ -318,6 +319,13 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
       itemSlotTypes.set(packet.readUInt16(), decodeItemSlotType(packet.readUInt8()));
     }
   }
+  const itemIdentities = new Map<number, string>();
+  if (formatVersion >= 11) {
+    const identityCount = packet.readUInt32();
+    for (let index = 0; index < identityCount; index++) {
+      itemIdentities.set(packet.readUInt16(), decodeItemIdentity(packet.readUInt8()));
+    }
+  }
   const equipmentAppearances = new Map<number, import('./types').EquipmentAppearance>();
   const visualEquipmentAppearances = new Map<number, import('./types').VisualEquipmentAppearance>();
   const hairDefinitions = new Map<number, import('./types').HairDefinition>();
@@ -541,6 +549,7 @@ export function parseObjectData(buffer: ArrayBuffer): ObjectData {
     itemAppearances,
     outfitAppearances,
     itemSlotTypes,
+    itemIdentities,
     itemSeatDefinitions,
     poseSets,
     seatPoseProfiles,

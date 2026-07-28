@@ -9,6 +9,19 @@ html, body, #root {
   overflow: hidden;
 }
 
+/* Compact number fields use their own +/- controls. Hiding the browser's
+   built-in spinner leaves enough room for every digit in narrow panels. */
+.number-input-compact {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.number-input-compact::-webkit-inner-spin-button,
+.number-input-compact::-webkit-outer-spin-button {
+  margin: 0;
+  -webkit-appearance: none;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

@@ -6,8 +6,9 @@ import PacketWriter from './packet-writer';
 import { EMPERIA_MAGIC, EmperiaFileType } from './emperia-format';
 import type { ObjectData, ThingFlags, FrameGroup, EquipmentAppearance, HairDefinition, ItemSeatDefinition } from './types';
 import { encodeItemSlotType } from './item-slot-types';
+import { encodeItemIdentity } from './item-identity-codec';
 
-const EOBJ_FORMAT_VERSION = 10;
+const EOBJ_FORMAT_VERSION = 11;
 
 const ATTR = {
   ThingAttrGround: 0,
@@ -152,6 +153,7 @@ export function compileObjectData(
   dirtyIds: Set<number> = new Set(),
   itemAppearances: Map<number, number> = data.itemAppearances,
   itemSlotTypes: Map<number, string> = data.itemSlotTypes,
+  itemIdentities: Map<number, string> = data.itemIdentities,
   equipmentAppearances: Map<number, EquipmentAppearance> = data.equipmentAppearances,
   hairDefinitions: Map<number, HairDefinition> = data.hairDefinitions,
   itemSeatDefinitions: Map<number, ItemSeatDefinition> = data.itemSeatDefinitions,
@@ -218,6 +220,16 @@ export function compileObjectData(
     }
     w.writeUInt16(itemId);
     w.writeUInt8(encodeItemSlotType(slotType));
+  }
+
+  const identities = Array.from(itemIdentities.entries()).sort(([a], [b]) => a - b);
+  w.writeUInt32(identities.length);
+  for (const [itemId, identity] of identities) {
+    if (!Number.isInteger(itemId) || itemId <= 0 || itemId > 0xFFFF) {
+      throw new Error(`Item identity metadata ID ${itemId} is outside the UInt16 protocol range`);
+    }
+    w.writeUInt16(itemId);
+    w.writeUInt8(encodeItemIdentity(identity));
   }
 
   const equipment = Array.from(equipmentAppearances.entries()).sort(([a], [b]) => a - b);

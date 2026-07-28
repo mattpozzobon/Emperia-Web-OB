@@ -5,6 +5,8 @@ import { paletteToCSS, OUTFIT_PALETTE, PALETTE_SIZE } from '../lib/outfit-colors
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 import { ParamField, StepperBtn } from './ui-primitives';
 
+const MAX_ANIMATION_FRAME_DURATION_MS = 0xFFFF_FFFF;
+
 export function LayerPanel() {
   const selectedId = useOBStore((s) => s.selectedThingId);
   const objectData = useOBStore((s) => s.objectData);
@@ -17,6 +19,7 @@ export function LayerPanel() {
   const playing = useOBStore((s) => s.playing);
   const outfitColors = useOBStore((s) => s.outfitColors);
   const showColorPicker = useOBStore((s) => s.showColorPicker);
+  const activeGroup = useOBStore((s) => s.activeGroup);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
   const isDirectionalAppearance = (
@@ -26,8 +29,8 @@ export function LayerPanel() {
   );
   const isEffect = category === 'effect';
 
-  // Use first frame group for layer count (could be extended to track activeGroup)
-  const group = thing?.frameGroups[0] ?? null;
+  const group = thing?.frameGroups[activeGroup] ?? null;
+  const activeGroupLabel = activeGroup === 0 ? 'Idle' : activeGroup === 1 ? 'Moving' : `Group ${activeGroup}`;
   const hasMultipleLayers = group ? group.layers > 1 : false;
   const isAnimated = group ? group.animationLength > 1 : false;
   const showOffset = isDirectionalAppearance || isEffect || (thing?.flags.hasDisplacement ?? false);
@@ -96,7 +99,7 @@ export function LayerPanel() {
             <div className="flex items-center gap-1">
               <span className="text-emperia-muted shrink-0">Frame:</span>
               <StepperBtn onClick={() => { useOBStore.setState({ currentFrame: (currentFrame - 1 + group.animationLength) % group.animationLength, playing: false }); }}>‹</StepperBtn>
-              <span className="text-emperia-text font-mono w-10 text-center text-[9px]">{currentFrame + 1}/{group.animationLength}</span>
+              <span className="text-emperia-text font-mono min-w-10 px-1 text-center text-[9px] tabular-nums whitespace-nowrap">{currentFrame + 1}/{group.animationLength}</span>
               <StepperBtn onClick={() => { useOBStore.setState({ currentFrame: (currentFrame + 1) % group.animationLength, playing: false }); }}>›</StepperBtn>
               <button
                 onClick={() => useOBStore.setState({ playing: !playing })}
@@ -126,9 +129,16 @@ export function LayerPanel() {
             {/* Per-frame durations */}
             {group.animationLengths[currentFrame] && (
               <div className="bg-emerald-950/20 border border-emerald-500/10 rounded px-2.5 py-2 space-y-1.5">
-                <div className="text-[8px] text-emerald-400/70 font-medium">Frame {currentFrame + 1} duration (ms)</div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                  <ParamField label="Min" value={group.animationLengths[currentFrame].min} min={0} max={65535}
+                <div className="text-[8px] text-emerald-400/70 font-medium">
+                  {activeGroupLabel} · Frame {currentFrame + 1} duration (ms)
+                </div>
+                <div className="grid grid-cols-1 gap-y-1.5">
+                  <ParamField
+                    label="Min"
+                    value={group.animationLengths[currentFrame].min}
+                    min={0}
+                    max={MAX_ANIMATION_FRAME_DURATION_MS}
+                    inputClassName="w-24"
                     onChange={(v) => {
                       group.animationLengths[currentFrame].min = v;
                       thing.rawBytes = undefined;
@@ -137,7 +147,12 @@ export function LayerPanel() {
                       useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
                     }}
                   />
-                  <ParamField label="Max" value={group.animationLengths[currentFrame].max} min={0} max={65535}
+                  <ParamField
+                    label="Max"
+                    value={group.animationLengths[currentFrame].max}
+                    min={0}
+                    max={MAX_ANIMATION_FRAME_DURATION_MS}
+                    inputClassName="w-24"
                     onChange={(v) => {
                       group.animationLengths[currentFrame].max = v;
                       thing.rawBytes = undefined;
@@ -147,7 +162,12 @@ export function LayerPanel() {
                     }}
                   />
                 </div>
-                <SetAllDurations thing={thing} group={group} />
+                <SetAllDurations
+                  key={activeGroup}
+                  thing={thing}
+                  group={group}
+                  groupLabel={activeGroupLabel}
+                />
               </div>
             )}
           </div>
@@ -237,39 +257,75 @@ export function LayerPanel() {
   );
 }
 
-function SetAllDurations({ thing, group }: { thing: { id: number; rawBytes?: Uint8Array }; group: { animationLengths: { min: number; max: number }[] } }) {
+function SetAllDurations({
+  thing,
+  group,
+  groupLabel,
+}: {
+  thing: {
+    id: number;
+    rawBytes?: Uint8Array;
+    frameGroups: { animationLengths: { min: number; max: number }[] }[];
+  };
+  group: { animationLengths: { min: number; max: number }[] };
+  groupLabel: string;
+}) {
   const [val, setVal] = useState(group.animationLengths[0]?.min ?? 100);
 
+  const markDirty = () => {
+    thing.rawBytes = undefined;
+    const store = useOBStore.getState();
+    const ids = new Set(store.dirtyIds);
+    ids.add(thing.id);
+    useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
+  };
+
+  const applyToGroups = (groups: typeof thing.frameGroups) => {
+    for (const targetGroup of groups) {
+      for (const duration of targetGroup.animationLengths) {
+        duration.min = val;
+        duration.max = val;
+      }
+    }
+    markDirty();
+  };
+
   return (
-    <div className="flex items-center gap-1.5 pt-1 border-t border-emerald-500/10">
+    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 pt-1 border-t border-emerald-500/10">
       <span className="text-[8px] text-emerald-400/70 shrink-0">Set all:</span>
       <input
         type="number"
         value={val}
+        title={String(val)}
         min={0}
-        max={65535}
+        max={MAX_ANIMATION_FRAME_DURATION_MS}
         onChange={(e) => {
           const v = parseInt(e.target.value, 10);
-          if (!isNaN(v)) setVal(Math.max(0, Math.min(65535, v)));
+          if (!isNaN(v)) {
+            setVal(Math.max(0, Math.min(MAX_ANIMATION_FRAME_DURATION_MS, v)));
+          }
         }}
-        className="w-14 px-1 py-0.5 bg-emperia-surface border border-emperia-border rounded text-[9px] text-emperia-text font-mono text-center outline-none focus:border-emperia-accent"
+        className="number-input-compact w-24 px-1 py-0.5 bg-emperia-surface border border-emperia-border rounded text-[9px] text-emperia-text font-mono tabular-nums text-center outline-none focus:border-emperia-accent"
       />
       <span className="text-[8px] text-emperia-muted">ms</span>
-      <button
-        onClick={() => {
-          for (const dur of group.animationLengths) {
-            dur.min = val;
-            dur.max = val;
-          }
-          thing.rawBytes = undefined;
-          const store = useOBStore.getState();
-          const ids = new Set(store.dirtyIds); ids.add(thing.id);
-          useOBStore.setState({ dirty: true, dirtyIds: ids, editVersion: store.editVersion + 1 });
-        }}
-        className="px-1.5 py-0.5 rounded text-[8px] bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-600/50 transition-colors"
-      >
-        Apply
-      </button>
+      <div className="ml-auto flex items-center gap-1">
+        <button
+          onClick={() => applyToGroups([group])}
+          title={`Apply to every frame in ${groupLabel} only`}
+          className="px-1.5 py-0.5 rounded text-[8px] bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-600/50 transition-colors"
+        >
+          Apply {groupLabel}
+        </button>
+        {thing.frameGroups.length > 1 && (
+          <button
+            onClick={() => applyToGroups(thing.frameGroups)}
+            title="Apply to every frame in every animation group"
+            className="px-1.5 py-0.5 rounded text-[8px] bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-emperia-text hover:border-emerald-500/30 transition-colors"
+          >
+            Apply All
+          </button>
+        )}
+      </div>
     </div>
   );
 }

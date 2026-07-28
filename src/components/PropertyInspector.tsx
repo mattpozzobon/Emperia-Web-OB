@@ -416,7 +416,25 @@ export function PropertyInspector() {
 
   return (
     <div className="space-y-5 p-4 text-xs">
-      <section>
+      <div className={`grid items-start gap-3 ${
+        thing.category === 'item'
+          ? 'grid-cols-1 lg:grid-cols-[minmax(240px,0.8fr)_minmax(0,3fr)]'
+          : 'grid-cols-1'
+      }`}>
+        {thing.category === 'item' && (
+          <section className="rounded-md border border-cyan-500/30 bg-cyan-950/15 p-2 shadow-[inset_0_1px_0_rgba(34,211,238,0.05)]">
+            <div className="mb-2 px-0.5">
+              <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-300/85">
+                Item Identity
+              </h3>
+              <p className="mt-0.5 text-[9px] text-cyan-200/45">
+                Semantic classification shared by runtime systems
+              </p>
+            </div>
+            <ServerPropertiesEditor mode="identity" />
+          </section>
+        )}
+        <section>
         <div className="mb-2.5 flex min-h-7 items-center justify-between gap-3">
           <div>
             <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emperia-muted">
@@ -514,7 +532,8 @@ export function PropertyInspector() {
           );
         })}
         </div>
-      </section>
+        </section>
+      </div>
       <section className="border-t border-emperia-border/70 pt-4">
         <div className="mb-2.5">
           <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-emperia-muted">
@@ -524,7 +543,7 @@ export function PropertyInspector() {
             Server gameplay metadata stored in items.json
           </p>
         </div>
-        <ServerPropertiesEditor />
+        <ServerPropertiesEditor mode="details" />
       </section>
     </div>
   );
