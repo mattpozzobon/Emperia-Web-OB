@@ -16,7 +16,8 @@
     "translation:audit": "node scripts/audit-item-translations.mjs",
     "translation:fix": "node scripts/apply-translation-audit-fixes.mjs",
     "translation:review-all": "node scripts/mark-all-translations-reviewed.mjs",
-    "migrate:localizations": "node scripts/migrate-item-localizations.mjs"
+    "migrate:localizations": "node scripts/migrate-item-localizations.mjs",
+    "migrate:mannequins": "node scripts/migrate-mannequin-properties.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.460.0",

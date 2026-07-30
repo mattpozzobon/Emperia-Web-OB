@@ -5,6 +5,7 @@ import {
   type ItemLocale,
   type ItemLocalizedText,
 } from './types';
+import { readItemProperty } from './item-properties';
 
 export const ITEM_CATALOG_FILE = (locale: ItemLocale) => `item-catalog.${locale}.json`;
 
@@ -14,10 +15,13 @@ export function isItemLocale(value: string): value is ItemLocale {
 
 export function sourceTextFromDefinition(definition: ItemDefinition): ItemLocalizedText | null {
   const properties = definition.properties;
-  const name = typeof properties?.name === 'string' ? properties.name.trim() : '';
+  const rawName = readItemProperty(properties, 'name');
+  const name = typeof rawName === 'string' ? rawName.trim() : '';
   if (!name) return null;
-  const article = typeof properties?.article === 'string' ? properties.article.trim() : '';
-  const description = typeof properties?.description === 'string' ? properties.description.trim() : '';
+  const rawArticle = readItemProperty(properties, 'article');
+  const rawDescription = readItemProperty(properties, 'description');
+  const article = typeof rawArticle === 'string' ? rawArticle.trim() : '';
+  const description = typeof rawDescription === 'string' ? rawDescription.trim() : '';
   return {
     name,
     ...(article ? { article } : {}),
@@ -61,6 +65,8 @@ export function parseItemCatalog(value: unknown, expectedLocale?: ItemLocale): I
       ...(typeof entry.description === 'string' && entry.description.trim()
         ? { description: entry.description.trim() }
         : {}),
+      ...(entry.marketable === true ? { marketable: true } : {}),
+      ...(entry.autoLootable === true ? { autoLootable: true } : {}),
       ...(typeof entry.sourceHash === 'string' ? { sourceHash: entry.sourceHash } : {}),
       ...(entry.status === 'draft' || entry.status === 'reviewed' || entry.status === 'stale'
         ? { status: entry.status }
@@ -82,6 +88,8 @@ export function serializeItemCatalog(
       name: entry.name.trim(),
       ...(entry.article?.trim() ? { article: entry.article.trim() } : {}),
       ...(entry.description?.trim() ? { description: entry.description.trim() } : {}),
+      ...(entry.marketable === true ? { marketable: true } : {}),
+      ...(entry.autoLootable === true ? { autoLootable: true } : {}),
       ...(locale !== 'en' && entry.sourceHash ? { sourceHash: entry.sourceHash } : {}),
       ...(locale !== 'en' && entry.status ? { status: entry.status } : {}),
     };

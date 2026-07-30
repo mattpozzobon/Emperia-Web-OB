@@ -339,7 +339,8 @@ export interface ItemProperties {
   weaponType?: string;
   slotType?: string;
   ammoType?: string;
-  shootType?: string;
+  shootType?: number;
+  itemType?: string;
   damageElement?: string;
 
   // Combat stats
@@ -362,6 +363,8 @@ export interface ItemProperties {
   containerSize?: number;
   containerSizePotions?: number;
   weightReduction?: number;
+  mannequin?: boolean;
+  mannequinDirection?: number;
 
   // Weight / Speed
   weight?: number;
@@ -481,6 +484,9 @@ export interface ItemLocalizedText {
   name: string;
   article?: string;
   description?: string;
+  /** Search availability copied from the canonical item definition at compile time. */
+  marketable?: boolean;
+  autoLootable?: boolean;
   /** Fingerprint of the English source used to create this translation. */
   sourceHash?: string;
   status?: ItemTranslationStatus;

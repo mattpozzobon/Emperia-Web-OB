@@ -19,6 +19,7 @@ import type {
   VisualEquipmentAppearance,
 } from '../lib/types';
 import { getEquipmentCatalogEntries } from '../lib/equipment-catalog';
+import { readItemProperty } from '../lib/item-properties';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -1019,7 +1020,11 @@ export function EquipmentCatalogEditor() {
 
   // Get slot type from public item definitions for each entry.
   const getSlotType = useCallback((itemId: number): string | undefined => {
-    return itemDefinitions.get(itemId)?.properties?.slotType;
+    const slotType = readItemProperty(
+      itemDefinitions.get(itemId)?.properties,
+      'slotType',
+    );
+    return typeof slotType === 'string' ? slotType : undefined;
   }, [itemDefinitions]);
 
   // Filter entries

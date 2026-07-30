@@ -16,6 +16,7 @@ import { createSpriteGroupSlice } from './sprite-group-slice';
 import { createOutfitSlice } from './outfit-slice';
 import { sourceHash, sourceTextFromDefinition } from '../lib/item-localization';
 import { consolidateItemIdentity } from '../lib/item-identity';
+import { hasEquipmentClassification } from '../lib/item-properties';
 
 function emptyItemLocalizations() {
   return {
@@ -51,8 +52,20 @@ function registerPrimaryItemForAppearance(
 
   const candidateIsExact = definition.itemId === definition.appearanceId;
   const currentIsExact = current.itemId === current.appearanceId;
+  const candidateIsEquipment = hasEquipmentClassification(definition.properties);
+  const currentIsEquipment = hasEquipmentClassification(current.properties);
 
-  if (candidateIsExact && !currentIsExact) {
+  // An appearance can be shared by multiple public item IDs. Prefer the
+  // definition that carries its equipment classification so the property
+  // editor does not resolve to an otherwise empty visual-only definition.
+  if (
+    (candidateIsEquipment && !currentIsEquipment)
+    || (
+      candidateIsEquipment === currentIsEquipment
+      && candidateIsExact
+      && !currentIsExact
+    )
+  ) {
     appearanceMap.set(definition.appearanceId, definition.itemId);
   }
 }
@@ -328,7 +341,27 @@ export const useOBStore = create<OBState>((set, get) => ({
 
   updateItemDefinition: (appearanceId, data) => {
     const { itemDefinitions, appearanceToItemIds, editVersion, itemLocalizations } = get();
-    const itemId = appearanceToItemIds.get(appearanceId) ?? appearanceId;
+    let itemId = appearanceToItemIds.get(appearanceId);
+    for (const [candidateItemId, candidateAppearanceId] of get().objectData?.itemAppearances ?? []) {
+      if (candidateAppearanceId !== appearanceId) continue;
+      const candidate = itemDefinitions.get(candidateItemId);
+      if (!candidate) continue;
+      const current = itemId != null ? itemDefinitions.get(itemId) : undefined;
+      const candidateIsEquipment = hasEquipmentClassification(candidate.properties);
+      const currentIsEquipment = hasEquipmentClassification(current?.properties);
+      if (
+        !current
+        || (candidateIsEquipment && !currentIsEquipment)
+        || (
+          candidateIsEquipment === currentIsEquipment
+          && candidateItemId === appearanceId
+          && itemId !== appearanceId
+        )
+      ) {
+        itemId = candidateItemId;
+      }
+    }
+    itemId ??= appearanceId;
     const existing = itemDefinitions.get(itemId);
     const thingFlags = get().objectData?.things.get(appearanceId)?.flags;
     const updated: ItemDefinition = {

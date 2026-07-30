@@ -1,7 +1,15 @@
 /**
  * Derived helper functions that live outside the store (safe for useMemo).
  */
-import type { ObjectData, ThingType, ThingCategory, ItemDefinition } from '../lib/types';
+import type {
+  ObjectData,
+  ThingType,
+  ThingCategory,
+  ItemDefinition,
+  ItemLocale,
+  ItemLocalizedText,
+} from '../lib/types';
+import { readItemProperty } from '../lib/item-properties';
 
 /** Convert an internal map ID to its category-local display ID. */
 export function getDisplayId(objectData: ObjectData, internalId: number): number {
@@ -33,6 +41,7 @@ export function getThingsForCategory(
   getCategoryRange: (cat: ThingCategory) => { start: number; end: number } | null,
   itemDefinitions?: Map<number, ItemDefinition>,
   appearanceToItemIds?: Map<number, number>,
+  itemLocalizations?: Record<ItemLocale, Map<number, ItemLocalizedText>>,
 ): ThingType[] {
   if (!objectData) return [];
   const range = getCategoryRange(activeCategory);
@@ -61,8 +70,18 @@ export function getThingsForCategory(
         if (itemId != null) {
           if (itemId.toString().includes(q)) match = true;
           const def = itemDefinitions.get(itemId);
-          if (!match && def?.properties?.name) {
-            match = def.properties.name.toLowerCase().includes(q);
+          const definitionName = readItemProperty(def?.properties, 'name');
+          if (!match && typeof definitionName === 'string') {
+            match = definitionName.toLowerCase().includes(q);
+          }
+          if (!match && itemLocalizations) {
+            for (const localizedItems of Object.values(itemLocalizations)) {
+              const localizedName = localizedItems.get(itemId)?.name;
+              if (localizedName?.toLowerCase().includes(q)) {
+                match = true;
+                break;
+              }
+            }
           }
         }
       }

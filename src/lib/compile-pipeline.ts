@@ -19,6 +19,10 @@ import {
 import { ITEM_LOCALES } from './types';
 import { serializeItemCatalog, sourceHash } from './item-localization';
 import { isItemIdentity } from './item-identity-codec';
+import {
+  readItemProperty,
+  writeItemProperty,
+} from './item-properties';
 
 export interface CompileStep {
   label: string;
@@ -74,17 +78,6 @@ const SERVER_ITEM_EXCLUDED_PROPERTIES = new Set([
   'clientId',
   'serverId',
 ]);
-
-const SERVER_PROPERTY_ALIASES: Readonly<Record<string, string>> = {
-  containersize: 'containerSize',
-  decayto: 'decayTo',
-  corpsetype: 'corpseType',
-  fluidsource: 'fluidSource',
-  blockprojectile: 'blockProjectile',
-  attack: 'physicalAttack',
-  defense: 'physicalDefense',
-  armor: 'physicalDefense',
-};
 
 type ArtifactRole = 'obj' | 'spr' | 'def' | 'localization' | 'generated';
 
@@ -477,9 +470,9 @@ export async function runCompile(
     itemIdentities.clear();
     for (const [itemId, definition] of itemDefinitions) {
       itemAppearances.set(itemId, definition.appearanceId);
-      const slotType = definition.properties?.slotType;
+      const slotType = readItemProperty(definition.properties, 'slotType');
       if (typeof slotType === 'string' && slotType) itemSlotTypes.set(itemId, slotType);
-      const identity = definition.properties?.type;
+      const identity = readItemProperty(definition.properties, 'type');
       if (typeof identity === 'string' && isItemIdentity(identity)) {
         itemIdentities.set(itemId, identity);
       }
@@ -504,18 +497,19 @@ export async function runCompile(
   const equipmentAppearances = new Map<number, EquipmentAppearance>(od.equipmentAppearances);
   const hairDefinitions = new Map<number, HairDefinition>(od.hairDefinitions);
 
-  // Text access has one canonical editor but two runtime projections. Bring
-  // imported legacy definitions and EOBJ flags into agreement before writing
-  // either artifact.
+  // Text access has one canonical editor but two runtime projections.
   for (const definition of itemDefinitions.values()) {
     const thing = od.things.get(definition.appearanceId);
     if (thing?.category !== 'item') continue;
     const properties = definition.properties ?? {};
     const writeOnce = thing.flags.writableOnce
-      || (properties.writeable === true && properties.writeOnceItemId != null);
+      || (
+        readItemProperty(properties, 'writeable') === true
+        && readItemProperty(properties, 'writeOnceItemId') != null
+      );
     const writable = !writeOnce && (
       thing.flags.writable
-      || properties.writeable === true
+      || readItemProperty(properties, 'writeable') === true
     );
     if (thing.flags.writable !== writable || thing.flags.writableOnce !== writeOnce) {
       thing.flags = {
@@ -599,53 +593,51 @@ export async function runCompile(
     const definitions: Record<string, unknown> = {};
     for (const itemId of Array.from(itemDefinitions.keys()).sort((a, b) => a - b)) {
       const definition = itemDefinitions.get(itemId)!;
-      let properties: Record<string, unknown> | null = null;
+      let properties: import('./types').ItemProperties | null = null;
       if (definition.properties) {
         properties = {};
         for (const [key, value] of Object.entries(definition.properties)) {
-          const canonicalKey = SERVER_PROPERTY_ALIASES[key] ?? key;
-          // ItemAttr.Type ("4") is the canonical server enum. `type` is kept
-          // in memory only as the EOBJ identity projection.
-          if (canonicalKey === 'type' && typeof definition.properties['4'] === 'number') {
-            continue;
+          if (SERVER_ITEM_EXCLUDED_PROPERTIES.has(key)) continue;
+          if (!/^\d+$/.test(key)) {
+            throw new Error(
+              `Item ${itemId} has non-canonical property "${key}". `
+              + 'Item properties must use numeric ItemAttr keys.',
+            );
           }
           if (
-            canonicalKey !== key
-            && definition.properties[canonicalKey] !== undefined
+            typeof value === 'string'
+            && key !== '1'
+            && key !== '2'
+            && key !== '3'
+            && key !== '145'
           ) {
-            continue;
+            throw new Error(
+              `Item ${itemId} property ${key} must use its canonical numeric or boolean value.`,
+            );
           }
-          if (
-            !SERVER_ITEM_EXCLUDED_PROPERTIES.has(canonicalKey)
-            && value !== undefined
-            && value !== null
-            && value !== ''
-            && !(canonicalKey === 'article' && value === 'a')
-          ) {
-            properties[canonicalKey] = value;
+          if (value !== undefined && value !== null && value !== '') {
+            properties[key] = value;
           }
         }
         if (Object.keys(properties).length === 0) properties = null;
       }
 
       const thing = od.things.get(definition.appearanceId);
-      if (properties?.type === 'readable') {
-        delete properties.type;
-        properties.readable = true;
-      }
       if (thing?.category === 'item' && (thing.flags.writable || thing.flags.writableOnce)) {
         properties ??= {};
-        properties.writeable = true;
-        delete properties.readable;
-        if (!thing.flags.writableOnce) delete properties.writeOnceItemId;
+        writeItemProperty(properties, 'writeable', true);
+        writeItemProperty(properties, 'readable', undefined);
+        if (!thing.flags.writableOnce) {
+          writeItemProperty(properties, 'writeOnceItemId', undefined);
+        }
       }
       if (thing?.category === 'item' && thing.flags.ground) {
         const speed = thing.flags.groundSpeed ?? 100;
         if (speed !== 100) {
           properties ??= {};
-          properties.friction = speed;
+          writeItemProperty(properties, 'friction', speed);
         } else if (properties) {
-          delete properties.friction;
+          writeItemProperty(properties, 'friction', undefined);
           if (Object.keys(properties).length === 0) properties = null;
         }
       }
@@ -706,6 +698,16 @@ export async function runCompile(
               : 'stale',
           });
         }
+      }
+      for (const [itemId, entry] of entries) {
+        const properties = itemDefinitions.get(itemId)?.properties;
+        entries.set(itemId, {
+          ...entry,
+          marketable: readItemProperty(properties, 'marketable') === 1
+            || readItemProperty(properties, 'marketable') === true,
+          autoLootable: readItemProperty(properties, 'autoLootable') === 1
+            || readItemProperty(properties, 'autoLootable') === true,
+        });
       }
       const filename = `item-catalog.${locale}.json`;
       const buf = encodeText(`${JSON.stringify(serializeItemCatalog(locale, entries))}\n`);

@@ -13,6 +13,7 @@ import { decodeSprite } from '../lib/sprite-decoder';
 import { applyOutfitMask, PALETTE_SIZE, paletteToCSS } from '../lib/outfit-colors';
 import type { ObjectData, SpriteData, FrameGroup, EquipmentCatalogEntry, EquipSlotFilter } from '../lib/types';
 import { getEquipmentCatalogEntries } from '../lib/equipment-catalog';
+import { readItemProperty } from '../lib/item-properties';
 import { HairRace, HairGender } from '../lib/types';
 import {
   createEmptyOutfit,
@@ -449,7 +450,11 @@ function EquipPicker({ slotFilter, onSelect, onClose }: {
   const [search, setSearch] = useState('');
 
   const getSlotType = useCallback((itemId: number): string | undefined => {
-    return itemDefinitions.get(itemId)?.properties?.slotType;
+    const slotType = readItemProperty(
+      itemDefinitions.get(itemId)?.properties,
+      'slotType',
+    );
+    return typeof slotType === 'string' ? slotType : undefined;
   }, [itemDefinitions]);
 
   useEffect(() => {

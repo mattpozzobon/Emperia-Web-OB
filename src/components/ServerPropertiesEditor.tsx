@@ -2,7 +2,13 @@ import { useCallback, useMemo, useState } from 'react';
 import { useOBStore } from '../store';
 import type { ItemProperties, ExclusiveSlotDef } from '../lib/types';
 import { ITEM_SLOT_TYPES } from '../lib/item-slot-types';
-import { inferVisualFlagsFromIdentity, ITEM_IDENTITY_OPTIONS } from '../lib/item-identity';
+import { inferVisualFlagsFromIdentity, ITEM_IDENTITY_GROUPS } from '../lib/item-identity';
+import {
+  hasEquipmentClassification,
+  normalizeItemPropertiesForEditor,
+  writeItemProperty,
+} from '../lib/item-properties';
+import { compositeThingDataUrl } from '../lib/sprite-decoder';
 import { HelpTooltip } from './HelpTooltip';
 import type { HelpContent } from './HelpTooltip';
 
@@ -11,7 +17,7 @@ import type { HelpContent } from './HelpTooltip';
 interface FieldDef {
   key: string;
   label: string;
-  type: 'string' | 'number' | 'select' | 'boolean';
+  type: 'string' | 'number' | 'select' | 'boolean' | 'identity-buttons';
   options?: string[];
   placeholder?: string;
   help?: string;
@@ -25,6 +31,7 @@ const FIELD_HELP: Record<string, string> = {
   weaponType: 'Classifies the item for combat formulas and equipment rules.',
   slotType: 'Equipment slot or item category used by equipment panels, restrictions, and outfit catalog links.',
   ammoType: 'Ammunition category used by ranged weapons.',
+  itemType: 'Canonical non-equipment item category used by tools, consumables, runes, keys, and container restrictions.',
   shootType: 'Projectile visual/type identifier used by ranged attacks.',
   damageElement: 'Element associated with this item or weapon damage.',
   physicalAttack: 'Base physical attack value used by combat calculations.',
@@ -43,6 +50,8 @@ const FIELD_HELP: Record<string, string> = {
   containerSize: 'Number of normal container slots.',
   containerSizePotions: 'Potion-only slot count for potion belts or similar containers.',
   weightReduction: 'Capacity/weight reduction applied by this container.',
+  mannequin: 'Creates the explicit mannequin runtime type and world equipment presentation.',
+  mannequinDirection: 'Outfit direction used to render displayed equipment (0-7).',
   charges: 'Number of uses or charges shown/consumed by chargeable items.',
   duration: 'Duration in seconds/ticks for decaying or timed items.',
   decayTo: 'Item id this item transforms into after duration expires.',
@@ -64,7 +73,7 @@ const FIELD_EXAMPLES: Record<string, string> = {
   name: 'An item named "steel sword" appears with that name in look text, searches, and server messages.',
   article: 'Use "an" for "an arcane orb"; the server combines it with the item name in English text.',
   description: 'A quest item can display "An old key marked with the royal seal." when inspected.',
-  type: 'Closed and open doors use doorClosed and doorOpen; walls and windows can drive lighting occlusion while levers and chests drive proximity interaction.',
+  type: 'Use doorClosed/doorOpen and windowClosed/windowOpen for stateful structures; selecting one also synchronizes its intrinsic visual flags.',
   weaponType: 'Set sword so combat and equipment rules treat the item as a sword weapon.',
   slotType: 'Set head for a helmet or potion for an item that belongs to the potion/tool category.',
   ammoType: 'A bow can require the same ammunition category configured on its arrow item.',
@@ -78,6 +87,8 @@ const FIELD_EXAMPLES: Record<string, string> = {
   containerSize: 'Set 20 on a backpack to create twenty normal inventory slots.',
   containerSizePotions: 'Set 4 on a potion belt to reserve four potion-specific positions.',
   weightReduction: 'A specialized bag can reduce the effective carried weight according to this configured value.',
+  mannequin: 'Enable only for containers whose exclusive slots represent visible head, body, legs, and feet equipment.',
+  mannequinDirection: 'Use 2 for the south-facing mannequin variant and 1 for the east-facing variant.',
   charges: 'A rune with 5 charges can be used five times before its charge count reaches zero.',
   duration: 'A temporary field can remain active for the configured duration before decay processing.',
   decayTo: 'A lit torch can decay into the dimmer torch item ID after its duration expires.',
@@ -130,7 +141,14 @@ function getFieldHelp(field: FieldDef): HelpContent {
   };
 }
 
-// Unified slot types: equipment slots + tool/item categories (used for both slotType and exclusive slot restrictions)
+const EQUIPMENT_SLOT_TYPES = ITEM_SLOT_TYPES.filter((slot) => (
+  [
+    'head', 'body', 'legs', 'feet', 'left-hand', 'right-hand', 'hand',
+    'two-handed', 'ring', 'necklace', 'backpack', 'belt', 'ammo',
+    'quiver', 'torch', 'pet',
+  ] as readonly string[]
+).includes(slot));
+
 const FLUID_SOURCE_OPTIONS = [
   '',
   'water',
@@ -138,14 +156,8 @@ const FLUID_SOURCE_OPTIONS = [
   'beer',
   'slime',
   'lemonade',
-  'milk',
-  'mana',
-  'oil',
-  'urine',
-  'coconutmilk',
   'wine',
   'mud',
-  'fruitjuice',
   'lava',
   'rum',
 ] as const;
@@ -154,19 +166,47 @@ const IDENTITY_FIELDS: FieldDef[] = [
   { key: 'name', label: 'Name', type: 'string', help: FIELD_HELP.name },
   { key: 'article', label: 'Article', type: 'string', placeholder: 'a / an', help: FIELD_HELP.article },
   { key: 'description', label: 'Description', type: 'string', help: FIELD_HELP.description },
-  { key: 'type', label: 'Type', type: 'select', options: [...ITEM_IDENTITY_OPTIONS], help: FIELD_HELP.type },
+  { key: 'type', label: 'Type', type: 'identity-buttons', help: FIELD_HELP.type },
 ];
 
 const EQUIPMENT_FIELDS: FieldDef[] = [
   { key: 'weaponType', label: 'Weapon Type', type: 'select', options: [
-    '', 'sword', 'axe', 'club', 'distance', 'shield', 'wand', 'orb', 'magical',
+    '', 'sword', 'axe', 'club', 'distance', 'orb', 'shield', 'ammunition', 'fist',
   ]},
-  { key: 'slotType', label: 'Slot Type', type: 'select', options: ['', ...ITEM_SLOT_TYPES], help: FIELD_HELP.slotType },
-  { key: 'ammoType', label: 'Ammo Type', type: 'string' },
-  { key: 'shootType', label: 'Shoot Type', type: 'string' },
+  { key: 'slotType', label: 'Slot Type', type: 'select', options: ['', ...EQUIPMENT_SLOT_TYPES], help: FIELD_HELP.slotType },
+  { key: 'ammoType', label: 'Ammo Type', type: 'select', options: ['', 'arrow', 'bolt'] },
+  { key: 'shootType', label: 'Shoot Type', type: 'number' },
   { key: 'damageElement', label: 'Damage Element', type: 'select', options: [
-    '', 'fire', 'ice', 'energy', 'earth', 'death', 'holy', 'arcane', 'wind',
+    '', 'fire', 'earth', 'water', 'wind', 'ice', 'death', 'arcane', 'holy',
   ]},
+];
+
+const HARVEST_FIELDS: FieldDef[] = [
+  { key: 'harvestType', label: 'Harvest Type', type: 'select', options: ['', 'mining', 'herbalism', 'skinning', 'fishing', 'chopping'] },
+  { key: 'harvestResultItemId', label: 'Result Item ID', type: 'number' },
+  { key: 'harvestQuantityMin', label: 'Minimum Quantity', type: 'number' },
+  { key: 'harvestQuantityMax', label: 'Maximum Quantity', type: 'number' },
+  { key: 'harvestTier', label: 'Resource Tier', type: 'number' },
+  { key: 'harvestRequiredMasteryLevel', label: 'Required Mastery Level', type: 'number' },
+  { key: 'harvestRequiredToolType', label: 'Required Tool', type: 'select', options: ['', 'pick', 'knife', 'fishingRod', 'machete'] },
+  { key: 'harvestRequiredToolTier', label: 'Required Tool Tier', type: 'number' },
+  { key: 'harvestToolUseCost', label: 'Tool Use Cost', type: 'number' },
+  { key: 'harvestBaseChanceBps', label: 'Base Chance (bps)', type: 'number' },
+  { key: 'harvestChancePerLevelBps', label: 'Chance / Level (bps)', type: 'number' },
+  { key: 'harvestMaxChanceBps', label: 'Maximum Chance (bps)', type: 'number' },
+  { key: 'harvestAttemptXp', label: 'Attempt XP', type: 'number' },
+  { key: 'harvestSuccessXp', label: 'Success XP', type: 'number' },
+  { key: 'harvestBonusYieldPerLevelBps', label: 'Bonus Yield / Level (bps)', type: 'number' },
+  { key: 'harvestBonusYieldMaxBps', label: 'Maximum Bonus Yield (bps)', type: 'number' },
+  { key: 'harvestSizeMultiplierBps', label: 'Size Multiplier (bps)', type: 'number' },
+  { key: 'harvestMode', label: 'After Harvest', type: 'select', options: ['keep', 'remove', 'transform', 'mark'] },
+  { key: 'harvestTransformItemId', label: 'Transform Item ID', type: 'number' },
+  { key: 'harvestRespawnSeconds', label: 'Respawn (seconds)', type: 'number' },
+];
+
+const AVAILABILITY_FIELDS: FieldDef[] = [
+  { key: 'marketable', label: 'Can be used in Market', type: 'boolean' },
+  { key: 'autoLootable', label: 'Can be selected for Auto Loot', type: 'boolean' },
 ];
 
 const COMBAT_FIELDS: FieldDef[] = [
@@ -183,7 +223,7 @@ const COMBAT_FIELDS: FieldDef[] = [
 const WEIGHT_FIELDS: FieldDef[] = [
   { key: 'weight', label: 'Weight', type: 'number' },
   { key: 'speed', label: 'Speed', type: 'number' },
-  { key: 'floorchange', label: 'Floor Change', type: 'select', options: ['', 'down', 'north', 'south', 'east', 'west'] },
+  { key: 'floorchange', label: 'Floor Change', type: 'select', options: ['', 'north', 'east', 'south', 'west', 'down', 'southalt', 'eastalt'] },
 ];
 
 const REQUIREMENT_FIELDS: FieldDef[] = [
@@ -195,6 +235,8 @@ const CONTAINER_FIELDS: FieldDef[] = [
   { key: 'containerSize', label: 'Container Size', type: 'number' },
   { key: 'containerSizePotions', label: 'Container Size (Potions)', type: 'number' },
   { key: 'weightReduction', label: 'Weight Reduction', type: 'number' },
+  { key: 'mannequin', label: 'World Mannequin', type: 'boolean' },
+  { key: 'mannequinDirection', label: 'Mannequin Direction', type: 'number' },
 ];
 
 const DECAY_FIELDS: FieldDef[] = [
@@ -208,8 +250,12 @@ const DECAY_FIELDS: FieldDef[] = [
 ];
 
 const SPECIAL_FIELDS: FieldDef[] = [
+  { key: 'itemType', label: 'Item Category', type: 'select', options: [
+    '', 'rope', 'shovel', 'pick', 'knife', 'fishingRod', 'potion', 'machete',
+    'food', 'rune', 'key', 'shield',
+  ]},
   { key: 'fluidSource', label: 'Fluid Source', type: 'select', options: [...FLUID_SOURCE_OPTIONS], help: FIELD_HELP.fluidSource },
-  { key: 'field', label: 'Field', type: 'string' },
+  { key: 'field', label: 'Field', type: 'select', options: ['', 'fire', 'poison', 'energy'] },
 ];
 
 const REGEN_FIELDS: FieldDef[] = [
@@ -276,22 +322,60 @@ const TOOL_USES_FIELDS: FieldDef[] = [
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-const SECTIONS: { key: string; title: string; fields: FieldDef[] }[] = [
-  { key: 'identity', title: 'Identity', fields: IDENTITY_FIELDS },
-  { key: 'equipment', title: 'Equipment', fields: EQUIPMENT_FIELDS },
-  { key: 'combat', title: 'Combat Stats', fields: COMBAT_FIELDS },
-  { key: 'weight', title: 'Weight / Speed', fields: WEIGHT_FIELDS },
-  { key: 'requirements', title: 'Requirements', fields: REQUIREMENT_FIELDS },
-  { key: 'container', title: 'Container', fields: CONTAINER_FIELDS },
-  { key: 'decay', title: 'Decay / Transform', fields: DECAY_FIELDS },
-  { key: 'special', title: 'Sources & Fields', fields: SPECIAL_FIELDS },
-  { key: 'regen', title: 'Regeneration', fields: REGEN_FIELDS },
-  { key: 'skills', title: 'Skill Bonuses', fields: SKILL_FIELDS },
-  { key: 'absorb', title: 'Absorb %', fields: ABSORB_FIELDS },
-  { key: 'statBonus', title: 'Stat Bonuses', fields: STAT_BONUS_FIELDS },
-  { key: 'combatBonus', title: 'Combat Bonuses', fields: COMBAT_BONUS_FIELDS },
-  { key: 'toolUses', title: 'Tool Uses', fields: TOOL_USES_FIELDS },
+type SectionGroup = 'identity' | 'equipment' | 'general';
+
+interface SectionDef {
+  key: string;
+  title: string;
+  fields: FieldDef[];
+  group: SectionGroup;
+  equippableOnly?: boolean;
+}
+
+const SECTION_GROUP_LABELS: Record<Exclude<SectionGroup, 'identity'>, string> = {
+  equipment: 'Equipment metadata',
+  general: 'General item metadata',
+};
+
+const DETAILS_TAB_LABELS: Record<string, string> = {
+  general: 'General',
+  equipment: 'Equipment',
+  combat: 'Combat',
+  requirements: 'Requirements',
+  skills: 'Skills',
+  absorb: 'Absorb',
+  statBonus: 'Stats',
+  combatBonus: 'Bonuses',
+  regen: 'Regeneration',
+  toolUses: 'Tool Uses',
+  harvest: 'Harvest',
+  availability: 'Market',
+};
+
+const SECTIONS: SectionDef[] = [
+  { key: 'identity', title: 'Identity', fields: IDENTITY_FIELDS, group: 'identity' },
+  { key: 'equipment', title: 'Equipment', fields: EQUIPMENT_FIELDS, group: 'equipment' },
+  { key: 'combat', title: 'Combat Stats', fields: COMBAT_FIELDS, group: 'equipment', equippableOnly: true },
+  { key: 'requirements', title: 'Requirements', fields: REQUIREMENT_FIELDS, group: 'equipment', equippableOnly: true },
+  { key: 'skills', title: 'Skill Bonuses', fields: SKILL_FIELDS, group: 'equipment', equippableOnly: true },
+  { key: 'absorb', title: 'Absorb %', fields: ABSORB_FIELDS, group: 'equipment', equippableOnly: true },
+  { key: 'statBonus', title: 'Stat Bonuses', fields: STAT_BONUS_FIELDS, group: 'equipment', equippableOnly: true },
+  { key: 'combatBonus', title: 'Combat Bonuses', fields: COMBAT_BONUS_FIELDS, group: 'equipment', equippableOnly: true },
+  { key: 'regen', title: 'Regeneration', fields: REGEN_FIELDS, group: 'equipment', equippableOnly: true },
+  { key: 'toolUses', title: 'Tool Uses', fields: TOOL_USES_FIELDS, group: 'equipment', equippableOnly: true },
+  { key: 'harvest', title: 'Harvest', fields: HARVEST_FIELDS, group: 'general' },
+  { key: 'availability', title: 'Market / Auto Loot', fields: AVAILABILITY_FIELDS, group: 'general' },
+  { key: 'weight', title: 'Weight / Speed', fields: WEIGHT_FIELDS, group: 'general' },
+  { key: 'container', title: 'Container', fields: CONTAINER_FIELDS, group: 'general' },
+  { key: 'decay', title: 'Decay / Transform', fields: DECAY_FIELDS, group: 'general' },
+  { key: 'special', title: 'Sources & Fields', fields: SPECIAL_FIELDS, group: 'general' },
 ];
+
+const EQUIPMENT_DETAIL_TAB_KEYS = new Set(
+  SECTIONS
+    .filter((section) => section.group === 'equipment' && section.key !== 'equipment')
+    .map((section) => section.key),
+);
 
 export function ServerPropertiesEditor({
   mode = 'all',
@@ -308,21 +392,66 @@ export function ServerPropertiesEditor({
   useOBStore((s) => s.editVersion);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
-  const itemId = selectedId != null ? appearanceToItemIds.get(selectedId) : undefined;
+  const itemId = useMemo(() => {
+    if (selectedId == null) return undefined;
+    const primaryItemId = appearanceToItemIds.get(selectedId);
+    let resolvedItemId = primaryItemId != null
+      && itemDefinitions.has(primaryItemId)
+      ? primaryItemId
+      : undefined;
+    let fallbackItemId = primaryItemId;
+    for (const [candidateItemId, appearanceId] of objectData?.itemAppearances ?? []) {
+      if (appearanceId !== selectedId) continue;
+      fallbackItemId ??= candidateItemId;
+      const candidate = itemDefinitions.get(candidateItemId);
+      if (!candidate) continue;
+      const current = resolvedItemId != null
+        ? itemDefinitions.get(resolvedItemId)
+        : undefined;
+      const candidateIsEquipment = hasEquipmentClassification(candidate.properties);
+      const currentIsEquipment = hasEquipmentClassification(current?.properties);
+      if (
+        !current
+        || (candidateIsEquipment && !currentIsEquipment)
+        || (
+          candidateIsEquipment === currentIsEquipment
+          && candidateItemId === selectedId
+          && resolvedItemId !== selectedId
+        )
+      ) {
+        resolvedItemId = candidateItemId;
+      }
+    }
+    return resolvedItemId ?? fallbackItemId;
+  }, [
+    appearanceToItemIds,
+    itemDefinitions,
+    objectData?.itemAppearances,
+    selectedId,
+  ]);
   const def = itemId != null ? itemDefinitions.get(itemId) ?? null : null;
 
-  const props: ItemProperties = useMemo(() => def?.properties ?? {}, [def]);
+  const props: ItemProperties = useMemo(
+    () => normalizeItemPropertiesForEditor(def?.properties),
+    [def],
+  );
+  const isEquippable = useMemo(
+    () => hasEquipmentClassification(def?.properties),
+    [def],
+  );
+  const [detailsTab, setDetailsTab] = useState<string>(
+    isEquippable ? 'equipment' : 'general',
+  );
+  const activeDetailsTab = !isEquippable
+    && EQUIPMENT_DETAIL_TAB_KEYS.has(detailsTab)
+    ? 'equipment'
+    : detailsTab;
 
   const setProperty = useCallback((key: string, value: string | number | boolean | undefined) => {
     if (selectedId == null) return;
-    const itemId = appearanceToItemIds.get(selectedId);
     const current = itemId != null ? itemDefinitions.get(itemId) : undefined;
     const currentProps = current?.properties ? { ...current.properties } : {};
-    if (value === undefined || value === '' || value === false) {
-      delete currentProps[key];
-    } else {
-      currentProps[key] = value;
-    }
+    writeItemProperty(currentProps, key, value);
     if (key === 'type' && typeof value === 'string' && thing) {
       updateThingFlags(
         selectedId,
@@ -331,7 +460,7 @@ export function ServerPropertiesEditor({
     }
     updateItemDefinition(selectedId, { properties: Object.keys(currentProps).length > 0 ? currentProps : null });
   }, [
-    appearanceToItemIds,
+    itemId,
     itemDefinitions,
     selectedId,
     thing,
@@ -341,35 +470,78 @@ export function ServerPropertiesEditor({
 
   const setExclusiveSlots = useCallback((slots: ExclusiveSlotDef[] | undefined) => {
     if (selectedId == null) return;
-    const itemId = appearanceToItemIds.get(selectedId);
     const current = itemId != null ? itemDefinitions.get(itemId) : undefined;
     const currentProps = current?.properties ? { ...current.properties } : {};
     if (!slots || slots.length === 0) {
-      delete currentProps.exclusiveSlots;
+      writeItemProperty(currentProps, 'exclusiveSlots', undefined);
     } else {
       // Strip any stale keys (e.g. legacy "name") — only keep known fields
-      currentProps.exclusiveSlots = slots.map(({ slotIndex, allowedItemTypes, allowedItemIds }) => {
+      const cleanSlots = slots.map(({ slotIndex, allowedItemTypes, allowedItemIds }) => {
         const clean: ExclusiveSlotDef = { slotIndex, allowedItemTypes };
         if (allowedItemIds && allowedItemIds.length > 0) clean.allowedItemIds = allowedItemIds;
         return clean;
       });
+      writeItemProperty(currentProps, 'exclusiveSlots', cleanSlots);
     }
     updateItemDefinition(selectedId, { properties: Object.keys(currentProps).length > 0 ? currentProps : null });
-  }, [selectedId, itemDefinitions, updateItemDefinition]);
+  }, [itemId, selectedId, itemDefinitions, updateItemDefinition]);
 
   // Auto-expand sections that have values, collapse empty ones
   const visibleSections = useMemo(
     () => SECTIONS.filter((section) => (
-      mode === 'all'
-      || (mode === 'identity' && section.key === 'identity')
-      || (mode === 'details' && section.key !== 'identity')
+      (
+        mode === 'all'
+        || (mode === 'identity' && section.key === 'identity')
+        || (
+          mode === 'details'
+          && section.key !== 'identity'
+          && (
+            (
+              activeDetailsTab === 'general'
+              && section.group === 'general'
+              && section.key !== 'harvest'
+              && section.key !== 'availability'
+            )
+            || section.key === activeDetailsTab
+          )
+        )
+      )
+      && (!section.equippableOnly || isEquippable)
     )),
-    [mode],
+    [activeDetailsTab, isEquippable, mode],
   );
+
+  const mainDetailsTabs = useMemo(
+    () => [
+      { key: 'general', title: 'General item properties' },
+      { key: 'equipment', title: 'Equipment properties' },
+      { key: 'harvest', title: 'Harvest configuration' },
+      { key: 'availability', title: 'Market and auto-loot availability' },
+    ],
+    [],
+  );
+  const equipmentSubTabs = useMemo(
+    () => SECTIONS
+      .filter((section) => (
+        section.group === 'equipment'
+        && section.key !== 'equipment'
+        && (!section.equippableOnly || isEquippable)
+      ))
+      .map((section) => ({ key: section.key, title: section.title })),
+    [isEquippable],
+  );
+  const equipmentTabKeys = useMemo(
+    () => new Set(['equipment', ...equipmentSubTabs.map((tab) => tab.key)]),
+    [equipmentSubTabs],
+  );
+  const activeMainDetailsTab = equipmentTabKeys.has(activeDetailsTab)
+    ? 'equipment'
+    : activeDetailsTab;
 
   const defaultExpanded = useMemo(() => {
     const set = new Set<string>();
-    for (const sec of visibleSections) {
+    for (const sec of SECTIONS) {
+      if (sec.equippableOnly && !isEquippable) continue;
       if (sec.fields.some((f) => props[f.key] !== undefined && props[f.key] !== '')) {
         set.add(sec.key);
       }
@@ -378,18 +550,29 @@ export function ServerPropertiesEditor({
     if (Array.isArray(props.exclusiveSlots) && props.exclusiveSlots.length > 0) {
       set.add('container');
     }
+    if (
+      mode === 'details'
+      && (activeDetailsTab !== 'general' || isEquippable)
+    ) {
+      set.add(activeDetailsTab === 'general' ? 'equipment' : activeDetailsTab);
+    }
     if (mode !== 'details') set.add('identity');
     return set;
-  }, [mode, props, visibleSections]);
+  }, [activeDetailsTab, isEquippable, mode, props]);
 
   const [expanded, setExpanded] = useState<Set<string>>(defaultExpanded);
 
-  // Sync defaults when item changes
-  const [lastId, setLastId] = useState(selectedId);
-  if (selectedId !== lastId) {
-    setLastId(selectedId);
-    setExpanded(defaultExpanded);
-  }
+  const selectDetailsTab = useCallback((tab: string) => {
+    setDetailsTab(tab);
+    if (tab !== 'general') {
+      setExpanded((previous) => {
+        if (previous.has(tab)) return previous;
+        const next = new Set(previous);
+        next.add(tab);
+        return next;
+      });
+    }
+  }, []);
 
   const toggle = useCallback((key: string) => {
     setExpanded((prev) => {
@@ -418,8 +601,81 @@ export function ServerPropertiesEditor({
 
   return (
     <div className="space-y-2 text-xs">
-      {visibleSections.map((sec) => (
+      {mode === 'details' && (
+        <div
+          role="tablist"
+          aria-label="Item definition section"
+          className="flex gap-1 overflow-x-auto rounded border border-emperia-border bg-emperia-bg p-1"
+        >
+          {mainDetailsTabs.map((tab) => {
+            const active = activeMainDetailsTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                title={tab.title}
+                onClick={() => selectDetailsTab(tab.key)}
+                className={`flex shrink-0 items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider transition-colors ${
+                  active
+                    ? 'bg-emperia-accent/15 text-emperia-accent'
+                    : 'text-emperia-muted hover:bg-emperia-hover hover:text-emperia-text'
+                }`}
+              >
+                {DETAILS_TAB_LABELS[tab.key] ?? tab.title}
+                {tab.key === 'equipment' && isEquippable && (
+                  <span
+                    className="h-1.5 w-1.5 rounded-full bg-emperia-accent"
+                    title="Equipment type configured"
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {mode === 'details' && activeMainDetailsTab === 'equipment' && equipmentSubTabs.length > 0 && (
+        <div
+          role="tablist"
+          aria-label="Equipment property section"
+          className="flex gap-1 overflow-x-auto border-b border-emperia-border px-1"
+        >
+          {equipmentSubTabs.map((tab) => {
+            const active = activeDetailsTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                title={tab.title}
+                onClick={() => selectDetailsTab(tab.key)}
+                className={`shrink-0 border-b-2 px-2 py-1.5 text-[9px] font-semibold uppercase tracking-wider transition-colors ${
+                  active
+                    ? 'border-emperia-accent text-emperia-accent'
+                    : 'border-transparent text-emperia-muted hover:text-emperia-text'
+                }`}
+              >
+                {DETAILS_TAB_LABELS[tab.key] ?? tab.title}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {visibleSections.map((sec, index) => (
         <div key={sec.key}>
+          {mode !== 'details'
+            && sec.group !== 'identity'
+            && (index === 0 || visibleSections[index - 1]?.group !== sec.group)
+            && (
+              <div className="flex items-center gap-2 px-0.5 pt-1">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-emperia-muted/70">
+                  {SECTION_GROUP_LABELS[sec.group]}
+                </span>
+                <span className="h-px flex-1 bg-emperia-border/60" />
+              </div>
+            )}
           <FieldSection
             title={sec.title}
             fields={sec.fields}
@@ -428,6 +684,13 @@ export function ServerPropertiesEditor({
             expanded={expanded.has(sec.key)}
             onToggle={() => toggle(sec.key)}
           />
+          {sec.key === 'equipment' && expanded.has('equipment') && !isEquippable && (
+            <p className="px-2 pt-1 text-[9px] leading-relaxed text-emperia-muted/70">
+              Set Weapon Type or Slot Type to enable combat stats, requirements,
+              skill bonuses, absorption, stat bonuses, combat bonuses,
+              regeneration, and tool uses.
+            </p>
+          )}
           {sec.key === 'container' && expanded.has('container') && (
             <ExclusiveSlotsEditor
               slots={(props.exclusiveSlots as ExclusiveSlotDef[] | undefined) ?? []}
@@ -626,6 +889,59 @@ function FieldRow({
     );
   }
 
+  if (type === 'identity-buttons') {
+    const selected = typeof value === 'string' ? value : '';
+
+    return (
+      <div className="space-y-2 pt-1">
+        <div className="flex items-center gap-1 text-emperia-muted">
+          <span>{label}</span>
+          <HelpTooltip content={help} />
+          <button
+            type="button"
+            aria-pressed={!selected}
+            onClick={() => onChange(undefined)}
+            className={`ml-auto rounded border px-2 py-0.5 text-[10px] transition-colors ${
+              !selected
+                ? 'border-emperia-accent bg-emperia-accent/20 text-emperia-accent'
+                : 'border-emperia-border bg-emperia-bg text-emperia-muted hover:border-emperia-text/30 hover:text-emperia-text'
+            }`}
+          >
+            None
+          </button>
+        </div>
+        {ITEM_IDENTITY_GROUPS.map((group) => (
+          <div key={group.label} className="space-y-1">
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-emperia-muted/80">
+              {group.label}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {group.options.map((option) => {
+                const active = selected === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={active}
+                    title={option.value}
+                    onClick={() => onChange(active ? undefined : option.value)}
+                    className={`rounded border px-2 py-1 text-[10px] leading-none transition-colors ${
+                      active
+                        ? 'border-emperia-accent bg-emperia-accent/20 text-emperia-accent'
+                        : 'border-emperia-border bg-emperia-bg text-emperia-muted hover:border-emperia-text/30 hover:bg-emperia-hover hover:text-emperia-text'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   if (type === 'select') {
     return (
       <div className="flex items-center gap-2">
@@ -644,6 +960,7 @@ function FieldRow({
   }
 
   if (type === 'number') {
+    const showItemPreview = field.key === 'harvestResultItemId';
     return (
       <div className="flex items-center gap-2">
         {labelNode}
@@ -659,6 +976,11 @@ function FieldRow({
           }}
           className="flex-1 bg-emperia-bg border border-emperia-border rounded px-2 py-0.5 text-emperia-text text-xs w-0"
         />
+        {showItemPreview && (
+          <ItemReferenceThumbnail
+            itemId={typeof value === 'number' ? value : Number(value)}
+          />
+        )}
       </div>
     );
   }
@@ -674,6 +996,73 @@ function FieldRow({
         onChange={(e) => onChange(e.target.value || undefined)}
         className="flex-1 bg-emperia-bg border border-emperia-border rounded px-2 py-0.5 text-emperia-text text-xs w-0"
       />
+    </div>
+  );
+}
+
+function ItemReferenceThumbnail({ itemId }: { itemId: number }) {
+  const objectData = useOBStore((state) => state.objectData);
+  const spriteData = useOBStore((state) => state.spriteData);
+  const spriteOverrides = useOBStore((state) => state.spriteOverrides);
+  const itemDefinitions = useOBStore((state) => state.itemDefinitions);
+  const editVersion = useOBStore((state) => state.editVersion);
+
+  const preview = useMemo(() => {
+    if (!objectData || !spriteData || !Number.isInteger(itemId) || itemId <= 0) {
+      return { url: null, valid: false };
+    }
+
+    const appearanceId = objectData.itemAppearances.get(itemId);
+    const thing = appearanceId == null
+      ? undefined
+      : objectData.things.get(appearanceId);
+    const group = thing?.frameGroups[0];
+    if (!thing || !group) return { url: null, valid: false };
+
+    const width = Math.max(1, group.width);
+    const height = Math.max(1, group.height);
+    const tileCount = width * height;
+    return {
+      valid: true,
+      url: compositeThingDataUrl(
+        spriteData,
+        thing.id,
+        width,
+        height,
+        group.sprites.slice(0, tileCount),
+        spriteOverrides,
+      ),
+    };
+  }, [editVersion, itemId, objectData, spriteData, spriteOverrides]);
+
+  const itemName = itemDefinitions.get(itemId)?.properties?.name;
+  const title = preview.valid
+    ? `${typeof itemName === 'string' ? `${itemName} — ` : ''}Item #${itemId}`
+    : Number.isInteger(itemId) && itemId > 0
+      ? `Item #${itemId} has no appearance`
+      : 'Enter a valid result item ID';
+
+  return (
+    <div
+      className={`checkerboard flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded border ${
+        preview.valid ? 'border-emperia-border' : 'border-emperia-border/50'
+      }`}
+      title={title}
+      aria-label={title}
+    >
+      {preview.url ? (
+        <img
+          src={preview.url}
+          alt=""
+          draggable={false}
+          className="pixelated max-h-full max-w-full"
+          style={{ imageRendering: 'pixelated' }}
+        />
+      ) : (
+        <span className="text-[9px] text-emperia-muted/40">
+          {preview.valid ? '—' : '?'}
+        </span>
+      )}
     </div>
   );
 }

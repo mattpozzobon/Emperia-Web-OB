@@ -30,6 +30,7 @@ export function ThingGrid() {
   const cols = useOBStore((s) => s.libraryColumns);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
+  const itemLocalizations = useOBStore((s) => s.itemLocalizations);
   const hairDefinitions = useMemo(
     () => Array.from(objectData?.hairDefinitions.values() ?? []),
     [objectData, editVersion],
@@ -39,9 +40,18 @@ export function ThingGrid() {
   const tooltip = useSpriteTooltip(spriteData, spriteOverrides);
 
   const things = useMemo(
-    () => getThingsForCategory(objectData, activeCategory, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds),
+    () => getThingsForCategory(
+      objectData,
+      activeCategory,
+      searchQuery,
+      filterGroup,
+      getCategoryRange,
+      itemDefinitions,
+      appearanceToItemIds,
+      itemLocalizations,
+    ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [objectData, activeCategory, activeLibrary, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds, editVersion],
+    [objectData, activeCategory, activeLibrary, searchQuery, filterGroup, getCategoryRange, itemDefinitions, appearanceToItemIds, itemLocalizations, editVersion],
   );
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -169,7 +179,9 @@ export function ThingGrid() {
             const displayId = objectData ? getDisplayId(objectData, thing.id) : thing.id;
             const itemId = appearanceToItemIds?.get(thing.id);
             const def = itemId != null ? itemDefinitions?.get(itemId) : undefined;
-            const itemName = def?.properties?.name;
+            const itemName = itemId != null
+              ? itemLocalizations.en.get(itemId)?.name ?? def?.properties?.name
+              : def?.properties?.name;
             const publicId = activeCategory === 'item' ? (itemId ?? displayId) : displayId;
             const seatBinding = activeCategory === 'item'
               ? objectData?.itemSeatDefinitions.get(publicId) ?? null

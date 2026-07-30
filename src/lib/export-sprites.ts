@@ -6,6 +6,7 @@ import { decodeSprite } from './sprite-decoder';
 import { encodeOBD } from './obd';
 import type { SpriteData, ObjectData, ThingType, ItemDefinition } from './types';
 import { getDisplayId } from '../store/derived';
+import { readItemProperty } from './item-properties';
 
 // ── Minimal ZIP builder ────────────────────────────────────────────────────
 
@@ -161,7 +162,8 @@ export async function exportSelectedSprites(
     // Build a name prefix from definitions
     const itemId = ctx.appearanceToItemIds.get(id);
     const def = itemId != null ? ctx.itemDefinitions.get(itemId) : undefined;
-    const name = def?.properties?.name;
+    const rawName = readItemProperty(def?.properties, 'name');
+    const name = typeof rawName === 'string' ? rawName : undefined;
     const prefix = name ? `${id}_${sanitize(name)}` : `${id}`;
 
     for (const sid of spriteIds) {
@@ -207,7 +209,8 @@ export async function exportSelectedOBD(
     const displayId = getDisplayId(ctx.objectData, id);
     const itemId = ctx.appearanceToItemIds.get(id);
     const def = itemId != null ? ctx.itemDefinitions.get(itemId) : undefined;
-    const name = def?.properties?.name;
+    const rawName = readItemProperty(def?.properties, 'name');
+    const name = typeof rawName === 'string' ? rawName : undefined;
     const prefix = name
       ? `${thing.category}_${displayId}_${sanitize(name)}`
       : `${thing.category}_${displayId}`;
