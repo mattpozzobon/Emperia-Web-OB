@@ -418,7 +418,7 @@ export function PropertyInspector() {
     <div className="space-y-5 p-4 text-xs">
       <div className={`grid items-start gap-3 ${
         thing.category === 'item'
-          ? 'grid-cols-1 lg:grid-cols-[minmax(240px,0.8fr)_minmax(0,3fr)]'
+          ? 'grid-cols-1 lg:grid-cols-[minmax(300px,1fr)_minmax(0,2.6fr)]'
           : 'grid-cols-1'
       }`}>
         {thing.category === 'item' && (

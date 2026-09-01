@@ -359,10 +359,44 @@ function OutfitThumbnail({ equipmentAppearanceId, size = 32, direction = 2 }: { 
   }
 
   const internalId = equipmentAppearanceIdToInternal(objectData, equipmentAppearanceId);
+  const thing = objectData.things.get(internalId);
   const url = renderOutfitThumb(objectData, spriteData, spriteOverrides, internalId, direction);
 
+  const goToEquipment = () => {
+    if (!thing) return;
+    const { setCenterTab, setSelectedThingId } = useOBStore.getState();
+    if (useOBStore.getState().activeCategory !== 'equipment') {
+      useOBStore.setState({
+        activeCategory: 'equipment',
+        activeLibrary: 'equipment',
+        searchQuery: '',
+        filterGroup: -1,
+      });
+    }
+    setSelectedThingId(internalId);
+    setCenterTab('texture');
+  };
+
   return (
-    <div className="checkerboard rounded border border-emperia-border/50 overflow-hidden flex items-center justify-center" style={{ width: size, height: size }}>
+    <div
+      role="button"
+      tabIndex={thing ? 0 : -1}
+      onClick={(event) => {
+        event.stopPropagation();
+        goToEquipment();
+      }}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        event.stopPropagation();
+        goToEquipment();
+      }}
+      className="checkerboard rounded border border-emperia-border/50 overflow-hidden flex items-center justify-center hover:border-emperia-accent/60 transition-colors cursor-pointer shrink-0"
+      style={{ width: size, height: size }}
+      title={thing
+        ? `Go to equipment #${equipmentAppearanceId}`
+        : `Equipment #${equipmentAppearanceId} has no appearance`}
+    >
       {url ? (
         <img src={url} alt={`equipment#${equipmentAppearanceId}`} className="pixelated max-w-full max-h-full" style={{ imageRendering: 'pixelated' }} draggable={false} />
       ) : (
@@ -431,34 +465,52 @@ function ItemThumbnail({ itemId, size = 28 }: { itemId: number; size?: number })
 // ─── Add Entry Form ──────────────────────────────────────────────────────────
 
 function AddEntryForm({ onAdd, onCancel }: { onAdd: (entry: EquipmentCatalogEntry) => void; onCancel: () => void }) {
-  const [name, setName] = useState('');
+  const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const [itemId, setItemId] = useState('');
   const [equipmentAppearanceId, setEquipmentAppearanceId] = useState('');
+  const [variant, setVariant] = useState<EquipmentVariant>('default');
   const [showPicker, setShowPicker] = useState(false);
 
+  const parsedItemId = parseInt(itemId, 10);
+  const itemDefinition = Number.isNaN(parsedItemId) ? undefined : itemDefinitions.get(parsedItemId);
+  const itemNameValue = readItemProperty(itemDefinition?.properties, 'name');
+  const itemName = typeof itemNameValue === 'string' ? itemNameValue : undefined;
+
   const handleSubmit = () => {
-    const parsedItemId = parseInt(itemId, 10);
     const parsedEquipmentAppearanceId = parseInt(equipmentAppearanceId, 10);
-    if (!name.trim() || isNaN(parsedItemId) || isNaN(parsedEquipmentAppearanceId)) return;
-    onAdd({ name: name.trim(), itemId: parsedItemId, equipmentAppearanceId: parsedEquipmentAppearanceId });
+    if (!itemDefinition || isNaN(parsedEquipmentAppearanceId)) return;
+    const baseName = itemName || `item ${parsedItemId}`;
+    const name = variant === 'left'
+      ? `${baseName} left-hand`
+      : variant === 'right'
+        ? `${baseName} right-hand`
+        : baseName;
+    onAdd({ name, itemId: parsedItemId, equipmentAppearanceId: parsedEquipmentAppearanceId });
   };
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 bg-emperia-accent/5 border-t border-emperia-border">
       <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Name (e.g. Left-Hand (katana))"
-        className="flex-1 bg-emperia-bg border border-emperia-border rounded px-2 py-1 text-xs text-emperia-text min-w-0"
-      />
-      <input
         type="number"
         value={itemId}
         onChange={(e) => setItemId(e.target.value)}
         placeholder="Item ID"
-        className="w-20 bg-emperia-bg border border-emperia-border rounded px-2 py-1 text-xs text-emperia-text"
+        className={`w-24 bg-emperia-bg border rounded px-2 py-1 text-xs text-emperia-text ${
+          itemId && !itemDefinition ? 'border-red-400/60' : 'border-emperia-border'
+        }`}
       />
+      <select
+        value={variant}
+        onChange={(event) => setVariant(event.target.value as EquipmentVariant)}
+        className="bg-emperia-bg border border-emperia-border rounded px-2 py-1 text-xs text-emperia-text"
+      >
+        <option value="default">Default</option>
+        <option value="left">Left hand</option>
+        <option value="right">Right hand</option>
+      </select>
+      <span className="flex-1 min-w-0 truncate text-xs text-emperia-muted">
+        {itemDefinition ? (itemName || `Item ${parsedItemId}`) : 'Select an existing item'}
+      </span>
       <div className="flex items-center gap-1">
         <input
           type="number"
@@ -477,7 +529,8 @@ function AddEntryForm({ onAdd, onCancel }: { onAdd: (entry: EquipmentCatalogEntr
       </div>
       <button
         onClick={handleSubmit}
-        className="px-2 py-1 rounded bg-emperia-accent/20 text-emperia-accent text-xs font-medium hover:bg-emperia-accent/30"
+        disabled={!itemDefinition}
+        className="px-2 py-1 rounded bg-emperia-accent/20 text-emperia-accent text-xs font-medium hover:bg-emperia-accent/30 disabled:opacity-30 disabled:cursor-not-allowed"
       >
         Add
       </button>
@@ -501,22 +554,29 @@ type EquipmentVariant = 'default' | 'left' | 'right';
 function UnassignedEquipmentRow({
   equipmentAppearanceId,
   onAssign,
+  selected,
 }: {
   equipmentAppearanceId: number;
-  onAssign: (equipmentAppearanceId: number, itemId: number, variant: EquipmentVariant, name: string) => void;
+  onAssign: (equipmentAppearanceId: number, itemId: number, variant: EquipmentVariant) => void;
+  selected: boolean;
 }) {
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const [itemIdValue, setItemIdValue] = useState('');
   const [variant, setVariant] = useState<EquipmentVariant>('default');
-  const [name, setName] = useState('');
 
   const itemId = Number.parseInt(itemIdValue, 10);
   const itemDefinition = Number.isNaN(itemId) ? undefined : itemDefinitions.get(itemId);
-  const itemName = itemDefinition?.properties?.name;
+  const itemNameValue = readItemProperty(itemDefinition?.properties, 'name');
+  const itemName = typeof itemNameValue === 'string' ? itemNameValue : undefined;
   const canAssign = itemDefinition != null;
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-amber-400/20 bg-amber-400/5">
+    <div
+      data-equipment-appearance-id={equipmentAppearanceId}
+      className={`flex items-center gap-2 border-b border-amber-400/20 px-3 py-2 ${
+        selected ? 'bg-emperia-accent/10 ring-1 ring-inset ring-emperia-accent' : 'bg-amber-400/5'
+      }`}
+    >
       <OutfitThumbnail equipmentAppearanceId={equipmentAppearanceId} size={40} />
 
       <div className="w-20 shrink-0">
@@ -550,14 +610,9 @@ function UnassignedEquipmentRow({
       </select>
 
       <div className="flex-1 min-w-0">
-        <input
-          type="text"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          placeholder={itemName ? `Name (currently ${itemName})` : 'Optional item name'}
-          className="w-full bg-emperia-bg border border-emperia-border rounded px-2 py-1 text-xs text-emperia-text"
-          title="Optional: also updates the item name in items.json"
-        />
+        {canAssign && (
+          <span className="block truncate text-xs text-emperia-text">{itemName || `Item ${itemId}`}</span>
+        )}
         {itemIdValue && !canAssign && (
           <span className="block mt-0.5 text-[9px] text-red-400">Item ID not found.</span>
         )}
@@ -566,7 +621,7 @@ function UnassignedEquipmentRow({
       <button
         type="button"
         disabled={!canAssign}
-        onClick={() => onAssign(equipmentAppearanceId, itemId, variant, name)}
+        onClick={() => onAssign(equipmentAppearanceId, itemId, variant)}
         className="px-2.5 py-1 rounded text-xs font-medium bg-amber-400/15 text-amber-300 hover:bg-amber-400/25 disabled:opacity-30 disabled:cursor-not-allowed"
       >
         Assign
@@ -578,9 +633,11 @@ function UnassignedEquipmentRow({
 function VisualEquipmentRow({
   entry,
   onAssign,
+  selected,
 }: {
   entry: VisualEquipmentAppearance;
   onAssign: (visualEquipmentId: number, itemId: number, variant: EquipmentVariant) => void;
+  selected: boolean;
 }) {
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const objectData = useOBStore((s) => s.objectData);
@@ -596,7 +653,12 @@ function VisualEquipmentRow({
   const canAssign = itemDefinition != null;
 
   return (
-    <div className="border-b border-emperia-border/30 bg-violet-500/5">
+    <div
+      data-equipment-appearance-id={entry.equipmentAppearanceId}
+      className={`border-b border-emperia-border/30 ${
+        selected ? 'bg-emperia-accent/10 ring-1 ring-inset ring-emperia-accent' : 'bg-violet-500/5'
+      }`}
+    >
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
@@ -652,7 +714,7 @@ function VisualEquipmentRow({
           <div className="flex-1 min-w-0 pt-1">
             {itemDefinition && (
               <span className="block text-[10px] text-emperia-muted truncate">
-                {itemDefinition.properties?.name || `Item ${itemId}`}
+                {String(readItemProperty(itemDefinition.properties, 'name') || `Item ${itemId}`)}
               </span>
             )}
             {existingVariant != null && (
@@ -680,15 +742,15 @@ function EntryRow({
   index,
   onUpdate,
   onRemove,
+  selected,
 }: {
   entry: EquipmentCatalogEntry;
   index: number;
   onUpdate: (index: number, entry: EquipmentCatalogEntry) => void;
   onRemove: (index: number) => void;
+  selected: boolean;
 }) {
   const [showPicker, setShowPicker] = useState(false);
-  const [editingName, setEditingName] = useState(false);
-  const [nameValue, setNameValue] = useState(entry.name);
   const [editingItemId, setEditingItemId] = useState(false);
   const [itemIdValue, setItemIdValue] = useState(entry.itemId.toString());
 
@@ -696,44 +758,35 @@ function EntryRow({
 
   // Look up the public item definition.
   const def = itemDefinitions.get(entry.itemId);
-  const serverName = def?.properties?.name;
-
-  const handleNameBlur = () => {
-    setEditingName(false);
-    if (nameValue.trim() !== entry.name) {
-      onUpdate(index, { ...entry, name: nameValue.trim() });
-    }
-  };
+  const serverNameValue = readItemProperty(def?.properties, 'name');
+  const serverName = typeof serverNameValue === 'string' ? serverNameValue : undefined;
+  const entryName = entry.name.toLowerCase();
+  const variantLabel = entryName.includes('left-hand') || entryName.includes('left hand') || entryName.includes('lefthand')
+    ? 'Left hand'
+    : entryName.includes('right-hand') || entryName.includes('right hand') || entryName.includes('righthand')
+      ? 'Right hand'
+      : null;
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 hover:bg-emperia-hover/50 group border-b border-emperia-border/30">
+    <div
+      data-equipment-appearance-id={entry.equipmentAppearanceId}
+      className={`group flex items-center gap-2 border-b border-emperia-border/30 px-3 py-1.5 ${
+        selected
+          ? 'bg-emperia-accent/10 ring-1 ring-inset ring-emperia-accent'
+          : 'hover:bg-emperia-hover/50'
+      }`}
+    >
       {/* Item + Outfit sprite preview */}
       <ItemThumbnail itemId={entry.itemId} size={40} />
       <OutfitThumbnail equipmentAppearanceId={entry.equipmentAppearanceId} size={40} />
 
       {/* Name */}
       <div className="flex-1 min-w-0">
-        {editingName ? (
-          <input
-            type="text"
-            value={nameValue}
-            onChange={(e) => setNameValue(e.target.value)}
-            onBlur={handleNameBlur}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleNameBlur(); }}
-            className="w-full bg-emperia-bg border border-emperia-border rounded px-1.5 py-0.5 text-xs text-emperia-text"
-            autoFocus
-          />
-        ) : (
-          <button
-            onClick={() => { setEditingName(true); setNameValue(entry.name); }}
-            className="text-xs text-emperia-text truncate block text-left w-full hover:underline"
-            title={entry.name}
-          >
-            {entry.name}
-          </button>
-        )}
-        {serverName && (
-          <span className="text-[9px] text-emperia-muted/60 truncate block">{serverName}</span>
+        <span className="block truncate text-xs text-emperia-text" title={serverName || `Item ${entry.itemId}`}>
+          {serverName || `Item ${entry.itemId}`}
+        </span>
+        {variantLabel && (
+          <span className="block truncate text-[9px] text-emperia-muted/60">{variantLabel}</span>
         )}
       </div>
 
@@ -825,14 +878,16 @@ function WeaponGroupRow({
 
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
   const def = itemDefinitions.get(group.itemId);
-  const serverName = def?.properties?.name;
+  const serverNameValue = readItemProperty(def?.properties, 'name');
+  const serverName = typeof serverNameValue === 'string' ? serverNameValue : undefined;
 
   return (
     <div className="px-3 py-2 hover:bg-emperia-hover/50 border-b border-emperia-border/30 group">
       <div className="flex items-center gap-2 mb-1.5">
         <ItemThumbnail itemId={group.itemId} size={32} />
-        <span className="text-xs text-emperia-text font-medium truncate flex-1">{group.baseName}</span>
-        {serverName && <span className="text-[9px] text-emperia-muted/60">{serverName}</span>}
+        <span className="text-xs text-emperia-text font-medium truncate flex-1">
+          {serverName || `Item ${group.itemId}`}
+        </span>
         <span className="text-[10px] text-amber-400 font-mono" title="Item ID">{group.itemId}</span>
       </div>
       <div className="flex items-center gap-4 pl-2">
@@ -934,8 +989,8 @@ function WeaponGroupRow({
 
 export function EquipmentCatalogEditor() {
   const objectData = useOBStore((s) => s.objectData);
+  const selectedThingId = useOBStore((s) => s.selectedThingId);
   const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const updateItemDefinition = useOBStore((s) => s.updateItemDefinition);
   const updateEquipmentCatalogEntry = useOBStore((s) => s.updateEquipmentCatalogEntry);
   const addEquipmentCatalogEntry = useOBStore((s) => s.addEquipmentCatalogEntry);
   const removeEquipmentCatalogEntry = useOBStore((s) => s.removeEquipmentCatalogEntry);
@@ -950,6 +1005,23 @@ export function EquipmentCatalogEditor() {
       .sort((a, b) => a.visualEquipmentId - b.visualEquipmentId),
     [objectData, editVersion],
   );
+  const selectedEquipmentAppearanceId = useMemo(() => {
+    if (!objectData || selectedThingId == null) return null;
+    const selectedThing = objectData.things.get(selectedThingId);
+    return selectedThing?.category === 'equipment'
+      ? getDisplayId(objectData, selectedThingId)
+      : null;
+  }, [objectData, selectedThingId]);
+  const selectedEquipmentSection = useMemo<'assigned' | 'visual' | null>(() => {
+    if (selectedEquipmentAppearanceId == null) return null;
+    if (catalogEntries.some((entry) => entry.equipmentAppearanceId === selectedEquipmentAppearanceId)) {
+      return 'assigned';
+    }
+    if (visualEntries.some((entry) => entry.equipmentAppearanceId === selectedEquipmentAppearanceId)) {
+      return 'visual';
+    }
+    return 'assigned';
+  }, [catalogEntries, selectedEquipmentAppearanceId, visualEntries]);
   const unassignedAppearanceIds = useMemo(() => {
     if (!objectData) return [];
 
@@ -987,13 +1059,13 @@ export function EquipmentCatalogEditor() {
     equipmentAppearanceId: number,
     itemId: number,
     variant: EquipmentVariant,
-    name: string,
   ) => {
     const definition = itemDefinitions.get(itemId);
     if (!definition) return;
 
-    const trimmedName = name.trim();
-    const baseName = trimmedName || definition.properties?.name || `item ${itemId}`;
+    const currentName = readItemProperty(definition.properties, 'name');
+    const baseName = (typeof currentName === 'string' ? currentName : '')
+      || `item ${itemId}`;
     const entryName = variant === 'left'
       ? `${baseName} left-hand`
       : variant === 'right'
@@ -1001,22 +1073,36 @@ export function EquipmentCatalogEditor() {
         : baseName;
 
     addEquipmentCatalogEntry({ name: entryName, itemId, equipmentAppearanceId });
-
-    if (trimmedName) {
-      updateItemDefinition(definition.appearanceId, {
-        properties: {
-          ...(definition.properties ?? {}),
-          name: trimmedName,
-        },
-      });
-    }
-  }, [addEquipmentCatalogEntry, itemDefinitions, updateItemDefinition]);
+  }, [addEquipmentCatalogEntry, itemDefinitions]);
 
   const [slotFilter, setSlotFilter] = useState<EquipSlotFilter>('all');
   const [search, setSearch] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [catalogSection, setCatalogSection] = useState<'assigned' | 'visual'>('assigned');
   const [viewMode, setViewMode] = useState<'list' | 'weapons'>('list');
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (selectedEquipmentAppearanceId == null || selectedEquipmentSection == null) return;
+    setCatalogSection(selectedEquipmentSection);
+    setViewMode('list');
+    setSlotFilter('all');
+    setSearch('');
+
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        const row = contentRef.current?.querySelector(
+          `[data-equipment-appearance-id="${selectedEquipmentAppearanceId}"]`,
+        );
+        row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    });
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame) cancelAnimationFrame(secondFrame);
+    };
+  }, [selectedEquipmentAppearanceId, selectedEquipmentSection]);
 
   // Get slot type from public item definitions for each entry.
   const getSlotType = useCallback((itemId: number): string | undefined => {
@@ -1041,13 +1127,15 @@ export function EquipmentCatalogEditor() {
         // Search filter
         if (q) {
           const nameMatch = entry.name.toLowerCase().includes(q);
+          const itemName = readItemProperty(itemDefinitions.get(entry.itemId)?.properties, 'name');
+          const itemNameMatch = typeof itemName === 'string' && itemName.toLowerCase().includes(q);
           const idMatch = entry.itemId.toString().includes(q);
           const spriteMatch = entry.equipmentAppearanceId.toString().includes(q);
-          if (!nameMatch && !idMatch && !spriteMatch) return false;
+          if (!nameMatch && !itemNameMatch && !idMatch && !spriteMatch) return false;
         }
         return true;
       });
-  }, [catalogEntries, slotFilter, search, getSlotType]);
+  }, [catalogEntries, slotFilter, search, getSlotType, itemDefinitions]);
   const filteredVisualEntries = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return visualEntries;
@@ -1078,12 +1166,8 @@ export function EquipmentCatalogEditor() {
       if (!isLeft && !isRight) continue;
 
       if (!groups.has(entry.itemId)) {
-        // Derive base name from the entry name
-        let baseName = entry.name
-          .replace(/left-hand|lefthand|left hand|right-hand|righthand|right hand/gi, '')
-          .replace(/\(|\)/g, '')
-          .trim();
-        if (!baseName) baseName = `Item ${entry.itemId}`;
+        const itemName = readItemProperty(itemDefinitions.get(entry.itemId)?.properties, 'name');
+        const baseName = typeof itemName === 'string' ? itemName : `Item ${entry.itemId}`;
         groups.set(entry.itemId, { itemId: entry.itemId, baseName, leftEntry: null, rightEntry: null, otherEntries: [] });
       }
 
@@ -1094,7 +1178,7 @@ export function EquipmentCatalogEditor() {
     }
 
     return Array.from(groups.values());
-  }, [filteredEntries, viewMode]);
+  }, [filteredEntries, itemDefinitions, viewMode]);
 
   if (!objectData) {
     return (
@@ -1206,7 +1290,7 @@ export function EquipmentCatalogEditor() {
       )}
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={contentRef} className="flex-1 overflow-y-auto">
         {catalogSection === 'visual' ? (
           filteredVisualEntries.length === 0 ? (
             <p className="text-center text-emperia-muted text-xs py-8">
@@ -1218,6 +1302,7 @@ export function EquipmentCatalogEditor() {
                 key={entry.visualEquipmentId}
                 entry={entry}
                 onAssign={assignVisualEquipmentToItem}
+                selected={selectedEquipmentAppearanceId === entry.equipmentAppearanceId}
               />
             ))
           )
@@ -1232,6 +1317,7 @@ export function EquipmentCatalogEditor() {
                     key={`unassigned-${appearanceId}`}
                     equipmentAppearanceId={appearanceId}
                     onAssign={assignAppearance}
+                    selected={selectedEquipmentAppearanceId === appearanceId}
                   />
                 ))}
                 {filteredEntries.map(({ entry, index }) => (
@@ -1241,6 +1327,7 @@ export function EquipmentCatalogEditor() {
                     index={index}
                     onUpdate={updateCatalogEntry}
                     onRemove={removeCatalogEntry}
+                    selected={selectedEquipmentAppearanceId === entry.equipmentAppearanceId}
                   />
                 ))}
               </>

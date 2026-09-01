@@ -35,6 +35,19 @@ export function ThingGrid() {
     () => Array.from(objectData?.hairDefinitions.values() ?? []),
     [objectData, editVersion],
   );
+  const equipmentLinksByAppearance = useMemo(() => {
+    const links = new Map<number, number[]>();
+    for (const [itemId, appearance] of objectData?.equipmentAppearances ?? []) {
+      for (const appearanceId of [appearance.default, appearance.left, appearance.right]) {
+        if (appearanceId == null) continue;
+        const itemIds = links.get(appearanceId) ?? [];
+        if (!itemIds.includes(itemId)) itemIds.push(itemId);
+        links.set(appearanceId, itemIds);
+      }
+    }
+    for (const itemIds of links.values()) itemIds.sort((left, right) => left - right);
+    return links;
+  }, [objectData]);
   const setSelectedHairId = useOBStore((s) => s.setSelectedHairId);
 
   const tooltip = useSpriteTooltip(spriteData, spriteOverrides);
@@ -177,6 +190,10 @@ export function ThingGrid() {
               : null;
             const isSelected = thing.id === selectedId;
             const displayId = objectData ? getDisplayId(objectData, thing.id) : thing.id;
+            const linkedEquipmentItemIds = thing.category === 'equipment'
+              ? equipmentLinksByAppearance.get(displayId) ?? []
+              : [];
+            const equipmentIsLinked = linkedEquipmentItemIds.length > 0;
             const itemId = appearanceToItemIds?.get(thing.id);
             const def = itemId != null ? itemDefinitions?.get(itemId) : undefined;
             const itemName = itemId != null
@@ -205,7 +222,11 @@ export function ThingGrid() {
             const baseTipText = itemName ? `#${publicId} — ${itemName}` : `#${publicId}`;
             const tipText = seatBinding
               ? `${baseTipText} · Pose: ${boundPoseSet?.name ?? `missing #${seatBinding.poseSetId}`}`
-              : baseTipText;
+              : thing.category === 'equipment'
+                ? equipmentIsLinked
+                  ? `${baseTipText} · Linked to item${linkedEquipmentItemIds.length > 1 ? 's' : ''} ${linkedEquipmentItemIds.map((id) => `#${id}`).join(', ')}`
+                  : `${baseTipText} · Not linked to an item`
+                : baseTipText;
 
             const isMultiSelected = selectedIds.has(thing.id);
             return (
@@ -295,12 +316,25 @@ export function ThingGrid() {
                     <Link2 className="h-2.5 w-2.5" strokeWidth={3} />
                   </span>
                 )}
-                <span
-                  className="absolute bottom-1 right-1 rounded border border-white/20 bg-black/90 px-1 py-0.5
-                             font-mono text-[10px] font-bold leading-none text-white shadow-md shadow-black"
-                  style={{ textShadow: '0 1px 1px #000' }}
-                >
-                  {publicId}
+                <span className={`absolute top-1 flex items-center gap-1 ${
+                  thing.category === 'equipment' ? 'left-1' : 'right-1'
+                }`}>
+                  {thing.category === 'equipment' && (
+                    <span
+                      title={equipmentIsLinked
+                        ? `Linked to item${linkedEquipmentItemIds.length > 1 ? 's' : ''} ${linkedEquipmentItemIds.map((id) => `#${id}`).join(', ')}`
+                        : 'Not linked to an item'}
+                      className={`h-2 w-2 shrink-0 rounded-full border border-black/70 shadow-sm shadow-black ${
+                        equipmentIsLinked ? 'bg-emerald-400' : 'bg-red-500'
+                      }`}
+                    />
+                  )}
+                  <span
+                    className="font-mono text-[8px] font-semibold leading-none text-white"
+                    style={{ textShadow: '0 1px 2px #000, 0 0 2px #000' }}
+                  >
+                    {publicId}
+                  </span>
                 </span>
               </button>
             );

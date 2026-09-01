@@ -38,9 +38,6 @@ const FIELD_HELP: Record<string, string> = {
   magicalAttack: 'Base magical attack value used by combat calculations.',
   physicalDefense: 'Base physical defense value used by equipment/stat calculations.',
   magicalDefense: 'Base magical defense value used by equipment/stat calculations.',
-  extradef: 'Extra defense modifier for shields or equipment.',
-  hitChance: 'Base hit chance modifier.',
-  maxHitChance: 'Maximum hit chance cap for this item.',
   range: 'Attack or use range for ranged items.',
   weight: 'Server-side weight. Pickupable items use this for capacity calculations and look details.',
   speed: 'Optional movement speed-style property; most ground movement uses Ground Speed/Friction instead.',
@@ -113,7 +110,7 @@ function getFieldHelp(field: FieldDef): HelpContent {
   } else if (!description && field.key === 'magiclevelpoints') {
     description = 'Equipment bonus applied to the player magic-level stat while the item contributes its stats.';
   } else if (!description && field.key.startsWith('absorbPercent')) {
-    description = `Percentage reduction for the ${field.label.replace('Absorb ', '').replace(' %', '')} damage category.`;
+    description = `Percentage reduction for the ${field.label.replace('Absorb ', '').replace(' %', '')} damage category. Set it to 0 or clear the field to remove the modifier.`;
   } else if (!description && field.key.startsWith('bonus')) {
     description = `${field.label} contribution included when the server aggregates active equipment bonuses.`;
   } else if (!description) {
@@ -127,7 +124,7 @@ function getFieldHelp(field: FieldDef): HelpContent {
     example = `${field.label} 10 reduces the matching incoming damage category by ten percent when the equipment applies.`;
   } else if (!example && field.key.startsWith('bonus')) {
     example = `${field.label} 3 contributes a value of three to the player's aggregated equipment bonuses.`;
-  } else if (!example && /Attack|Defense|armor|extradef|hitChance|maxHitChance|range/i.test(field.key)) {
+  } else if (!example && /Attack|Defense|armor|range/i.test(field.key)) {
     example = `A value configured for ${field.label} is included when the server builds the item's combat profile.`;
   } else {
     example = `Set ${field.label} on this item, compile, and the server will load it from items.json for the relevant gameplay rule.`;
@@ -214,9 +211,6 @@ const COMBAT_FIELDS: FieldDef[] = [
   { key: 'magicalAttack', label: 'Magical Attack', type: 'number' },
   { key: 'physicalDefense', label: 'Physical Defense', type: 'number' },
   { key: 'magicalDefense', label: 'Magical Defense', type: 'number' },
-  { key: 'extradef', label: 'Extra Def', type: 'number' },
-  { key: 'hitChance', label: 'Hit Chance', type: 'number' },
-  { key: 'maxHitChance', label: 'Max Hit Chance', type: 'number' },
   { key: 'range', label: 'Range', type: 'number' },
 ];
 

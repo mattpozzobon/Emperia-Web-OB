@@ -349,9 +349,6 @@ export interface ItemProperties {
   physicalDefense?: number;
   magicalDefense?: number;
   armor?: number;
-  extradef?: number;
-  hitChance?: number;
-  maxHitChance?: number;
   range?: number;
 
   // Requirements

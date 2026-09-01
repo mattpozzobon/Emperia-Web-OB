@@ -12,6 +12,12 @@ interface FullDirectionalSheetImportOptions {
   idleFrames: number;
   movingFrames: number;
   spriteSize: 32 | 64;
+  /** Source column for each target direction: North, East, South, West. */
+  directionSourceColumns: readonly number[];
+  /** Source row for each target Idle frame. */
+  idleSourceRows: readonly number[];
+  /** Source row for each target Moving frame. */
+  movingSourceRows: readonly number[];
 }
 
 const DIRECTION_COLUMNS = 4;
@@ -50,6 +56,9 @@ export async function importFullDirectionalSheet({
   idleFrames,
   movingFrames,
   spriteSize,
+  directionSourceColumns,
+  idleSourceRows,
+  movingSourceRows,
 }: FullDirectionalSheetImportOptions): Promise<FullDirectionalSheetImportResult> {
   const image = await loadImage(file);
   if (!SUPPORTED_CATEGORIES.has(thing.category)) {
@@ -72,9 +81,40 @@ export async function importFullDirectionalSheet({
   const idle = thing.frameGroups[0];
   if (!idle) throw new Error('The object has no Idle frame group.');
   const spriteTiles = spriteSize / 32;
+  const blockWidth = spriteSize;
+  const blockHeight = spriteSize;
+  if (image.width % blockWidth !== 0 || image.height % blockHeight !== 0) {
+    throw new Error(
+      `The image dimensions must be exact multiples of ${spriteSize}px.`,
+    );
+  }
+  const sourceColumnCount = image.width / blockWidth;
+  const sourceRowCount = image.height / blockHeight;
+
+  const validateMapping = (
+    label: string,
+    sourceIndexes: readonly number[],
+    expectedCount: number,
+    sourceCount: number,
+  ) => {
+    if (
+      sourceIndexes.length !== expectedCount
+      || sourceIndexes.some((index) => !Number.isInteger(index) || index < 0 || index >= sourceCount)
+      || new Set(sourceIndexes).size !== sourceIndexes.length
+    ) {
+      throw new Error(`${label} mapping is incomplete or contains a duplicate source.`);
+    }
+  };
+  validateMapping('Direction', directionSourceColumns, DIRECTION_COLUMNS, sourceColumnCount);
+  validateMapping('Idle row', idleSourceRows, idleFrames, sourceRowCount);
+  validateMapping('Moving row', movingSourceRows, movingFrames, sourceRowCount);
+  if (new Set([...idleSourceRows, ...movingSourceRows]).size !== idleFrames + movingFrames) {
+    throw new Error('Each source row can only be assigned to one Idle or Moving frame.');
+  }
 
   // Directional sheets use square 32px tiles. Normalize the object to either
-  // one tile (32x32) or a 2x2 tile block (64x64) before assigning sprites.
+  // one tile (32x32) or a 2x2 tile block (64x64) only after the entire source
+  // mapping has passed validation.
   idle.type = 0;
   idle.width = spriteTiles;
   idle.height = spriteTiles;
@@ -83,19 +123,6 @@ export async function importFullDirectionalSheet({
   idle.patternX = DIRECTION_COLUMNS;
   idle.patternY = 1;
   idle.patternZ = 1;
-
-  const blockWidth = idle.width * 32;
-  const blockHeight = idle.height * 32;
-  const expectedWidth = blockWidth * DIRECTION_COLUMNS;
-  const totalFrameRows = idleFrames + movingFrames;
-  const expectedHeight = blockHeight * totalFrameRows;
-  if (image.width !== expectedWidth || image.height !== expectedHeight) {
-    throw new Error(
-      `Invalid sheet size. For ${idle.width}x${idle.height}, the complete sheet must be `
-      + `${expectedWidth}x${expectedHeight}px (4 direction columns x ${totalFrameRows} frame rows: `
-      + `${idleFrames} Idle, then ${movingFrames} Moving).`,
-    );
-  }
 
   idle.animationLength = idleFrames;
   idle.animationLengths = Array.from({ length: idleFrames }, (_, index) => (
@@ -172,16 +199,17 @@ export async function importFullDirectionalSheet({
   const importFrame = (
     targetGroup: FrameGroup,
     frame: number,
-    direction: number,
-    sheetFrameRow: number,
+    targetDirection: number,
+    sourceColumn: number,
+    sourceRow: number,
   ) => {
     for (let visualRow = 0; visualRow < targetGroup.height; visualRow++) {
       for (let visualColumn = 0; visualColumn < targetGroup.width; visualColumn++) {
         tileContext.clearRect(0, 0, 32, 32);
         tileContext.drawImage(
           image,
-          direction * blockWidth + visualColumn * 32,
-          sheetFrameRow * blockHeight + visualRow * 32,
+          sourceColumn * blockWidth + visualColumn * 32,
+          sourceRow * blockHeight + visualRow * 32,
           32,
           32,
           0,
@@ -192,7 +220,7 @@ export async function importFullDirectionalSheet({
         const tileData = tileContext.getImageData(0, 0, 32, 32);
         const tx = targetGroup.width - 1 - visualColumn;
         const ty = targetGroup.height - 1 - visualRow;
-        const index = getSpriteIndex(targetGroup, frame, direction, tx, ty);
+        const index = getSpriteIndex(targetGroup, frame, targetDirection, tx, ty);
         if (index < targetGroup.sprites.length) assignSprite(targetGroup, index, tileData);
       }
     }
@@ -200,10 +228,22 @@ export async function importFullDirectionalSheet({
 
   for (let direction = 0; direction < DIRECTION_COLUMNS; direction++) {
     for (let frame = 0; frame < idleFrames; frame++) {
-      importFrame(idle, frame, direction, frame);
+      importFrame(
+        idle,
+        frame,
+        direction,
+        directionSourceColumns[direction],
+        idleSourceRows[frame],
+      );
     }
     for (let frame = 0; frame < movingFrames; frame++) {
-      importFrame(moving, frame, direction, idleFrames + frame);
+      importFrame(
+        moving,
+        frame,
+        direction,
+        directionSourceColumns[direction],
+        movingSourceRows[frame],
+      );
     }
   }
 

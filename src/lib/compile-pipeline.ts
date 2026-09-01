@@ -20,6 +20,7 @@ import { ITEM_LOCALES } from './types';
 import { serializeItemCatalog, sourceHash } from './item-localization';
 import { isItemIdentity } from './item-identity-codec';
 import {
+  ITEM_PROPERTY_CODE_BY_KEY,
   readItemProperty,
   writeItemProperty,
 } from './item-properties';
@@ -67,8 +68,9 @@ export const INITIAL_COMPILE_STATE: CompileState = {
 };
 
 /**
- * These fields belong to EOBJ/ESPR or are retired ID aliases. They must never
- * leak into the server gameplay projection (`items.json`).
+ * These fields belong to EOBJ/ESPR or are retired attributes. They must never
+ * leak into the server gameplay projection (`items.json`). Numeric keys 27-29
+ * are the retired ExtraDef/HitChance/MaxHitChance attributes.
  */
 const SERVER_ITEM_EXCLUDED_PROPERTIES = new Set([
   'lightLevel',
@@ -77,6 +79,9 @@ const SERVER_ITEM_EXCLUDED_PROPERTIES = new Set([
   'spriteId',
   'clientId',
   'serverId',
+  '27',
+  '28',
+  '29',
 ]);
 
 type ArtifactRole = 'obj' | 'spr' | 'def' | 'localization' | 'generated';
@@ -599,6 +604,10 @@ export async function runCompile(
         for (const [key, value] of Object.entries(definition.properties)) {
           if (SERVER_ITEM_EXCLUDED_PROPERTIES.has(key)) continue;
           if (!/^\d+$/.test(key)) {
+            if (ITEM_PROPERTY_CODE_BY_KEY[key] != null) {
+              writeItemProperty(properties, key, value);
+              continue;
+            }
             throw new Error(
               `Item ${itemId} has non-canonical property "${key}". `
               + 'Item properties must use numeric ItemAttr keys.',

@@ -18,6 +18,28 @@ const MAX_GROUP_DIM = 8;
 const CELL = 40;
 const ATLAS_COLS = 6;
 const MAX_DIRECTIONAL_FRAME_COUNT = 255;
+const DIRECTION_LABELS = ['North', 'East', 'South', 'West'] as const;
+
+type SheetRowAssignment = {
+  kind: 'idle' | 'moving';
+  frame: number;
+} | null;
+
+const defaultColumnDirections = (columnCount: number): Array<number | null> => (
+  Array.from({ length: columnCount }, (_, column) => (column < 4 ? column : null))
+);
+
+const defaultRowAssignments = (
+  rowCount: number,
+  idleFrames: number,
+  movingFrames: number,
+): SheetRowAssignment[] => Array.from({ length: rowCount }, (_, row) => {
+  if (row < idleFrames) return { kind: 'idle', frame: row };
+  if (row < idleFrames + movingFrames) {
+    return { kind: 'moving', frame: row - idleFrames };
+  }
+  return null;
+});
 
 const supportsFullSheetImport = (category?: string) => (
   category === 'equipment' || category === 'hair' || category === 'outfit'
@@ -52,6 +74,12 @@ export function ThingSpriteGrid() {
   const [fullSheetMovingFrames, setFullSheetMovingFrames] = useState(2);
   const [fullSheetSpriteSize, setFullSheetSpriteSize] = useState<32 | 64>(64);
   const [fullSheetPreview, setFullSheetPreview] = useState<FullSheetPreview | null>(null);
+  const [fullSheetColumnDirections, setFullSheetColumnDirections] = useState<Array<number | null>>([0, 1, 2, 3]);
+  const [fullSheetRowAssignments, setFullSheetRowAssignments] = useState<SheetRowAssignment[]>([
+    { kind: 'idle', frame: 0 },
+    { kind: 'moving', frame: 0 },
+    { kind: 'moving', frame: 1 },
+  ]);
 
   const selectedSlots = useOBStore((s) => s.selectedSlots);
 
@@ -70,12 +98,48 @@ export function ThingSpriteGrid() {
   const replaceSpriteIdRef = useRef<number>(0);
 
   const thing = selectedId != null ? objectData?.things.get(selectedId) ?? null : null;
+  const fullSheetSourceColumnCount = fullSheetPreview
+    && fullSheetPreview.width % fullSheetSpriteSize === 0
+    ? fullSheetPreview.width / fullSheetSpriteSize
+    : 0;
+  const fullSheetSourceRowCount = fullSheetPreview
+    && fullSheetPreview.height % fullSheetSpriteSize === 0
+    ? fullSheetPreview.height / fullSheetSpriteSize
+    : 0;
 
   useEffect(() => {
     return () => {
       if (fullSheetPreview?.url) URL.revokeObjectURL(fullSheetPreview.url);
     };
   }, [fullSheetPreview?.url]);
+
+  useEffect(() => {
+    setFullSheetColumnDirections(defaultColumnDirections(fullSheetSourceColumnCount));
+  }, [fullSheetSourceColumnCount]);
+
+  useEffect(() => {
+    setFullSheetRowAssignments(defaultRowAssignments(
+      fullSheetSourceRowCount,
+      fullSheetIdleFrames,
+      fullSheetMovingFrames,
+    ));
+  }, [fullSheetSourceRowCount, fullSheetIdleFrames, fullSheetMovingFrames]);
+
+  const directionSourceColumns = useMemo(() => (
+    DIRECTION_LABELS.map((_, direction) => fullSheetColumnDirections.indexOf(direction))
+  ), [fullSheetColumnDirections]);
+  const idleSourceRows = useMemo(() => Array.from(
+    { length: fullSheetIdleFrames },
+    (_, frame) => fullSheetRowAssignments.findIndex((assignment) => (
+      assignment?.kind === 'idle' && assignment.frame === frame
+    )),
+  ), [fullSheetIdleFrames, fullSheetRowAssignments]);
+  const movingSourceRows = useMemo(() => Array.from(
+    { length: fullSheetMovingFrames },
+    (_, frame) => fullSheetRowAssignments.findIndex((assignment) => (
+      assignment?.kind === 'moving' && assignment.frame === frame
+    )),
+  ), [fullSheetMovingFrames, fullSheetRowAssignments]);
 
   const handleFullSheetSelection = useCallback((files: FileList | null) => {
     const file = files?.[0];
@@ -119,6 +183,9 @@ export function ThingSpriteGrid() {
         idleFrames: fullSheetIdleFrames,
         movingFrames: fullSheetMovingFrames,
         spriteSize: fullSheetSpriteSize,
+        directionSourceColumns,
+        idleSourceRows,
+        movingSourceRows,
       });
       clearSpriteCache();
       const latest = useOBStore.getState();
@@ -143,7 +210,16 @@ export function ThingSpriteGrid() {
     } catch (error) {
       alert(`Could not import complete sheet: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [thing, spriteData, fullSheetIdleFrames, fullSheetMovingFrames, fullSheetSpriteSize]);
+  }, [
+    thing,
+    spriteData,
+    fullSheetIdleFrames,
+    fullSheetMovingFrames,
+    fullSheetSpriteSize,
+    directionSourceColumns,
+    idleSourceRows,
+    movingSourceRows,
+  ]);
 
   // Import PNG(s) as new atlas sprites (always sliced into 32×32 tiles)
   // When grouped (W>1 or H>1), inserts blank padding sprites after each W×H group
@@ -487,11 +563,50 @@ export function ThingSpriteGrid() {
   const fullSheetRowCount = fullSheetIdleFrames + fullSheetMovingFrames;
   const expectedFullSheetWidth = fullSheetSpriteSize * 4;
   const expectedFullSheetHeight = fullSheetRowCount * fullSheetSpriteSize;
-  const fullSheetSizeMatches = Boolean(
+  const fullSheetMappingValid = Boolean(
     fullSheetPreview
-    && fullSheetPreview.width === expectedFullSheetWidth
-    && fullSheetPreview.height === expectedFullSheetHeight,
+    && fullSheetSourceColumnCount >= 4
+    && fullSheetSourceRowCount >= fullSheetRowCount
+    && directionSourceColumns.every((column) => column >= 0)
+    && idleSourceRows.every((row) => row >= 0)
+    && movingSourceRows.every((row) => row >= 0),
   );
+
+  const assignSourceColumn = (sourceColumn: number, value: string) => {
+    const direction = value === '' ? null : Number(value);
+    setFullSheetColumnDirections((previous) => {
+      const next = [...previous];
+      if (direction != null) {
+        for (let column = 0; column < next.length; column++) {
+          if (next[column] === direction) next[column] = null;
+        }
+      }
+      next[sourceColumn] = direction;
+      return next;
+    });
+  };
+
+  const assignSourceRow = (sourceRow: number, value: string) => {
+    const assignment: SheetRowAssignment = value === ''
+      ? null
+      : (() => {
+          const [kind, frameText] = value.split(':');
+          return { kind: kind as 'idle' | 'moving', frame: Number(frameText) };
+        })();
+    setFullSheetRowAssignments((previous) => {
+      const next = [...previous];
+      if (assignment) {
+        for (let row = 0; row < next.length; row++) {
+          const current = next[row];
+          if (current?.kind === assignment.kind && current.frame === assignment.frame) {
+            next[row] = null;
+          }
+        }
+      }
+      next[sourceRow] = assignment;
+      return next;
+    });
+  };
 
   if (!spriteData) {
     return <div className="p-3 text-emperia-muted text-xs">Load files to browse sprites</div>;
@@ -626,8 +741,8 @@ export function ThingSpriteGrid() {
                   </label>
                 </div>
                 <p className="mt-2 text-[9px] leading-4 text-emperia-muted">
-                  Expected sheet: {expectedFullSheetWidth}x{expectedFullSheetHeight} px.
-                  Idle rows first, then Moving rows.
+                  Base layout: {expectedFullSheetWidth}x{expectedFullSheetHeight} px.
+                  Extra rows or columns can be ignored in the mapping step.
                 </p>
                 <button
                   onClick={() => fullSheetInputRef.current?.click()}
@@ -815,7 +930,7 @@ export function ThingSpriteGrid() {
           if (event.target === event.currentTarget) setFullSheetPreview(null);
         }}
       >
-        <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-emperia-border bg-emperia-bg shadow-2xl">
+        <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-emperia-border bg-emperia-bg shadow-2xl">
           <div className="flex items-start justify-between border-b border-emperia-border px-4 py-3">
             <div>
               <h3 className="text-sm font-semibold text-emperia-text">
@@ -879,84 +994,136 @@ export function ThingSpriteGrid() {
                 className="w-14 rounded border border-emperia-border bg-emperia-surface px-1.5 py-1 text-center text-[11px] text-emperia-text outline-none focus:border-emperia-accent"
               />
             </label>
-            <span className={`ml-auto text-[10px] font-medium ${fullSheetSizeMatches ? 'text-green-400' : 'text-red-400'}`}>
-              Image {fullSheetPreview.width}x{fullSheetPreview.height}px · Expected {expectedFullSheetWidth}x{expectedFullSheetHeight}px
+            <span className={`ml-auto text-[10px] font-medium ${fullSheetMappingValid ? 'text-green-400' : 'text-red-400'}`}>
+              Image {fullSheetPreview.width}x{fullSheetPreview.height}px ·{' '}
+              {fullSheetSourceColumnCount > 0 && fullSheetSourceRowCount > 0
+                ? `${fullSheetSourceColumnCount} columns × ${fullSheetSourceRowCount} rows`
+                : `dimensions must be multiples of ${fullSheetSpriteSize}px`}
             </span>
           </div>
 
           <div className="flex-1 overflow-auto p-4">
-            <div className="mx-auto w-full min-w-[400px] max-w-[500px]">
-              <div className="mb-1 grid grid-cols-[72px_repeat(4,minmax(0,1fr))] gap-0">
-                <div />
-                {['North', 'East', 'South', 'West'].map((direction, index) => (
-                  <div
-                    key={direction}
-                    className="px-1 py-1 text-center text-[10px] font-semibold uppercase tracking-wide text-emperia-text"
-                  >
-                    {index + 1}. {direction}
-                  </div>
-                ))}
-              </div>
-              <div className="flex items-stretch">
+            {fullSheetSourceColumnCount > 0 && fullSheetSourceRowCount > 0 ? (
+              <div
+                className="mx-auto"
+                style={{ width: Math.max(500, 96 + fullSheetSourceColumnCount * 104) }}
+              >
                 <div
-                  className="grid w-[72px] shrink-0"
-                  style={{ gridTemplateRows: `repeat(${fullSheetRowCount}, minmax(0, 1fr))` }}
+                  className="mb-1 grid gap-0"
+                  style={{ gridTemplateColumns: `96px repeat(${fullSheetSourceColumnCount}, minmax(96px, 1fr))` }}
                 >
-                  {Array.from({ length: fullSheetRowCount }, (_, row) => {
-                    const isIdle = row < fullSheetIdleFrames;
-                    return (
-                      <div
-                        key={row}
-                        className={`flex items-center justify-end border-b border-emperia-border/40 pr-2 text-[9px] font-semibold ${
-                          isIdle ? 'text-cyan-300' : 'text-amber-300'
-                        }`}
+                  <div />
+                  {Array.from({ length: fullSheetSourceColumnCount }, (_, column) => (
+                    <label key={column} className="px-1 py-1 text-center text-[9px] text-emperia-muted">
+                      Column {column + 1}
+                      <select
+                        value={fullSheetColumnDirections[column] ?? ''}
+                        onChange={(event) => assignSourceColumn(column, event.target.value)}
+                        className="mt-1 w-full rounded border border-emperia-border bg-emperia-surface px-1 py-1 text-[10px] font-semibold text-emperia-text outline-none focus:border-emperia-accent"
                       >
-                        {isIdle ? `Idle ${row + 1}` : `Moving ${row - fullSheetIdleFrames + 1}`}
-                      </div>
-                    );
-                  })}
+                        <option value="">Ignore</option>
+                        {DIRECTION_LABELS.map((direction, directionIndex) => (
+                          <option key={direction} value={directionIndex}>{direction}</option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
                 </div>
-                <div
-                  className="relative min-w-0 flex-1 overflow-hidden border border-emperia-border bg-black/40"
-                  style={{ aspectRatio: `${fullSheetPreview.width} / ${fullSheetPreview.height}` }}
-                >
-                  <img
-                    src={fullSheetPreview.url}
-                    alt="Selected directional sprite sheet"
-                    className="block h-full w-full pixelated"
-                    style={{ imageRendering: 'pixelated' }}
-                    draggable={false}
-                  />
+                <div className="flex items-stretch">
                   <div
-                    className="pointer-events-none absolute inset-0 grid"
-                    style={{
-                      gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-                      gridTemplateRows: `repeat(${fullSheetRowCount}, minmax(0, 1fr))`,
-                    }}
+                    className="grid w-24 shrink-0"
+                    style={{ gridTemplateRows: `repeat(${fullSheetSourceRowCount}, minmax(44px, 1fr))` }}
                   >
-                    {Array.from({ length: fullSheetRowCount * 4 }, (_, index) => {
-                      const row = Math.floor(index / 4);
-                      const direction = ['North', 'East', 'South', 'West'][index % 4];
-                      const isIdle = row < fullSheetIdleFrames;
-                      const frame = isIdle ? row + 1 : row - fullSheetIdleFrames + 1;
+                    {Array.from({ length: fullSheetSourceRowCount }, (_, row) => {
+                      const assignment = fullSheetRowAssignments[row];
+                      const value = assignment ? `${assignment.kind}:${assignment.frame}` : '';
                       return (
-                        <div
-                          key={index}
-                          title={`${isIdle ? 'Idle' : 'Moving'} ${frame}, facing ${direction}`}
-                          className={`border border-white/35 ${
-                            isIdle ? 'bg-cyan-400/10' : 'bg-amber-400/10'
-                          }`}
-                        />
+                        <label
+                          key={row}
+                          className="flex flex-col justify-center border-b border-emperia-border/40 pr-2 text-right text-[9px] text-emperia-muted"
+                        >
+                          Row {row + 1}
+                          <select
+                            value={value}
+                            onChange={(event) => assignSourceRow(row, event.target.value)}
+                            className={`mt-1 rounded border border-emperia-border bg-emperia-surface px-1 py-1 text-[9px] font-semibold outline-none focus:border-emperia-accent ${
+                              assignment?.kind === 'idle'
+                                ? 'text-cyan-300'
+                                : assignment?.kind === 'moving'
+                                  ? 'text-amber-300'
+                                  : 'text-emperia-muted'
+                            }`}
+                          >
+                            <option value="">Ignore</option>
+                            {Array.from({ length: fullSheetIdleFrames }, (_, frame) => (
+                              <option key={`idle-${frame}`} value={`idle:${frame}`}>Idle {frame + 1}</option>
+                            ))}
+                            {Array.from({ length: fullSheetMovingFrames }, (_, frame) => (
+                              <option key={`moving-${frame}`} value={`moving:${frame}`}>Moving {frame + 1}</option>
+                            ))}
+                          </select>
+                        </label>
                       );
                     })}
                   </div>
+                  <div
+                    className="relative min-w-0 flex-1 overflow-hidden border border-emperia-border bg-black/40"
+                    style={{ aspectRatio: `${fullSheetPreview.width} / ${fullSheetPreview.height}` }}
+                  >
+                    <img
+                      src={fullSheetPreview.url}
+                      alt="Selected directional sprite sheet"
+                      className="block h-full w-full pixelated"
+                      style={{ imageRendering: 'pixelated' }}
+                      draggable={false}
+                    />
+                    <div
+                      className="pointer-events-none absolute inset-0 grid"
+                      style={{
+                        gridTemplateColumns: `repeat(${fullSheetSourceColumnCount}, minmax(0, 1fr))`,
+                        gridTemplateRows: `repeat(${fullSheetSourceRowCount}, minmax(0, 1fr))`,
+                      }}
+                    >
+                      {Array.from({ length: fullSheetSourceRowCount * fullSheetSourceColumnCount }, (_, index) => {
+                        const row = Math.floor(index / fullSheetSourceColumnCount);
+                        const column = index % fullSheetSourceColumnCount;
+                        const assignment = fullSheetRowAssignments[row];
+                        const directionIndex = fullSheetColumnDirections[column];
+                        const active = assignment != null && directionIndex != null;
+                        const rowLabel = assignment
+                          ? `${assignment.kind === 'idle' ? 'Idle' : 'Moving'} ${assignment.frame + 1}`
+                          : 'Ignored row';
+                        const columnLabel = directionIndex != null
+                          ? DIRECTION_LABELS[directionIndex]
+                          : 'ignored column';
+                        return (
+                          <div
+                            key={index}
+                            title={`${rowLabel}, ${columnLabel}`}
+                            className={`border border-white/35 ${
+                              !active
+                                ? 'bg-black/55'
+                                : assignment.kind === 'idle'
+                                  ? 'bg-cyan-400/10'
+                                  : 'bg-amber-400/10'
+                            }`}
+                          />
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+                <div className="ml-24 mt-2 flex items-center gap-4 text-[9px] text-emperia-muted">
+                  <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-cyan-400/40" />Idle</span>
+                  <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-400/40" />Moving</span>
+                  <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-black/60" />Ignored</span>
                 </div>
               </div>
-              <div className="ml-[72px] mt-2 flex items-center gap-4 text-[9px] text-emperia-muted">
-                <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-cyan-400/40" />Idle rows</span>
-                <span><span className="mr-1 inline-block h-2 w-2 rounded-sm bg-amber-400/40" />Moving rows</span>
-              </div>
-            </div>
+            ) : (
+              <p className="rounded border border-red-500/30 bg-red-500/10 p-3 text-center text-[11px] text-red-300">
+                Select a sprite size that divides both image dimensions exactly.
+              </p>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-2 border-t border-emperia-border px-4 py-3">
@@ -968,9 +1135,9 @@ export function ThingSpriteGrid() {
             </button>
             <button
               onClick={() => void handleFullSheetImport(fullSheetPreview.file)}
-              disabled={!fullSheetSizeMatches}
+              disabled={!fullSheetMappingValid}
               className="rounded bg-emperia-accent px-3 py-1.5 text-[10px] font-semibold text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-35"
-              title={fullSheetSizeMatches ? 'Import this mapped sprite sheet' : 'The image size must match the configured frame rows'}
+              title={fullSheetMappingValid ? 'Import this mapped sprite sheet' : 'Assign all four directions and every configured frame'}
             >
               Import mapped sheet
             </button>

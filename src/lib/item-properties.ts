@@ -16,9 +16,7 @@ export const ITEM_PROPERTY_CODE_BY_KEY: Readonly<Record<string, number>> = {
   physicalDefense: 22,
   magicalDefense: 23,
   armor: 26,
-  extradef: 27,
-  hitChance: 28,
-  maxHitChance: 29,
+  // 27-29 are reserved retired combat attributes. Physical Hit uses 186.
   range: 30,
   level: 40,
   expertise: 41,
@@ -170,6 +168,21 @@ const ENUMS_BY_KEY: Readonly<Record<string, readonly (string | undefined)[]>> = 
   harvestMode: HARVEST_MODES,
 };
 
+/**
+ * Equipment modifiers are additive values. Zero has the same gameplay meaning
+ * as no modifier, so keep the canonical JSON clean by removing the attribute.
+ * Do not apply this rule to every numeric property: zero is a valid value for
+ * fields such as mannequinDirection.
+ */
+function isNeutralEquipmentModifier(key: string, value: unknown): boolean {
+  return value === 0 && (
+    key.startsWith('skill')
+    || key === 'magiclevelpoints'
+    || key.startsWith('absorbPercent')
+    || key.startsWith('bonus')
+  );
+}
+
 function decodePropertyValue(key: string, value: unknown): unknown {
   const values = ENUMS_BY_KEY[key];
   if (!values || typeof value !== 'number') return value;
@@ -213,7 +226,10 @@ export function writeItemProperty(
 ): void {
   const code = ITEM_PROPERTY_CODE_BY_KEY[key];
   const numericKey = code == null ? undefined : String(code);
-  const remove = value === undefined || value === '' || value === false;
+  const remove = value === undefined
+    || value === ''
+    || value === false
+    || isNeutralEquipmentModifier(key, value);
   delete properties[key];
 
   if (remove) {
