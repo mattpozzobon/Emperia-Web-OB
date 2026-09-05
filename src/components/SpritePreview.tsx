@@ -61,6 +61,7 @@ export function SpritePreview() {
   const copyMenuRef = useRef<HTMLDivElement>(null);
   const [baseOutfitId, setBaseOutfitId] = useState<number | null>(null);
   const [showEffectOutfitReference, setShowEffectOutfitReference] = useState(false);
+  const [showDisplacementGuide, setShowDisplacementGuide] = useState(true);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const frameTimerRef = useRef<number>(0);
@@ -248,8 +249,9 @@ export function SpritePreview() {
         // ── Draw base outfit for this direction ──
         if (hasBase && objectData) {
           const baseThing = objectData.things.get(previewBaseOutfitId!);
-          const baseFg = baseThing?.frameGroups[0];
+          const baseFg = baseThing?.frameGroups[activeGroup] ?? baseThing?.frameGroups[0];
           if (baseFg) {
+            const baseFrame = frame % Math.max(1, baseFg.animationLength);
             const requestedDirection = hasEffectReference ? activeDirection : px;
             const bPx = requestedDirection < baseFg.patternX ? requestedDirection : 0;
             const bPy = py < baseFg.patternY ? py : 0;
@@ -260,7 +262,7 @@ export function SpritePreview() {
             const baseY = hasEffectReference
               ? baseAnchorY + cellH - baseFg.height * 32
               : baseAnchorY;
-            renderThingLayer(ctx, baseFg, 0, [bPx], [bPy], baseFg.width * 32, baseFg.height * 32, false, baseHasMask, outfitColors, baseX, baseY);
+            renderThingLayer(ctx, baseFg, baseFrame, [bPx], [bPy], baseFg.width * 32, baseFg.height * 32, false, baseHasMask, outfitColors, baseX, baseY);
           }
         }
 
@@ -316,7 +318,7 @@ export function SpritePreview() {
         }
 
         // Draw the anchor tile for displaced outfits/effects.
-        if (hasDisp) {
+        if (hasDisp && showDisplacementGuide) {
           ctx.save();
           ctx.strokeStyle = 'rgba(250, 204, 21, 0.7)'; // yellow-400
           ctx.lineWidth = 1;
@@ -329,7 +331,7 @@ export function SpritePreview() {
         }
       }
     }
-  }, [group, spriteData, spriteOverrides, activeLayer, activeZ, blendLayers, previewMode, activeDirection, activePatternY, isDirectionalAppearance, isEffect, outfitColors, previewBaseOutfitId, effectReferenceOutfitId, effectReferenceGroup, selectedId, objectData, renderThingLayer, thing, editVersion]);
+  }, [group, spriteData, spriteOverrides, activeGroup, activeLayer, activeZ, blendLayers, previewMode, activeDirection, activePatternY, isDirectionalAppearance, isEffect, outfitColors, previewBaseOutfitId, effectReferenceOutfitId, effectReferenceGroup, showDisplacementGuide, selectedId, objectData, renderThingLayer, thing, editVersion]);
 
   useEffect(() => {
     renderFrame(currentFrame);
@@ -1048,12 +1050,12 @@ export function SpritePreview() {
         spriteData={spriteData}
         spriteOverrides={spriteOverrides}
         category={category}
-        zoom={zoom}
-        setZoom={setZoom}
         showGrid={showGrid}
         setShowGrid={setShowGrid}
         showCropSize={showCropSize}
         setShowCropSize={setShowCropSize}
+        showDisplacementGuide={showDisplacementGuide}
+        setShowDisplacementGuide={setShowDisplacementGuide}
         previewMode={previewMode}
         setPreviewMode={setPreviewMode}
         playing={playing}

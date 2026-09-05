@@ -1,7 +1,5 @@
-import { useState } from 'react';
-import { Search, Plus, Minus, Download, Trash2, Grid2X2 } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Grid2X2 } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
-import { exportSelectedSprites, exportSelectedOBD, type BatchExportFormat } from '../lib/export-sprites';
 
 const GROUP_LABELS: Record<number, string> = {
   0: 'None',
@@ -19,7 +17,6 @@ const GROUP_LABELS: Record<number, string> = {
 };
 
 export function CategoryTabs() {
-  const [exportFormat, setExportFormat] = useState<BatchExportFormat>('png');
   const activeCategory = useOBStore((s) => s.activeCategory);
   const activeLibrary = useOBStore((s) => s.activeLibrary);
   const objectData = useOBStore((s) => s.objectData);
@@ -36,33 +33,9 @@ export function CategoryTabs() {
   const setLibraryColumns = useOBStore((s) => s.setLibraryColumns);
   const definitionsLoaded = useOBStore((s) => s.definitionsLoaded);
   const selectedThingIds = useOBStore((s) => s.selectedThingIds);
-  const spriteData = useOBStore((s) => s.spriteData);
-  const spriteOverrides = useOBStore((s) => s.spriteOverrides);
-  const itemDefinitions = useOBStore((s) => s.itemDefinitions);
-  const appearanceToItemIds = useOBStore((s) => s.appearanceToItemIds);
   useOBStore((s) => s.editVersion);
 
   const selCount = selectedThingIds.size;
-  const handleExport = async () => {
-    if (!objectData || !spriteData) return;
-    // Export multi-selected items, or fall back to single selected item
-    const ids = selCount > 0
-      ? Array.from(selectedThingIds)
-      : selectedThingId != null ? [selectedThingId] : [];
-    if (ids.length === 0) return;
-    const exportCtx = {
-      objectData,
-      spriteData,
-      spriteOverrides,
-      itemDefinitions,
-      appearanceToItemIds,
-    };
-    if (exportFormat === 'obd') {
-      await exportSelectedOBD(ids, exportCtx);
-      return;
-    }
-    await exportSelectedSprites(ids, exportCtx);
-  };
 
   return (
     <div className="shrink-0">
@@ -120,23 +93,6 @@ export function CategoryTabs() {
             ))}
           </select>
         </label>
-        <select
-          value={exportFormat}
-          onChange={(e) => setExportFormat(e.target.value as BatchExportFormat)}
-          className="text-[10px] bg-emperia-surface border border-emperia-border rounded px-1 py-1 text-emperia-text outline-none cursor-pointer max-w-[70px]"
-          title="Choose export format"
-        >
-          <option value="png">PNG</option>
-          <option value="obd">OBD</option>
-        </select>
-        <button
-          onClick={handleExport}
-          disabled={!objectData || !spriteData || (selCount === 0 && selectedThingId == null)}
-          className="p-1 rounded bg-emperia-surface border border-emperia-border text-emperia-muted hover:text-blue-400 hover:border-blue-400/50 disabled:opacity-30 transition-colors"
-          title={selCount > 0 ? `Export ${selCount} selected ${exportFormat.toUpperCase()} files` : `Export selected ${exportFormat.toUpperCase()}`}
-        >
-          <Download className="w-3.5 h-3.5" />
-        </button>
         {(
           <>
             <button

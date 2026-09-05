@@ -1,5 +1,5 @@
 /**
- * Export selected things as individual PNG or OBD files bundled in a ZIP when needed.
+ * Export selected things as individual PNG, sprite sheet, or OBD files bundled in a ZIP when needed.
  * Uses a minimal ZIP builder (no dependencies) for store-only (uncompressed) entries.
  */
 import { decodeSprite } from './sprite-decoder';
@@ -118,6 +118,21 @@ function imageDataToPng(imgData: ImageData): Promise<Uint8Array> {
   });
 }
 
+function canvasToPng(source: HTMLCanvasElement): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    source.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('Could not encode the sprite sheet as PNG.'));
+        return;
+      }
+      blob.arrayBuffer().then(
+        (buffer) => resolve(new Uint8Array(buffer)),
+        reject,
+      );
+    }, 'image/png');
+  });
+}
+
 // ── Export function ────────────────────────────────────────────────────────
 
 function sanitize(s: string): string {
@@ -133,6 +148,102 @@ export interface ExportContext {
 }
 
 export type BatchExportFormat = 'png' | 'obd';
+
+function getExportPrefix(id: number, thing: ThingType, ctx: ExportContext): string {
+  const displayId = getDisplayId(ctx.objectData, id);
+  const itemId = ctx.appearanceToItemIds.get(id);
+  const def = itemId != null ? ctx.itemDefinitions.get(itemId) : undefined;
+  const rawName = readItemProperty(def?.properties, 'name');
+  const name = typeof rawName === 'string' ? rawName : undefined;
+  return name
+    ? `${thing.category}_${displayId}_${sanitize(name)}`
+    : `${thing.category}_${displayId}`;
+}
+
+/**
+ * Export one logical sprite sheet per selected thing.
+ *
+ * Each cell is one complete width x height appearance. Pattern X variants are
+ * columns; frame groups, animation frames, Z/Y patterns, and layers are rows.
+ * Keeping layers on separate rows preserves colour masks instead of flattening
+ * them into the base image. This layout also matches the directional sheet
+ * importer for the common 4-direction, one-layer case.
+ */
+export async function exportSelectedSpriteSheets(
+  thingIds: number[],
+  ctx: ExportContext,
+): Promise<void> {
+  if (thingIds.length === 0) return;
+
+  const entries: ZipEntry[] = [];
+
+  for (const id of thingIds) {
+    const thing = ctx.objectData.things.get(id);
+    if (!thing) continue;
+
+    const groups = thing.frameGroups.filter((group) => group.sprites.some((spriteId) => spriteId !== 0));
+    if (groups.length === 0) continue;
+
+    const cellTileWidth = Math.max(...groups.map((group) => group.width));
+    const cellTileHeight = Math.max(...groups.map((group) => group.height));
+    const columns = Math.max(...groups.map((group) => group.patternX));
+    const rows = groups.reduce(
+      (total, group) => total + group.animationLength * group.patternZ * group.patternY * group.layers,
+      0,
+    );
+
+    const sheet = document.createElement('canvas');
+    sheet.width = columns * cellTileWidth * 32;
+    sheet.height = rows * cellTileHeight * 32;
+    const sheetContext = sheet.getContext('2d');
+    if (!sheetContext) throw new Error('Canvas is unavailable for sprite sheet export.');
+
+    let row = 0;
+    for (const group of groups) {
+      for (let frame = 0; frame < group.animationLength; frame++) {
+        for (let patternZ = 0; patternZ < group.patternZ; patternZ++) {
+          for (let patternY = 0; patternY < group.patternY; patternY++) {
+            for (let layer = 0; layer < group.layers; layer++) {
+              for (let patternX = 0; patternX < group.patternX; patternX++) {
+                for (let visualY = 0; visualY < group.height; visualY++) {
+                  for (let visualX = 0; visualX < group.width; visualX++) {
+                    const tileX = group.width - 1 - visualX;
+                    const tileY = group.height - 1 - visualY;
+                    const spriteIndex = (
+                      ((((((frame * group.patternZ + patternZ) * group.patternY + patternY)
+                        * group.patternX + patternX) * group.layers + layer)
+                        * group.height + tileY) * group.width + tileX)
+                    );
+                    const spriteId = group.sprites[spriteIndex] ?? 0;
+                    if (spriteId === 0) continue;
+                    const imageData = ctx.spriteOverrides.get(spriteId) ?? decodeSprite(ctx.spriteData, spriteId);
+                    if (!imageData) continue;
+                    sheetContext.putImageData(
+                      imageData,
+                      patternX * cellTileWidth * 32 + visualX * 32,
+                      row * cellTileHeight * 32 + visualY * 32,
+                    );
+                  }
+                }
+              }
+              row++;
+            }
+          }
+        }
+      }
+    }
+
+    const png = await canvasToPng(sheet);
+    entries.push({ name: `${getExportPrefix(id, thing, ctx)}_sheet.png`, data: png });
+  }
+
+  if (entries.length === 0) return;
+  if (entries.length === 1) {
+    downloadBlob(entries[0].data, entries[0].name, 'image/png');
+  } else {
+    downloadBlob(buildZip(entries), 'sprite_sheets_export.zip', 'application/zip');
+  }
+}
 
 /**
  * Export each selected thing's first-frame sprite as an individual PNG.
@@ -206,14 +317,7 @@ export async function exportSelectedOBD(
     const thing = ctx.objectData.things.get(id);
     if (!thing) continue;
 
-    const displayId = getDisplayId(ctx.objectData, id);
-    const itemId = ctx.appearanceToItemIds.get(id);
-    const def = itemId != null ? ctx.itemDefinitions.get(itemId) : undefined;
-    const rawName = readItemProperty(def?.properties, 'name');
-    const name = typeof rawName === 'string' ? rawName : undefined;
-    const prefix = name
-      ? `${thing.category}_${displayId}_${sanitize(name)}`
-      : `${thing.category}_${displayId}`;
+    const prefix = getExportPrefix(id, thing, ctx);
 
     const obd = encodeOBD({
       thing,

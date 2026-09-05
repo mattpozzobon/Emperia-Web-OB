@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react';
-import { Play, Pause, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Grid3X3, ImageDown, ImageUp, Download, Upload, Crop, Eye, Copy, ClipboardPaste, Pin, PinOff, UserRound } from 'lucide-react';
+import { Play, Pause, ChevronLeft, ChevronRight, Grid3X3, Grid2X2, ImageDown, ImageUp, Download, Upload, Crop, Eye, Copy, ClipboardPaste, Pin, PinOff, UserRound, MoreHorizontal, SquareDashed } from 'lucide-react';
 import { useOBStore, getDisplayId } from '../store';
 import { clearSpriteCache } from '../lib/sprite-decoder';
 import { encodeOBD, decodeOBD } from '../lib/obd';
+import { exportSelectedSpriteSheets } from '../lib/export-sprites';
 import type { ThingType, FrameGroup, ObjectData, SpriteData } from '../lib/types';
 import type { OutfitColorIndices } from '../lib/outfit-colors';
 
@@ -13,12 +14,12 @@ interface PreviewToolbarProps {
   spriteData: SpriteData | null;
   spriteOverrides: Map<number, ImageData>;
   category: string;
-  zoom: number;
-  setZoom: (z: number) => void;
   showGrid: boolean;
   setShowGrid: (g: boolean) => void;
   showCropSize: boolean;
   setShowCropSize: (c: boolean) => void;
+  showDisplacementGuide: boolean;
+  setShowDisplacementGuide: (show: boolean) => void;
   previewMode: boolean;
   setPreviewMode: (p: boolean) => void;
   playing: boolean;
@@ -38,7 +39,8 @@ interface PreviewToolbarProps {
 
 export function PreviewToolbar({
   thing, group, objectData, spriteData, spriteOverrides, category,
-  zoom, setZoom, showGrid, setShowGrid, showCropSize, setShowCropSize,
+  showGrid, setShowGrid, showCropSize, setShowCropSize,
+  showDisplacementGuide, setShowDisplacementGuide,
   previewMode, setPreviewMode, playing, setPlaying, currentFrame, setCurrentFrame,
   canvasRef, handleImageFiles, copyMenuOpen, setCopyMenuOpen, copyMenuRef,
   baseOutfitId, setBaseOutfitId,
@@ -46,8 +48,10 @@ export function PreviewToolbar({
 }: PreviewToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const obdImportRef = useRef<HTMLInputElement>(null);
+  const fileMenuRef = useRef<HTMLDetailsElement>(null);
 
   const isAnimated = group ? group.animationLength > 1 : false;
+  const closeFileMenu = () => fileMenuRef.current?.removeAttribute('open');
 
   const handleExport = () => {
     const canvas = canvasRef.current;
@@ -78,6 +82,22 @@ export function PreviewToolbar({
       URL.revokeObjectURL(url);
     } catch (e) {
       alert(`Export failed: ${e instanceof Error ? e.message : e}`);
+    }
+  };
+
+  const handleExportSpriteSheet = async () => {
+    if (!objectData || !spriteData) return;
+    const state = useOBStore.getState();
+    try {
+      await exportSelectedSpriteSheets([thing.id], {
+        objectData,
+        spriteData,
+        spriteOverrides,
+        itemDefinitions: state.itemDefinitions,
+        appearanceToItemIds: state.appearanceToItemIds,
+      });
+    } catch (error) {
+      alert(`Sprite sheet export failed: ${error instanceof Error ? error.message : error}`);
     }
   };
 
@@ -135,54 +155,81 @@ export function PreviewToolbar({
   };
 
   return (
-    <div className="flex items-center px-3 py-1.5 gap-1 border-t border-emperia-border flex-wrap">
-      {/* Zoom */}
-      <button onClick={() => setZoom(Math.max(1, zoom - 1))} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Zoom out">
-        <ZoomOut className="w-3.5 h-3.5" />
-      </button>
-      <span className="text-[10px] text-emperia-muted w-6 text-center">{zoom}x</span>
-      <button onClick={() => setZoom(Math.min(8, zoom + 1))} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Zoom in">
-        <ZoomIn className="w-3.5 h-3.5" />
-      </button>
-
-      <div className="w-px h-4 bg-emperia-border mx-0.5" />
-
-      {/* View toggles */}
-      <button onClick={() => setShowGrid(!showGrid)} className={`p-1 rounded transition-colors ${showGrid ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Toggle Grid">
-        <Grid3X3 className="w-3.5 h-3.5" />
-      </button>
-      <button onClick={() => setShowCropSize(!showCropSize)} className={`p-1 rounded transition-colors ${showCropSize ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Toggle Crop Outline">
-        <Crop className="w-3.5 h-3.5" />
-      </button>
-      {group && (group.patternX > 1 || group.patternY > 1) && (
-        <button onClick={() => setPreviewMode(!previewMode)} className={`p-1 rounded transition-colors ${previewMode ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Toggle Preview Mode">
-          <Eye className="w-3.5 h-3.5" />
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 border-t border-emperia-border px-3 py-1.5">
+      <div className="flex min-w-0 items-center gap-1">
+        {/* View toggles */}
+        <button onClick={() => setShowGrid(!showGrid)} className={`p-1 rounded transition-colors ${showGrid ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Toggle Grid">
+          <Grid3X3 className="w-3.5 h-3.5" />
         </button>
-      )}
+        <button onClick={() => setShowCropSize(!showCropSize)} className={`p-1 rounded transition-colors ${showCropSize ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Toggle Crop Outline">
+          <Crop className="w-3.5 h-3.5" />
+        </button>
+        {group && (group.patternX > 1 || group.patternY > 1) && (
+          <button onClick={() => setPreviewMode(!previewMode)} className={`p-1 rounded transition-colors ${previewMode ? 'bg-emperia-accent/20 text-emperia-accent' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`} title="Toggle Preview Mode">
+            <Eye className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {thing.flags.hasDisplacement && (
+          <button
+            onClick={() => setShowDisplacementGuide(!showDisplacementGuide)}
+            className={`p-1 rounded transition-colors ${showDisplacementGuide ? 'bg-yellow-400/15 text-yellow-400' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`}
+            title={showDisplacementGuide ? 'Hide displacement guide' : 'Show displacement guide'}
+          >
+            <SquareDashed className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
 
-      <div className="w-px h-4 bg-emperia-border mx-0.5" />
-
-      {/* Import / Export PNG */}
+      {/* Hidden import inputs used by the centered file menu. */}
       <input ref={fileInputRef} type="file" accept="image/png,image/gif,image/bmp" className="hidden" onChange={(e) => e.target.files && handleImageFiles(e.target.files)} />
-      <button onClick={() => fileInputRef.current?.click()} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Import PNG">
-        <ImageUp className="w-3.5 h-3.5" />
-      </button>
-      <button onClick={handleExport} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Export PNG">
-        <ImageDown className="w-3.5 h-3.5" />
-      </button>
-
-      <div className="w-px h-4 bg-emperia-border mx-0.5" />
-
-      {/* Import / Export OBD */}
       <input ref={obdImportRef} type="file" accept=".obd" multiple className="hidden" onChange={handleImportOBD} />
-      <button onClick={() => obdImportRef.current?.click()} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Import OBD">
-        <Upload className="w-3.5 h-3.5" />
-      </button>
-      <button onClick={handleExportOBD} className="p-1 rounded hover:bg-emperia-hover text-emperia-muted hover:text-emperia-text" title="Export OBD">
-        <Download className="w-3.5 h-3.5" />
-      </button>
 
-      <div className="w-px h-4 bg-emperia-border mx-0.5" />
+      {/* Compact import/export menu, centered independently of side controls. */}
+      <details ref={fileMenuRef} className="relative z-30 justify-self-center">
+        <summary
+          className="flex cursor-pointer list-none items-center gap-1 rounded border border-emperia-border bg-emperia-surface px-2 py-1 text-[10px] font-medium text-emperia-muted transition-colors hover:border-emperia-accent/50 hover:text-emperia-text"
+          title="Import / Export"
+        >
+          <MoreHorizontal className="h-3.5 w-3.5" />
+          Files
+        </summary>
+        <div className="absolute bottom-full left-1/2 mb-1 w-44 -translate-x-1/2 overflow-hidden rounded border border-emperia-border bg-emperia-surface py-1 shadow-lg">
+          <button
+            onClick={() => { closeFileMenu(); fileInputRef.current?.click(); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[10px] text-emperia-text hover:bg-emperia-hover"
+          >
+            <ImageUp className="h-3.5 w-3.5 text-emperia-muted" /> Import PNG
+          </button>
+          <button
+            onClick={() => { closeFileMenu(); obdImportRef.current?.click(); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[10px] text-emperia-text hover:bg-emperia-hover"
+          >
+            <Upload className="h-3.5 w-3.5 text-emperia-muted" /> Import OBD
+          </button>
+          <div className="my-1 border-t border-emperia-border" />
+          <button
+            onClick={() => { closeFileMenu(); handleExport(); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[10px] text-emperia-text hover:bg-emperia-hover"
+          >
+            <ImageDown className="h-3.5 w-3.5 text-emperia-muted" /> Export PNG
+          </button>
+          <button
+            onClick={() => { closeFileMenu(); void handleExportSpriteSheet(); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[10px] text-emperia-text hover:bg-emperia-hover"
+          >
+            <Grid2X2 className="h-3.5 w-3.5 text-emperia-muted" /> Export Sprite Sheet
+          </button>
+          <button
+            onClick={() => { closeFileMenu(); handleExportOBD(); }}
+            className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[10px] text-emperia-text hover:bg-emperia-hover"
+          >
+            <Download className="h-3.5 w-3.5 text-emperia-muted" /> Export OBD
+          </button>
+        </div>
+      </details>
+
+      <div className="flex min-w-0 flex-wrap items-center justify-end gap-1">
+        <div className="w-px h-4 bg-emperia-border mx-0.5" />
 
       {/* Copy / Paste item properties */}
       <CopyPasteMenu
@@ -209,10 +256,9 @@ export function PreviewToolbar({
         </>
       )}
 
-      {/* Pin base outfit controls — pushed to far right (outfit category only) */}
-      {category === 'outfit' && objectData && (
+      {/* Base #134 is available for both outfit and equipment previews. */}
+      {(category === 'outfit' || category === 'equipment') && objectData && (
         <>
-          <div className="flex-1" />
           <div className="flex items-center gap-0.5">
             {baseOutfitId != null && baseOutfitId !== thing.id && (
               <span className="text-[9px] text-amber-400/70 mr-0.5">Base: #{getDisplayId(objectData, baseOutfitId)}</span>
@@ -224,27 +270,28 @@ export function PreviewToolbar({
                 <button
                   onClick={() => setBaseOutfitId(isCharPinned ? null : baseCharId)}
                   className={`p-1 rounded transition-colors ${isCharPinned ? 'bg-sky-500/20 text-sky-400' : 'text-emperia-muted hover:text-sky-400 hover:bg-sky-500/10'}`}
-                  title={isCharPinned ? 'Unpin character base (#134)' : 'Pin outfit #134 as base'}
+                  title={isCharPinned ? 'Unpin character base (#134)' : 'Pin character base (#134)'}
                 >
                   <Pin className="w-3.5 h-3.5" />
                   <span className="sr-only">134</span>
                 </button>
               );
             })()}
-            <button
-              onClick={() => setBaseOutfitId(baseOutfitId === thing.id ? null : thing.id)}
-              className={`p-1 rounded transition-colors ${baseOutfitId === thing.id ? 'bg-amber-500/20 text-amber-400' : baseOutfitId != null ? 'bg-amber-500/10 text-amber-400/60 hover:text-amber-400 hover:bg-amber-500/20' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`}
-              title={baseOutfitId === thing.id ? 'Unpin base outfit' : baseOutfitId != null ? 'Replace pinned base with this outfit' : 'Pin current as base outfit'}
-            >
-              {baseOutfitId === thing.id ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
-            </button>
+            {category === 'outfit' && (
+              <button
+                onClick={() => setBaseOutfitId(baseOutfitId === thing.id ? null : thing.id)}
+                className={`p-1 rounded transition-colors ${baseOutfitId === thing.id ? 'bg-amber-500/20 text-amber-400' : baseOutfitId != null ? 'bg-amber-500/10 text-amber-400/60 hover:text-amber-400 hover:bg-amber-500/20' : 'text-emperia-muted hover:text-emperia-text hover:bg-emperia-hover'}`}
+                title={baseOutfitId === thing.id ? 'Unpin base outfit' : baseOutfitId != null ? 'Replace pinned base with this outfit' : 'Pin current as base outfit'}
+              >
+                {baseOutfitId === thing.id ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
+              </button>
+            )}
           </div>
         </>
       )}
 
       {category === 'effect' && objectData && (
         <>
-          <div className="flex-1" />
           <button
             onClick={() => setShowEffectOutfitReference(!showEffectOutfitReference)}
             className={`flex items-center gap-1 px-1.5 py-1 rounded transition-colors ${
@@ -259,6 +306,7 @@ export function PreviewToolbar({
           </button>
         </>
       )}
+      </div>
     </div>
   );
 }
