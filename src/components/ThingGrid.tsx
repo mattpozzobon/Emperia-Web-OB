@@ -4,8 +4,10 @@ import { useOBStore, getThingsForCategory, getDisplayId } from '../store';
 import { compositeThingDataUrl } from '../lib/sprite-decoder';
 import { poseSetProfileKey, type SeatDirection } from '../lib/types';
 import { useSpriteTooltip } from './SpriteTooltip';
+import { getSpriteIndex } from './ui-primitives';
 
 const VISIBLE_BUFFER = 20; // extra items to render above/below viewport
+const EFFECT_ANIMATION_TICK_MS = 50;
 const SEAT_DIRECTION_BITS: Array<{ direction: SeatDirection; bit: number }> = [
   { direction: 'north', bit: 1 },
   { direction: 'east', bit: 2 },
@@ -71,6 +73,21 @@ export function ThingGrid() {
   const [scrollTop, setScrollTop] = useState(0);
   const [containerHeight, setContainerHeight] = useState(0);
   const [containerWidth, setContainerWidth] = useState(240);
+  const [effectAnimationElapsed, setEffectAnimationElapsed] = useState(0);
+
+  useEffect(() => {
+    if (activeCategory !== 'effect') {
+      setEffectAnimationElapsed(0);
+      return;
+    }
+
+    const startedAt = Date.now();
+    setEffectAnimationElapsed(0);
+    const timer = window.setInterval(() => {
+      setEffectAnimationElapsed(Date.now() - startedAt);
+    }, EFFECT_ANIMATION_TICK_MS);
+    return () => window.clearInterval(timer);
+  }, [activeCategory]);
 
   // Compute grid layout
   const cellSize = Math.max(40, Math.floor(containerWidth / cols));
@@ -171,13 +188,38 @@ export function ThingGrid() {
               || thing.category === 'hair'
             ) && (previewGroup?.patternX ?? 0) > 2;
             const previewDirection = facesSouth ? 2 : 0;
-            const previewOffset = previewGroup
-              ? previewDirection * Math.max(1, previewGroup.layers) * previewTileCount
-              : 0;
-            const previewSprites = previewGroup?.sprites.slice(
-              previewOffset,
-              previewOffset + previewTileCount,
-            ) ?? [];
+            let previewFrame = 0;
+            if (thing.category === 'effect' && previewGroup && previewGroup.animationLength > 1) {
+              const frameDurations = Array.from(
+                { length: previewGroup.animationLength },
+                (_, frame) => Math.max(1, previewGroup.animationLengths[frame]?.min ?? 200),
+              );
+              const cycleDuration = frameDurations.reduce((total, duration) => total + duration, 0);
+              let cyclePosition = effectAnimationElapsed % cycleDuration;
+              for (let frame = 0; frame < frameDurations.length; frame++) {
+                if (cyclePosition < frameDurations[frame]) {
+                  previewFrame = frame;
+                  break;
+                }
+                cyclePosition -= frameDurations[frame];
+              }
+            }
+            const previewSprites = previewGroup
+              ? Array.from({ length: previewTileCount }, (_, index) => {
+                  const tileX = index % previewWidth;
+                  const tileY = Math.floor(index / previewWidth);
+                  return previewGroup.sprites[getSpriteIndex(
+                    previewGroup,
+                    previewFrame,
+                    previewDirection,
+                    0,
+                    0,
+                    0,
+                    tileX,
+                    tileY,
+                  )] ?? 0;
+                })
+              : [];
             const url = spriteData && previewGroup
               ? compositeThingDataUrl(
                   spriteData,
@@ -186,6 +228,12 @@ export function ThingGrid() {
                   previewHeight,
                   previewSprites,
                   spriteOverrides,
+                  thing.category === 'effect' && thing.flags.hasDisplacement
+                    ? {
+                        x: thing.flags.displacementX ?? 0,
+                        y: thing.flags.displacementY ?? 0,
+                      }
+                    : undefined,
                 )
               : null;
             const isSelected = thing.id === selectedId;

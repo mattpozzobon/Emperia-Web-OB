@@ -137,13 +137,27 @@ export function compositeThingDataUrl(
   height: number,
   sprites: number[],
   overrides?: Map<number, ImageData>,
+  displacement?: { x: number; y: number },
 ): string | null {
-  const key = `${thingId}:${sprites.slice(0, width * height).join(',')}`;
+  const displacementX = displacement?.x ?? 0;
+  const displacementY = displacement?.y ?? 0;
+  const key = `${thingId}:${width}x${height}:${displacementX},${displacementY}:${sprites.slice(0, width * height).join(',')}`;
   const cached = compositeCache.get(key);
   if (cached !== undefined) return cached;
 
-  const pw = width * 32;
-  const ph = height * 32;
+  const contentWidth = width * 32;
+  const contentHeight = height * 32;
+  // Keep the fixed tile anchor in the thumbnail while expanding its bounds to
+  // include a displaced effect. This mirrors the client convention where a
+  // positive displacement moves the complete effect down and to the right.
+  const minX = Math.min(0, displacementX);
+  const minY = Math.min(0, displacementY);
+  const maxX = Math.max(contentWidth, displacementX + contentWidth);
+  const maxY = Math.max(contentHeight, displacementY + contentHeight);
+  const pw = maxX - minX;
+  const ph = maxY - minY;
+  const drawOriginX = displacementX - minX;
+  const drawOriginY = displacementY - minY;
   const c = document.createElement('canvas');
   c.width = pw;
   c.height = ph;
@@ -159,8 +173,8 @@ export function compositeThingDataUrl(
     hasAny = true;
     const x = i % width;
     const y = Math.floor(i / width);
-    const canvasX = (width - 1 - x) * 32;
-    const canvasY = (height - 1 - y) * 32;
+    const canvasX = drawOriginX + (width - 1 - x) * 32;
+    const canvasY = drawOriginY + (height - 1 - y) * 32;
     cx.putImageData(imgData, canvasX, canvasY);
   }
 
